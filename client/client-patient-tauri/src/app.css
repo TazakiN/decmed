@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+:root {
+  -webkit-user-select: none; /* Safari */
+  -ms-user-select: none; /* IE 10 and IE 11 */
+  user-select: none; /* Standard syntax */
+}
+
+@layer components {
+  .button {
+    @apply bg-zinc-100 px-2 rounded-md py-1 border border-zinc-200;
+  }
+}

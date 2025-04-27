@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "client-patient-tauri",
+  "productName": "client-hospital-tauri",
   "version": "0.1.0",
-  "identifier": "id.go.decmed.client-patient-tauri.app",
+  "identifier": "id.go.decmed.client-hospital-tauri.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1421",
+    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../build"
   },
   "app": {
     "windows": [
       {
-        "title": "client-patient-tauri",
+        "title": "client-hospital-tauri",
         "width": 800,
         "height": 600
       }

@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "iota",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

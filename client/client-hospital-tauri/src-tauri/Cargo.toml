@@ -22,10 +22,16 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-keyring = { version = "3.6.2", features = ["windows-native"] }
-alloy = { version = "0.15.6", features = ["full"] }
-sha2 = "0.10.8"
-uuid = { version = "1.16.0", features = ["v4"] }
-bip39 = { version = "2.1.0", features = ["rand"] }
-iota-sdk = "1.1.5"
-ed25519-dalek = "2.1.1"
+keyring = { version = "3", features = ["windows-native"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+bip39 = { version = "2", features = ["rand"] }
+iota-sdk = { git = "https://github.com/iotaledger/iota", package = "iota-sdk" }
+iota-keys = { git = "https://github.com/iotaledger/iota", package = "iota-keys" }
+iota-config = { git = "https://github.com/iotaledger/iota", package = "iota-config" }
+iota-types = { git = "https://github.com/iotaledger/iota", package = "iota-types" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", package = "iota-json-rpc-types" }
+shared_crypto = { git = "https://github.com/iotaledger/iota", package = "shared-crypto" }
+dotenv = "0.15"
+bcs = "0.1.4"
+reqwest = { version = "0.12", features = ["json"] }

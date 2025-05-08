@@ -5,7 +5,6 @@
 	import { ActivationSchema } from './schema';
 	import { cn } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
-	import { HDNodeWallet } from 'ethers';
 
 	let { data } = $props();
 
@@ -32,12 +31,8 @@
 		console.log(await invoke('add_activation_key'));
 	}
 
-	async function deployHospitalContract() {
-		await invoke('deploy_hospital_contract');
-	}
-
-	async function makeIotaAddress() {
-		await invoke('test_make_iota_address');
+	async function getActivationKeys() {
+		await invoke('get_activation_keys');
 	}
 </script>
 
@@ -111,7 +106,7 @@
 	<!-- 	>deploy hospital contract</button -->
 	<!-- > -->
 
-	<button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={makeIotaAddress}
-		>make iota address</button
+	<button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={getActivationKeys}
+		>get activation keys</button
 	>
 </div>

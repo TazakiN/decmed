@@ -35,3 +35,4 @@ shared_crypto = { git = "https://github.com/iotaledger/iota", package = "shared-
 dotenv = "0.15"
 bcs = "0.1.4"
 reqwest = { version = "0.12", features = ["json"] }
+schemars = "0.8"

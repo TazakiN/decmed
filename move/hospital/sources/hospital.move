@@ -18,9 +18,8 @@ fun init(ctx: &mut TxContext) {
     }, ctx.sender());
 
     let mut activation_key_table = table::new<String, bool>(ctx);
-    table::add(&mut activation_key_table, string::utf8(b"Some Value"), true);
-    table::add(&mut activation_key_table, string::utf8(b"Some Value 2"), false);
-    table::add(&mut activation_key_table, string::utf8(b"Some Value 3"), false);
+    table::add(&mut activation_key_table, string::utf8(b"act_key_1"), true);
+    table::add(&mut activation_key_table, string::utf8(b"act_key_2"), false);
 
     transfer::public_share_object(activation_key_table);
 }
@@ -37,4 +36,10 @@ entry fun use_activation_key(activation_key_table: &mut table::Table<String, boo
 
     table::remove(activation_key_table, activation_key);
     table::add(activation_key_table, activation_key, true);
+}
+
+entry fun is_activation_key_used(activation_key_table: &table::Table<String, bool> ,activation_key: String, _ctx: &mut TxContext): bool {
+    assert!(table::contains(activation_key_table, activation_key), EActivationKeyNotFound);
+
+    *table::borrow(activation_key_table, activation_key)
 }

@@ -9,4 +9,6 @@ export const load: PageLoad = async () => {
 	if (!isAppActivated) {
 		return redirect(301, '/activation');
 	}
+
+	return redirect(301, '/dashboard');
 };

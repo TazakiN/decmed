@@ -2,8 +2,11 @@
 	import '../app.css';
 	import '@fontsource-variable/inter';
 	import '@fontsource-variable/montserrat';
+	import { createAuthContext } from './(context)/auth-context.svelte';
 
 	let { children } = $props();
+
+	createAuthContext();
 </script>
 
 <main class="flex flex-col w-full flex-1 min-h-svh">

@@ -30,10 +30,6 @@
 	async function addActivationKey() {
 		console.log(await invoke('add_activation_key'));
 	}
-
-	async function getActivationKeys() {
-		await invoke('get_activation_keys');
-	}
 </script>
 
 <div class="flex flex-col border border-zinc-200 items-center max-w-md w-full">
@@ -100,13 +96,5 @@
 
 	<button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={addActivationKey}
 		>+ activation key (debug)</button
-	>
-
-	<!-- <button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={deployHospitalContract} -->
-	<!-- 	>deploy hospital contract</button -->
-	<!-- > -->
-
-	<button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={getActivationKeys}
-		>get activation keys</button
 	>
 </div>

@@ -2,9 +2,11 @@
 	import { Label, Button } from 'bits-ui';
 	import { superForm } from 'sveltekit-superforms';
 	import { zod } from 'sveltekit-superforms/adapters';
-	import { ActivationSchema } from './schema';
-	import { cn } from '$lib/utils';
+	import { activationSchema } from '$lib/schema';
+	import { cn, tryCatchAsVal } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
+	import { toast } from 'svelte-sonner';
+	import type { InvokeGlobalAdminAddActivationKeyData, SuccessResponse } from '$lib/types.js';
 
 	let { data } = $props();
 
@@ -15,20 +17,39 @@
 		enhance: activationFormEnhance
 	} = superForm(data.activationForm, {
 		SPA: true,
-		validators: zod(ActivationSchema),
-		onUpdate: async ({ form, result }) => {
-			console.log('form', form);
-			console.log('result', result);
+		validators: zod(activationSchema),
+		onUpdate: async ({ form, result, cancel }) => {
 			if (result.type === 'success') {
-				console.log(
-					await invoke('activate_app', { activationKey: form.data.activationKey, id: form.data.id })
-				);
+				const resInvokeActivateApp = await tryCatchAsVal(async () => {
+					return (await invoke('activate_app', {
+						activationKey: form.data.activationKey,
+						id: form.data.id
+					})) as SuccessResponse<null>;
+				});
+
+				if (!resInvokeActivateApp.success) {
+					toast.error(resInvokeActivateApp.error);
+					cancel();
+					return;
+				}
 			}
 		}
 	});
 
 	async function addActivationKey() {
-		console.log(await invoke('add_activation_key'));
+		const resInvokeGlobalAdminAddActivationKey = await tryCatchAsVal(async () => {
+			return (await invoke(
+				'global_admin_add_activation_key'
+			)) as SuccessResponse<InvokeGlobalAdminAddActivationKeyData>;
+		});
+
+		if (!resInvokeGlobalAdminAddActivationKey.success) {
+			toast.error(resInvokeGlobalAdminAddActivationKey.error);
+			return;
+		}
+
+		toast.success('Success');
+		console.log(resInvokeGlobalAdminAddActivationKey.data);
 	}
 </script>
 

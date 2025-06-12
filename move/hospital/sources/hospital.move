@@ -1,7 +1,7 @@
 /// Module: hospital
 module hospital::hospital;
 
-use 0x1::string::{Self, String};
+use 0x1::string::String;
 use 0x2::table;
 
 const EDuplicateActivationKey: u64 = 0;
@@ -17,9 +17,7 @@ fun init(ctx: &mut TxContext) {
         id: object::new(ctx),
     }, ctx.sender());
 
-    let mut activation_key_table = table::new<String, bool>(ctx);
-    table::add(&mut activation_key_table, string::utf8(b"act_key_1"), true);
-    table::add(&mut activation_key_table, string::utf8(b"act_key_2"), false);
+    let activation_key_table = table::new<String, bool>(ctx);
 
     transfer::public_share_object(activation_key_table);
 }

@@ -1,138 +1,114 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod constant;
+mod types;
 
-use std::sync::Mutex;
-
-use bip39::Mnemonic;
+use std::{str::FromStr, sync::Mutex};
 use tauri::Manager;
 
-struct AppData {
-    private_key: String,
-    mnemonic: Option<Mnemonic>,
-    pin: Option<Vec<u8>>,
-    nik: Option<String>,
-}
+use constant::{
+    ACCOUNT_ACTIVATION_KEY_TABLE_ID, ACCOUNT_ACTIVATION_KEY_TABLE_VERSION,
+    ACCOUNT_ADDRESS_ID_TABLE_ID, ACCOUNT_ADDRESS_ID_TABLE_VERSION, ACCOUNT_ADMINISTRATIVE_TABLE_ID,
+    ACCOUNT_ADMINISTRATIVE_TABLE_VERSION, ACCOUNT_ADMIN_CAP_ID,
+    ACCOUNT_GLOBAL_ADMIN_ADD_KEY_CAP_ID, ACCOUNT_ID_ACTIVATION_KEY_TABLE_ID,
+    ACCOUNT_ID_ACTIVATION_KEY_TABLE_VERSION, ACCOUNT_ID_ADDRESS_TABLE_ID,
+    ACCOUNT_ID_ADDRESS_TABLE_VERSION, ACCOUNT_ID_HOSPITAL_PERSONNEL_METADATA_TABLE_ID,
+    ACCOUNT_ID_HOSPITAL_PERSONNEL_METADATA_TABLE_VERSION, ACCOUNT_MEDICAL_TABLE_ID,
+    ACCOUNT_MEDICAL_TABLE_VERSION, ACCOUNT_MODULE_NAME, ACCOUNT_PACKAGE_ID,
+};
+use iota_sdk::IotaClientBuilder;
+use iota_types::{base_types::ObjectID, Identifier};
+use types::{AccountPackage, AppState, AuthState, KeysEntry, SignInState, SignUpState};
 
-fn read_from_vault(app: &mut tauri::App) -> String {
-    let app_dir = app
-        .handle()
-        .path()
-        .app_data_dir()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-
-    let passwords_file = format!("{}/vault.hold", app_dir);
-    let passwords_file_path = std::path::Path::new(&passwords_file);
-    let read_result = std::fs::read(passwords_file_path);
-
-    let convert_bytes_to_string = |mut a: String, v: &u8| {
-        let new_char = char::from(*v);
-        a.push(new_char);
-        return a;
+fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    // let keys_entry = Entry::new("decmed_service_keys", "decmed_user").unwrap();
+    let iota_client = tauri::async_runtime::block_on(async {
+        IotaClientBuilder::default().build_localnet().await.unwrap()
+    });
+    let account_package = AccountPackage {
+        package_id: ObjectID::from_str(ACCOUNT_PACKAGE_ID).unwrap(),
+        module: Identifier::from_str(ACCOUNT_MODULE_NAME).unwrap(),
+        id_activation_key_table_id: ObjectID::from_str(ACCOUNT_ID_ACTIVATION_KEY_TABLE_ID).unwrap(),
+        id_activation_key_table_version: ACCOUNT_ID_ACTIVATION_KEY_TABLE_VERSION,
+        activation_key_table_id: ObjectID::from_str(ACCOUNT_ACTIVATION_KEY_TABLE_ID).unwrap(),
+        activation_key_table_version: ACCOUNT_ACTIVATION_KEY_TABLE_VERSION,
+        address_id_table_id: ObjectID::from_str(ACCOUNT_ADDRESS_ID_TABLE_ID).unwrap(),
+        address_id_table_version: ACCOUNT_ADDRESS_ID_TABLE_VERSION,
+        id_address_table_id: ObjectID::from_str(ACCOUNT_ID_ADDRESS_TABLE_ID).unwrap(),
+        id_address_table_version: ACCOUNT_ID_ADDRESS_TABLE_VERSION,
+        administrative_table_id: ObjectID::from_str(ACCOUNT_ADMINISTRATIVE_TABLE_ID).unwrap(),
+        administrative_table_version: ACCOUNT_ADMINISTRATIVE_TABLE_VERSION,
+        medical_table_id: ObjectID::from_str(ACCOUNT_MEDICAL_TABLE_ID).unwrap(),
+        medical_table_version: ACCOUNT_MEDICAL_TABLE_VERSION,
+        id_hospital_personnel_metadata_table_id: ObjectID::from_str(
+            ACCOUNT_ID_HOSPITAL_PERSONNEL_METADATA_TABLE_ID,
+        )
+        .unwrap(),
+        id_hospital_personnel_metadata_table_version:
+            ACCOUNT_ID_HOSPITAL_PERSONNEL_METADATA_TABLE_VERSION,
+        admin_cap_id: ObjectID::from_str(ACCOUNT_ADMIN_CAP_ID).unwrap(),
+        global_admin_add_key_cap_id: ObjectID::from_str(ACCOUNT_GLOBAL_ADMIN_ADD_KEY_CAP_ID)
+            .unwrap(),
+    };
+    let new_keys_entry = KeysEntry {
+        id: None,
+        admin_address: Some(String::from(
+            "0x7c228da2e5b99ed280a2a3b9214a70b09a9550b0d3e63a12aaac7b045d7ce5af",
+        )),
+        admin_secret_key: Some(String::from(
+            "iotaprivkey1qzw992dxx6mtf7z9amphg3e5qldult6ea9d70hemepgt9rzznlf65jnxxnp",
+        )),
+        activation_key: None,
+        iota_address: None,
+        iota_key_pair: None,
+        pre_secret_key: None,
+        iota_nonce: None,
+        pre_nonce: None,
+    };
+    let signin_state = SignInState { pin: None };
+    let signup_state = SignUpState {
+        seed_words: None,
+        pin: None,
+    };
+    let auth_state = AuthState {
+        is_registered: false,
+        role: None,
+        session_pin: Some("123456".to_string()),
     };
 
-    if read_result.is_ok() {
-        return format!(
-            "{}",
-            read_result
-                .ok()
-                .unwrap()
-                .iter()
-                .fold(String::from(""), convert_bytes_to_string)
-        );
-    }
+    // match keys_entry.get_secret() {
+    //     Ok(_) => {
+    //         // let new_keys_entry = serde_json::to_vec(&new_keys_entry).unwrap();
+    //         // keys_entry.set_secret(&new_keys_entry).unwrap();
+    //     }
+    //     Err(err @ keyring::Error::NoEntry) => {
+    //         let new_keys_entry = serde_json::to_vec(&new_keys_entry).unwrap();
+    //         keys_entry.set_secret(&new_keys_entry).unwrap();
 
-    String::from("")
-}
+    //         println!("{:#?}", err);
+    //     }
+    //     Err(err) => {
+    //         println!("{:#?}", err);
+    //     }
+    // }
 
-#[tauri::command]
-fn is_session_exist(state: tauri::State<'_, Mutex<AppData>>) -> bool {
-    if let Ok(data) = state.lock() {
-        if !data.private_key.is_empty() {
-            return true;
-        }
-    }
+    app.manage(Mutex::new(AppState {
+        // keys_entry,
+        iota_client,
+        account_package,
+        signin_state,
+        signup_state,
+        auth_state,
+    }));
 
-    false
-}
-
-#[tauri::command]
-fn generate_mnemonic(state: tauri::State<'_, Mutex<AppData>>) -> String {
-    let mnemonic = bip39::Mnemonic::generate(12).unwrap();
-    let mnemonic_string = mnemonic.to_string();
-    if let Ok(mut data) = state.lock() {
-        data.mnemonic = Some(mnemonic);
-    }
-    mnemonic_string
-}
-
-#[tauri::command]
-fn check_pin(state: tauri::State<'_, Mutex<AppData>>, pin: Vec<u8>) -> bool {
-    if let Ok(mut data) = state.lock() {
-        if pin.len() == 6 {
-            data.pin = Some(pin);
-            return true;
-        }
-    }
-
-    false
-}
-
-#[tauri::command]
-fn check_confirm_pin(state: tauri::State<'_, Mutex<AppData>>, confirm_pin: Vec<u8>) -> bool {
-    if let Ok(data) = state.lock() {
-        if let Some(pin) = &data.pin {
-            if pin == &confirm_pin {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-#[tauri::command]
-fn check_nik(state: tauri::State<'_, Mutex<AppData>>, nik: String) -> bool {
-    if let Ok(mut data) = state.lock() {
-        data.nik = Some(nik);
-        return true;
-    }
-
-    false
-}
-
-#[tauri::command]
-fn register_patient(state: tauri::State<'_, Mutex<AppData>>) -> bool {
-    if let Ok(data) = state.lock() {
-        return true;
-    }
-
-    false
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
-            let res = read_from_vault(app);
-            app.manage(Mutex::new(AppData {
-                private_key: res,
-                mnemonic: None,
-                pin: None,
-                nik: None,
-            }));
-            Ok(())
-        })
+        .plugin(tauri_plugin_http::init())
+        .setup(setup)
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![
-            is_session_exist,
-            generate_mnemonic,
-            register_patient,
-            check_pin,
-            check_confirm_pin,
-            check_nik
-        ])
+        .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

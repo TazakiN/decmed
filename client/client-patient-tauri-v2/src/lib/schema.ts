@@ -81,6 +81,8 @@ const qrSchema = {
 
 export const completeProfileSchema = z.object(nameSchema);
 
+export const enterPinSchema = z.object(pinSchema);
+
 export const hospitalQrSchema = z.object(qrSchema);
 
 export const signInSchemaStep1 = z.object(pinSchema);

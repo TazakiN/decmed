@@ -118,7 +118,7 @@ export const addPersonnelSchemaStep1 = z.object({
 	})
 });
 export const addPersonnelSchemaStep2 = addPersonnelSchemaStep1.extend(pinSchema);
-export const completeProfileAdminSchema = z.object(nameSchema).extend(hospitalSchema);
+export const completeProfileAdminSchema = z.object(nameSchema);
 export const completeProfilePersonnelSchema = z.object(nameSchema);
 
 export const signInSchemas = [signInSchemaStep1, signInSchemaStep2, signInSchemaStep3];

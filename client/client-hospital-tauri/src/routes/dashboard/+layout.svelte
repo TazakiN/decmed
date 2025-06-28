@@ -2,10 +2,12 @@
 	import { getAuthContext } from '../(context)/auth-context.svelte';
 	import { page } from '$app/state';
 	import { cn } from '$lib/utils';
+	import type { LayoutProps } from './$types';
 
-	let { children } = $props();
+	let { data, children }: LayoutProps = $props();
 
 	const authContext = getAuthContext();
+	authContext.role = data.role;
 </script>
 
 <div class="flex flex-1 flex-col w-full mx-auto p-3">

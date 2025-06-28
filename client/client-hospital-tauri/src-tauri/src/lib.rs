@@ -1,7 +1,10 @@
 mod activation;
 mod admin;
 mod constants;
+mod hospital_error;
+mod macros;
 mod medical_personnel;
+mod move_call;
 mod shared_cmds;
 mod signin;
 mod signout;
@@ -10,89 +13,40 @@ mod types;
 mod utils;
 
 use constants::{
-    ACCOUNT_ACTIVATION_KEY_ACTIVATION_KEY_METADATA_TABLE_ID,
-    ACCOUNT_ACTIVATION_KEY_ACTIVATION_KEY_METADATA_TABLE_VERSION, ACCOUNT_ADDRESS_ID_TABLE_ID,
-    ACCOUNT_ADDRESS_ID_TABLE_VERSION, ACCOUNT_ADMIN_CAP_ID, ACCOUNT_GLOBAL_ADMIN_ADD_KEY_CAP_ID,
-    ACCOUNT_HOSPITAL_ID_REGISTERED_HOSPITAL_TABLE_ID,
-    ACCOUNT_HOSPITAL_ID_REGISTERED_HOSPITAL_TABLE_VERSION, ACCOUNT_ID_ACCESS_QUEUE_TABLE_ID,
-    ACCOUNT_ID_ACCESS_QUEUE_TABLE_VERSION, ACCOUNT_ID_ACTIVATION_KEY_TABLE_ID,
-    ACCOUNT_ID_ACTIVATION_KEY_TABLE_VERSION, ACCOUNT_ID_ADDRESS_TABLE_ID,
-    ACCOUNT_ID_ADDRESS_TABLE_VERSION, ACCOUNT_ID_ADMINISTRATIVE_TABLE_ID,
-    ACCOUNT_ID_ADMINISTRATIVE_TABLE_VERSION, ACCOUNT_ID_EXPECTED_HOSPITAL_PERSONNEL_TABLE_ID,
-    ACCOUNT_ID_EXPECTED_HOSPITAL_PERSONNEL_TABLE_VERSION,
-    ACCOUNT_ID_HOSPITAL_PERSONNEL_ACCESS_TABLE_ID,
-    ACCOUNT_ID_HOSPITAL_PERSONNEL_ACCESS_TABLE_VERSION, ACCOUNT_ID_HOSPITAL_PERSONNEL_TABLE_ID,
-    ACCOUNT_ID_HOSPITAL_PERSONNEL_TABLE_VERSION, ACCOUNT_ID_MEDICAL_TABLE_ID,
-    ACCOUNT_ID_MEDICAL_TABLE_VERSION, ACCOUNT_ID_PATIENT_ACCESS_LOG_TABLE_ID,
-    ACCOUNT_ID_PATIENT_ACCESS_LOG_TABLE_VERSION, ACCOUNT_MODULE_NAME, ACCOUNT_PACKAGE_ID,
-    ACCOUNT_PROXY_ADDRESS_TABLE_ID, ACCOUNT_PROXY_ADDRESS_TABLE_VERSION,
+    DECMED_ADDRESS_ID_OBJECT_ID, DECMED_ADDRESS_ID_OBJECT_VERSION, DECMED_GLOBAL_ADMIN_CAP_ID,
+    DECMED_HOSPITAL_ID_METADATA_OBJECT_ID, DECMED_HOSPITAL_ID_METADATA_OBJECT_VERSION,
+    DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID,
+    DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION, DECMED_MODULE_ADMIN,
+    DECMED_MODULE_HOSPITAL_PERSONNEL, DECMED_PACKAGE_ID, DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID,
+    DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
 };
-use iota_sdk::IotaClientBuilder;
 use iota_types::{base_types::ObjectID, Identifier};
 use keyring::Entry;
+use move_call::MoveCall;
 use std::str::FromStr;
 use tauri::{async_runtime::Mutex, Manager};
-use types::{
-    AccountPackage, AppState, AuthState, KeysEntry, PollingState, SignInState, SignUpState,
-};
+use types::{AppState, AuthState, DecmedPackage, KeysEntry, SignInState, SignUpState};
 
 fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let keys_entry = Entry::new("decmed_service_keys", "decmed_user").unwrap();
-    let iota_client = tauri::async_runtime::block_on(async {
-        IotaClientBuilder::default().build_localnet().await.unwrap()
-    });
-    let account_package = AccountPackage {
-        package_id: ObjectID::from_str(ACCOUNT_PACKAGE_ID).unwrap(),
-        module: Identifier::from_str(ACCOUNT_MODULE_NAME).unwrap(),
+    let keys_entry = Entry::new("decmed_service_keys", "decmed_user")?;
+    let decmed_package = DecmedPackage {
+        package_id: ObjectID::from_str(DECMED_PACKAGE_ID)?,
+        module_hospital_personnel: Identifier::from_str(DECMED_MODULE_HOSPITAL_PERSONNEL)?,
+        module_admin: Identifier::from_str(DECMED_MODULE_ADMIN)?,
 
-        activation_key_activation_key_metadata_table_id: ObjectID::from_str(
-            ACCOUNT_ACTIVATION_KEY_ACTIVATION_KEY_METADATA_TABLE_ID,
-        )
-        .unwrap(),
-        activation_key_activation_key_metadata_table_version:
-            ACCOUNT_ACTIVATION_KEY_ACTIVATION_KEY_METADATA_TABLE_VERSION,
-        address_id_table_id: ObjectID::from_str(ACCOUNT_ADDRESS_ID_TABLE_ID).unwrap(),
-        address_id_table_version: ACCOUNT_ADDRESS_ID_TABLE_VERSION,
-        hospital_id_registered_hospital_table_id: ObjectID::from_str(
-            ACCOUNT_HOSPITAL_ID_REGISTERED_HOSPITAL_TABLE_ID,
-        )
-        .unwrap(),
-        hospital_id_registered_hospital_table_version:
-            ACCOUNT_HOSPITAL_ID_REGISTERED_HOSPITAL_TABLE_VERSION,
-        id_access_queue_table_id: ObjectID::from_str(ACCOUNT_ID_ACCESS_QUEUE_TABLE_ID).unwrap(),
-        id_access_queue_table_version: ACCOUNT_ID_ACCESS_QUEUE_TABLE_VERSION,
-        id_activation_key_table_id: ObjectID::from_str(ACCOUNT_ID_ACTIVATION_KEY_TABLE_ID).unwrap(),
-        id_activation_key_table_version: ACCOUNT_ID_ACTIVATION_KEY_TABLE_VERSION,
-        id_address_table_id: ObjectID::from_str(ACCOUNT_ID_ADDRESS_TABLE_ID).unwrap(),
-        id_address_table_version: ACCOUNT_ID_ADDRESS_TABLE_VERSION,
-        id_administrative_table_id: ObjectID::from_str(ACCOUNT_ID_ADMINISTRATIVE_TABLE_ID).unwrap(),
-        id_administrative_table_version: ACCOUNT_ID_ADMINISTRATIVE_TABLE_VERSION,
-        id_expected_hospital_personnel_table_id: ObjectID::from_str(
-            ACCOUNT_ID_EXPECTED_HOSPITAL_PERSONNEL_TABLE_ID,
-        )
-        .unwrap(),
-        id_expected_hospital_personnel_table_version:
-            ACCOUNT_ID_EXPECTED_HOSPITAL_PERSONNEL_TABLE_VERSION,
-        id_hospital_personnel_access_table_id: ObjectID::from_str(
-            ACCOUNT_ID_HOSPITAL_PERSONNEL_ACCESS_TABLE_ID,
-        )
-        .unwrap(),
-        id_hospital_personnel_access_table_version:
-            ACCOUNT_ID_HOSPITAL_PERSONNEL_ACCESS_TABLE_VERSION,
-        id_hospital_personnel_table_id: ObjectID::from_str(ACCOUNT_ID_HOSPITAL_PERSONNEL_TABLE_ID)
-            .unwrap(),
-        id_hospital_personnel_table_version: ACCOUNT_ID_HOSPITAL_PERSONNEL_TABLE_VERSION,
-        id_medical_table_id: ObjectID::from_str(ACCOUNT_ID_MEDICAL_TABLE_ID).unwrap(),
-        id_medical_table_version: ACCOUNT_ID_MEDICAL_TABLE_VERSION,
-        id_patient_access_log_table_id: ObjectID::from_str(ACCOUNT_ID_PATIENT_ACCESS_LOG_TABLE_ID)
-            .unwrap(),
-        id_patient_access_log_table_version: ACCOUNT_ID_PATIENT_ACCESS_LOG_TABLE_VERSION,
-        proxy_address_table_id: ObjectID::from_str(ACCOUNT_PROXY_ADDRESS_TABLE_ID).unwrap(),
-        proxy_address_table_version: ACCOUNT_PROXY_ADDRESS_TABLE_VERSION,
+        address_id_object_id: ObjectID::from_str(DECMED_ADDRESS_ID_OBJECT_ID)?,
+        address_id_object_version: DECMED_ADDRESS_ID_OBJECT_VERSION,
+        hospital_id_metadata_object_id: ObjectID::from_str(DECMED_HOSPITAL_ID_METADATA_OBJECT_ID)?,
+        hospital_id_metadata_object_version: DECMED_HOSPITAL_ID_METADATA_OBJECT_VERSION,
+        hospital_personnel_id_account_object_id: ObjectID::from_str(
+            DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID,
+        )?,
+        hospital_personnel_id_account_object_version:
+            DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION,
+        patient_id_account_object_id: ObjectID::from_str(DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID)?,
+        patient_id_account_object_version: DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
 
-        admin_cap_id: ObjectID::from_str(ACCOUNT_ADMIN_CAP_ID).unwrap(),
-        global_admin_add_key_cap_id: ObjectID::from_str(ACCOUNT_GLOBAL_ADMIN_ADD_KEY_CAP_ID)
-            .unwrap(),
+        global_admin_cap_id: ObjectID::from_str(DECMED_GLOBAL_ADMIN_CAP_ID)?,
     };
     let new_keys_entry = KeysEntry {
         id: None,
@@ -120,8 +74,8 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         role: None,
         session_pin: Some("123456".to_string()),
     };
-    let polling_state = PollingState {
-        is_polling_init_access: false,
+    let move_call = MoveCall {
+        decmed_package: decmed_package.clone(),
     };
 
     match keys_entry.get_secret() {
@@ -141,14 +95,12 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
     }
 
     app.manage(Mutex::new(AppState {
+        administrative_data: None,
+        auth_state,
         keys_entry,
-        iota_client,
-        account_package,
+        move_call,
         signin_state,
         signup_state,
-        auth_state,
-        polling_state,
-        administrative_data: None,
     }));
 
     Ok(())
@@ -157,11 +109,11 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .setup(setup)
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            activation::is_app_activated,
             activation::global_admin_add_activation_key,
             activation::hospital_admin_add_activation_key,
             activation::activate_app,
@@ -171,16 +123,15 @@ pub fn run() {
             signout::signout,
             signout::reset,
             signin::signin,
-            signin::is_signed_in,
             shared_cmds::validate_pin,
             shared_cmds::validate_confirm_pin,
-            shared_cmds::is_session_pin_exist,
-            shared_cmds::get_role,
             shared_cmds::get_profile,
             shared_cmds::update_profile,
+            shared_cmds::auth_status,
             admin::get_hospital_personnels,
-            admin::update_registered_hospital_name,
             medical_personnel::new_medical_record,
+            medical_personnel::get_read_access_medical_personnel,
+            medical_personnel::get_update_access_medical_personnel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,180 +1,86 @@
-use std::str::FromStr;
-
-use iota_types::{
-    base_types::IotaAddress,
-    crypto::IotaKeyPair,
-    gas_coin::NANOS_PER_IOTA,
-    transaction::{CallArg, Transaction},
-};
+use anyhow::{anyhow, Context};
 use tauri::{async_runtime::Mutex, State};
-use umbral_pre::{encrypt, DefaultSerialize, PublicKey};
+use umbral_pre::encrypt;
 
 use crate::{
-    constants::GAS_BUDGET,
+    current_fn,
+    hospital_error::HospitalError,
     types::{
         AppState, CommandGlobalAdminAddActivationKeyResponse,
         CommandHospitalAdminAddActivationKeyResponse, HospitalPersonnelMetadata,
-        HospitalPersonnelRole, MoveHospitalAdminAddActivationKeyData, ResponseStatus,
+        HospitalPersonnelRole, MoveCallHospitalAdminAddActivationKeyPayload, ResponseStatus,
         SuccessResponse,
     },
     utils::{
-        aes_decrypt, construct_capability_call_arg, construct_pt, construct_shared_object_call_arg,
-        construct_sponsored_tx_data, decode_hospital_personnel_id,
-        decode_hospital_personnel_id_to_argon, execute_tx, generate_64_bytes_seed,
-        generate_iota_keys_ed, get_ref_gas_price, handle_error_execute_tx,
-        handle_error_move_call_read_only, move_call_read_only, parse_keys_entry,
-        parse_move_read_only_result, reserve_gas, sha_hash, sha_hash_to_hex,
+        decode_hospital_personnel_id, decode_hospital_personnel_id_to_argon, encode_activation_key,
+        encode_activation_key_from_keys_entry, generate_64_bytes_seed, generate_iota_keys_ed,
+        get_global_admin_iota_address_from_keys_entry,
+        get_global_admin_iota_key_pair_from_keys_entry, get_iota_address_from_keys_entry,
+        get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
+        serde_serialize_to_base64,
     },
 };
-
-#[tauri::command]
-pub async fn is_app_activated(
-    state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<()>, String> {
-    let mut state = state.lock().await;
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-
-    if keys_entry.activation_key.is_none() || keys_entry.id.is_none() {
-        return Err("Activation key and id not found".to_string());
-    }
-
-    let (id_part_hash, hospital_part_hash) =
-        decode_hospital_personnel_id_to_argon(keys_entry.id.unwrap())?;
-
-    let hospital_personnel_hospital_part_call_arg =
-        CallArg::Pure(bcs::to_bytes(&hospital_part_hash).unwrap());
-    let hospital_personnel_id_part_call_arg = CallArg::Pure(bcs::to_bytes(&id_part_hash).unwrap());
-    let id_activation_key_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_activation_key_table_id,
-        state.account_package.id_activation_key_table_version,
-        false,
-    );
-    let id_address_table = construct_shared_object_call_arg(
-        state.account_package.id_address_table_id,
-        state.account_package.id_address_table_version,
-        false,
-    );
-
-    let pt = construct_pt(
-        String::from("is_activation_key_id_registered"),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            hospital_personnel_hospital_part_call_arg,
-            hospital_personnel_id_part_call_arg,
-            id_activation_key_table_call_arg,
-            id_address_table,
-        ],
-    );
-
-    let random_seed = generate_64_bytes_seed();
-    let (random_iota_address, _random_iota_keypair) = generate_iota_keys_ed(&random_seed);
-
-    let iota_client = state.iota_client.clone();
-    let response = move_call_read_only(random_iota_address, &iota_client, pt).await;
-
-    handle_error_move_call_read_only("is_app_activated".to_string(), response.clone())?;
-
-    let is_activation_key_exist: bool = parse_move_read_only_result(response.clone(), 0)?;
-    let is_signed_up: bool = parse_move_read_only_result(response, 1)?;
-
-    if !is_activation_key_exist {
-        return Err("Activation key not found".to_string());
-    }
-
-    state.auth_state.is_signed_up = is_signed_up;
-
-    Ok(SuccessResponse {
-        status: ResponseStatus::Success,
-        data: (),
-    })
-}
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 #[tauri::command]
 pub async fn global_admin_add_activation_key(
     state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<CommandGlobalAdminAddActivationKeyResponse>, String> {
+) -> Result<SuccessResponse<CommandGlobalAdminAddActivationKeyResponse>, HospitalError> {
     let state = state.lock().await;
-    let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10).await;
-    let ref_gas_price = get_ref_gas_price(&state.iota_client).await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
 
-    let activation_key = uuid::Uuid::new_v4().to_string();
-    let hospital_part = "hos_x";
-    let id_part = "admin";
-    let id = format!("{}@{}", id_part, hospital_part);
+    let (
+        activation_key,
+        activation_key_encoded,
+        id,
+        global_admin_iota_address,
+        global_admin_iota_key_pair,
+        hospital_admin_id_part_hash,
+        hospital_admin_hospital_part_hash,
+        hospital_name,
+    ) = {
+        let activation_key = uuid::Uuid::new_v4().to_string();
+        let hospital_name = "Hospitalnya Jiwoo Yeppo";
+        let hospital_part = "hos_ana";
+        let id_part = "admin";
+        let id = format!("{}@{}", id_part, hospital_part);
 
-    let (id_part_hash, hospital_part_hash) = decode_hospital_personnel_id_to_argon(id.clone())?;
+        let (hospital_admin_id_part_hash, hospital_admin_hospital_part_hash) =
+            decode_hospital_personnel_id_to_argon(id.clone()).context(current_fn!())?;
 
-    let activation_key_id = format!("{};{}", activation_key, id);
-    let activation_key_id_hash = sha_hash_to_hex(activation_key_id.as_bytes());
+        let activation_key_encoded =
+            encode_activation_key(activation_key.clone(), id.clone()).context(current_fn!())?;
 
-    let activation_key_call_arg =
-        CallArg::Pure(bcs::to_bytes(activation_key_id_hash.as_str()).unwrap());
-    let activation_key_activation_key_metadata_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_id,
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_version,
-        true,
-    );
-    let hospital_id_registered_hospital_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .hospital_id_registered_hospital_table_id,
-        state
-            .account_package
-            .hospital_id_registered_hospital_table_version,
-        true,
-    );
-    let hospital_part_call_arg = CallArg::Pure(bcs::to_bytes(hospital_part_hash.as_str()).unwrap());
-    let id_activation_key_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_activation_key_table_id,
-        state.account_package.id_activation_key_table_version,
-        true,
-    );
-    let id_part_call_arg = CallArg::Pure(bcs::to_bytes(id_part_hash.as_str()).unwrap());
-    let global_admin_add_key_cap_call_arg = construct_capability_call_arg(
-        &state.iota_client,
-        state.account_package.global_admin_add_key_cap_id,
-    )
-    .await;
+        let global_admin_iota_address =
+            get_global_admin_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let global_admin_iota_key_pair =
+            get_global_admin_iota_key_pair_from_keys_entry(&keys_entry).context(current_fn!())?;
 
-    let pt = construct_pt(
-        String::from("global_admin_add_activation_key"),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            activation_key_call_arg,
-            activation_key_activation_key_metadata_table_call_arg,
-            hospital_id_registered_hospital_table_call_arg,
-            hospital_part_call_arg,
-            id_activation_key_table_call_arg,
-            id_part_call_arg,
-            global_admin_add_key_cap_call_arg,
-        ],
-    );
+        (
+            activation_key,
+            activation_key_encoded,
+            id,
+            global_admin_iota_address,
+            global_admin_iota_key_pair,
+            hospital_admin_id_part_hash,
+            hospital_admin_hospital_part_hash,
+            hospital_name,
+        )
+    };
 
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-
-    let tx_data = construct_sponsored_tx_data(
-        IotaAddress::from_str(keys_entry.admin_address.unwrap().as_str()).unwrap(),
-        gas_coins.clone(),
-        pt,
-        GAS_BUDGET,
-        ref_gas_price,
-        sponsor_account,
-    );
-
-    let signer =
-        IotaKeyPair::decode(keys_entry.admin_secret_key.as_ref().unwrap().as_str()).unwrap();
-    let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
-    let response = execute_tx(tx, reservation_id).await;
-
-    handle_error_execute_tx("global_admin_add_activation_key".to_string(), response)?;
+    let _ = state
+        .move_call
+        .global_admin_create_activation_key(
+            activation_key_encoded,
+            hospital_admin_id_part_hash,
+            hospital_admin_hospital_part_hash,
+            hospital_name.to_string(),
+            global_admin_iota_address,
+            global_admin_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
 
     let res = CommandGlobalAdminAddActivationKeyResponse { activation_key, id };
 
@@ -190,140 +96,108 @@ pub async fn hospital_admin_add_activation_key(
     personnel_id_part: String,
     role: String,
     pin: String,
-) -> Result<SuccessResponse<CommandHospitalAdminAddActivationKeyResponse>, String> {
+) -> Result<SuccessResponse<CommandHospitalAdminAddActivationKeyResponse>, HospitalError> {
     let state = state.lock().await;
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-    let (sponsor_account, reservation_id, gas_coins) = reserve_gas(2 * NANOS_PER_IOTA, 10).await;
-    let ref_gas_price = get_ref_gas_price(&state.iota_client).await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
 
-    let (_, hospital_part) = decode_hospital_personnel_id(keys_entry.id.unwrap())?;
-    let id = format!("{}@{}", personnel_id_part, hospital_part);
-    let (id_part_hash, hospital_part_hash) = decode_hospital_personnel_id_to_argon(id.clone())?;
+    let (
+        admin_activation_key,
+        hospital_admin_hospital_part,
+        hospital_admin_pre_public_key,
+        hospital_admin_iota_address,
+        hospital_admin_iota_key_pair,
+    ) = {
+        let admin_activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
 
-    let activation_key = uuid::Uuid::new_v4().to_string();
-    let activation_key_id = format!("{};{}", activation_key, id);
-    let activation_key_id_hash_str = sha_hash_to_hex(activation_key_id.as_bytes());
+        let (_, hospital_admin_pre_public_key) =
+            get_pre_keys_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+        let (_, hospital_admin_hospital_part) =
+            decode_hospital_personnel_id(keys_entry.id.clone().unwrap()).context(current_fn!())?;
+        let hospital_admin_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let hospital_admin_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
 
-    let mut role_type = HospitalPersonnelRole::MedicalPersonnel;
-    if role.as_str() == "AdministrativePersonnel" {
-        role_type = HospitalPersonnelRole::AdministrativePersonnel;
-    } else if role.as_str() != "MedicalPersonnel" {
-        return Err(String::from("Invalid role argument."));
-    }
-
-    let hospital_personnel_metadata = HospitalPersonnelMetadata {
-        activation_key: activation_key.clone(),
-        id: id.clone(),
-        role: role_type,
-    };
-    let hospital_personnel_metadata_bytes =
-        serde_json::to_vec(&hospital_personnel_metadata).unwrap();
-    let pre_public_key = PublicKey::try_from_compressed_bytes(
-        keys_entry.pre_public_key.as_ref().unwrap().as_slice(),
-    )
-    .unwrap();
-    let (capsule_hospital_personnel_metadata, enc_hospital_personnel_metadata) = encrypt(
-        &pre_public_key,
-        hospital_personnel_metadata_bytes.as_slice(),
-    )
-    .unwrap();
-    let capsule_hospital_personnel_metadata_bytes =
-        capsule_hospital_personnel_metadata.to_bytes().unwrap();
-    let data = MoveHospitalAdminAddActivationKeyData {
-        capsule: capsule_hospital_personnel_metadata_bytes.to_vec(),
-        metadata: enc_hospital_personnel_metadata.to_vec(),
-    };
-    let data_bytes = serde_json::to_vec(&data).unwrap();
-
-    let role = match role_type {
-        HospitalPersonnelRole::Admin => return Err(String::from("Invalid role argument")),
-        HospitalPersonnelRole::MedicalPersonnel => "MedicalPersonnel",
-        HospitalPersonnelRole::AdministrativePersonnel => "AdministrativePersonnel",
+        (
+            admin_activation_key,
+            hospital_admin_hospital_part,
+            hospital_admin_pre_public_key,
+            hospital_admin_iota_address,
+            hospital_admin_iota_key_pair,
+        )
     };
 
-    let activation_key_call_arg =
-        CallArg::Pure(bcs::to_bytes(activation_key_id_hash_str.as_str()).unwrap());
-    let activation_key_activation_key_metadata_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_id,
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_version,
-        true,
-    );
-    let address_id_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.address_id_table_id,
-        state.account_package.address_id_table_version,
-        false,
-    );
-    let data_call_arg = CallArg::Pure(bcs::to_bytes(&data_bytes).unwrap());
-    let hospital_id_registered_hospital_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .hospital_id_registered_hospital_table_id,
-        state
-            .account_package
-            .hospital_id_registered_hospital_table_version,
-        false,
-    );
-    let id_activation_key_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_activation_key_table_id,
-        state.account_package.id_activation_key_table_version,
-        true,
-    );
-    let id_hospital_personnel_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_hospital_personnel_table_id,
-        state.account_package.id_hospital_personnel_table_version,
-        true,
-    );
-    let personnel_hospital_part_call_arg =
-        CallArg::Pure(bcs::to_bytes(hospital_part_hash.as_str()).unwrap());
-    let personnel_id_part_call_arg = CallArg::Pure(bcs::to_bytes(id_part_hash.as_str()).unwrap());
-    let role_call_arg = CallArg::Pure(bcs::to_bytes(role).unwrap());
+    let (
+        hospital_personnel_id,
+        hospital_personnel_activation_key,
+        metadata,
+        hospital_personnel_id_part_hash,
+    ) = {
+        let hospital_personnel_id =
+            format!("{}@{}", personnel_id_part, hospital_admin_hospital_part);
+        let (hospital_personnel_id_part_hash, _) =
+            decode_hospital_personnel_id_to_argon(hospital_personnel_id.clone())
+                .context(current_fn!())?;
 
-    let pt = construct_pt(
-        String::from("hospital_admin_add_activation_key"),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            activation_key_call_arg,
-            activation_key_activation_key_metadata_table_call_arg,
-            address_id_table_call_arg,
-            data_call_arg,
-            hospital_id_registered_hospital_table_call_arg,
-            id_activation_key_table_call_arg,
-            id_hospital_personnel_table_call_arg,
-            personnel_hospital_part_call_arg,
-            personnel_id_part_call_arg,
-            role_call_arg,
-        ],
-    );
+        let activation_key = uuid::Uuid::new_v4().to_string();
 
-    let tx_data = construct_sponsored_tx_data(
-        IotaAddress::from_str(keys_entry.iota_address.unwrap().as_str()).unwrap(),
-        gas_coins.clone(),
-        pt,
-        GAS_BUDGET,
-        ref_gas_price,
-        sponsor_account,
-    );
+        let role_type = match role.as_str() {
+            "AdministrativePersonnel" => HospitalPersonnelRole::AdministrativePersonnel,
+            "MedicalPersonnel" => HospitalPersonnelRole::MedicalPersonnel,
+            _ => return Err(HospitalError::Anyhow(anyhow!("Invalid role argument."))),
+        };
 
-    let iota_key_pair = aes_decrypt(
-        keys_entry.iota_key_pair.unwrap().as_slice(),
-        sha_hash(pin.as_bytes()).as_slice(),
-        keys_entry.iota_nonce.unwrap().as_slice(),
-    )?;
-    let iota_key_pair = String::from_utf8(iota_key_pair).unwrap();
+        let hospital_personnel_metadata = HospitalPersonnelMetadata {
+            activation_key: activation_key.clone(),
+            id: hospital_personnel_id.clone(),
+            role: role_type,
+        };
+        let hospital_personnel_metadata_bytes =
+            serde_json::to_vec(&hospital_personnel_metadata).context(current_fn!())?;
+        let (hospital_personnel_metadata_capsule, enc_hospital_personnel_metadata) = encrypt(
+            &hospital_admin_pre_public_key,
+            &hospital_personnel_metadata_bytes,
+        )
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
 
-    let signer = IotaKeyPair::decode(iota_key_pair.as_str()).unwrap();
-    let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
-    let response = execute_tx(tx, reservation_id).await;
+        let metadata = MoveCallHospitalAdminAddActivationKeyPayload {
+            capsule: serde_serialize_to_base64(&hospital_personnel_metadata_capsule)
+                .context(current_fn!())?,
+            enc_metadata: STANDARD.encode(enc_hospital_personnel_metadata),
+        };
 
-    handle_error_execute_tx("hospital_admin_add_activatoin_key".to_string(), response)?;
+        (
+            hospital_personnel_id,
+            activation_key,
+            metadata,
+            hospital_personnel_id_part_hash,
+        )
+    };
 
-    let data = CommandHospitalAdminAddActivationKeyResponse { activation_key, id };
+    let _ = state
+        .move_call
+        .hospital_admin_create_activation_key(
+            admin_activation_key,
+            serde_serialize_to_base64(&metadata).context(current_fn!())?,
+            encode_activation_key(
+                hospital_personnel_activation_key.clone(),
+                hospital_personnel_id.clone(),
+            )
+            .context(current_fn!())?,
+            hospital_personnel_id_part_hash,
+            &role,
+            hospital_admin_iota_address,
+            hospital_admin_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
+
+    let data = CommandHospitalAdminAddActivationKeyResponse {
+        activation_key: hospital_personnel_activation_key,
+        id: hospital_personnel_id,
+    };
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
@@ -336,61 +210,50 @@ pub async fn activate_app(
     state: State<'_, Mutex<AppState>>,
     activation_key: String,
     id: String,
-) -> Result<SuccessResponse<()>, String> {
+) -> Result<SuccessResponse<()>, HospitalError> {
     let state = state.lock().await;
-    let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10).await;
-    let ref_gas_price = get_ref_gas_price(&state.iota_client).await;
 
-    let activation_key_id = format!("{};{}", activation_key, id);
-    let activation_key_id_hash_str = sha_hash_to_hex(activation_key_id.as_bytes());
-
-    let activation_key_call_arg =
-        CallArg::Pure(bcs::to_bytes(activation_key_id_hash_str.as_str()).unwrap());
-    let activation_key_activation_key_metadata_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_id,
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_version,
-        true,
-    );
-
-    let pt = construct_pt(
-        String::from("use_activation_key"),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            activation_key_call_arg,
-            activation_key_activation_key_metadata_table_call_arg,
-        ],
-    );
-
-    let random_seed = generate_64_bytes_seed();
-    let (random_iota_address, random_iota_keypair) = generate_iota_keys_ed(&random_seed);
-
-    let tx_data = construct_sponsored_tx_data(
+    let (
         random_iota_address,
-        gas_coins,
-        pt,
-        GAS_BUDGET,
-        ref_gas_price,
-        sponsor_account,
-    );
+        random_iota_key_pair,
+        hospital_personnel_id_part_hash,
+        hospital_personnel_hospital_part_hash,
+    ) = {
+        let seed = generate_64_bytes_seed();
+        let (random_iota_address, random_iota_key_pair) =
+            generate_iota_keys_ed(&seed).context(current_fn!())?;
+        let (hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash) =
+            decode_hospital_personnel_id_to_argon(id.clone()).context(current_fn!())?;
 
-    let signer = random_iota_keypair;
-    let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
+        (
+            random_iota_address,
+            random_iota_key_pair,
+            hospital_personnel_id_part_hash,
+            hospital_personnel_hospital_part_hash,
+        )
+    };
 
-    let response = execute_tx(tx, reservation_id).await;
+    let _ = state
+        .move_call
+        .use_activation_key(
+            encode_activation_key(activation_key.clone(), id.clone()).context(current_fn!())?,
+            hospital_personnel_hospital_part_hash,
+            hospital_personnel_id_part_hash,
+            random_iota_address,
+            random_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
 
-    handle_error_execute_tx("activate_app".to_string(), response)?;
-
-    let mut keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-    keys_entry.activation_key = Some(activation_key_id_hash_str);
+    let mut keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
+    keys_entry.activation_key = Some(activation_key);
     keys_entry.id = Some(id);
-    let keys_entry = serde_json::to_vec(&keys_entry).unwrap();
-    state.keys_entry.set_secret(&keys_entry).unwrap();
+
+    state
+        .keys_entry
+        .set_secret(&serde_json::to_vec(&keys_entry).context(current_fn!())?)
+        .context(current_fn!())?;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,

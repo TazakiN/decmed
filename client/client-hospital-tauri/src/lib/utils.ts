@@ -7,6 +7,10 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
+export async function copyToClipboard(str: string) {
+	navigator.clipboard.writeText(str);
+}
+
 export async function reset() {
 	await invoke('reset');
 }

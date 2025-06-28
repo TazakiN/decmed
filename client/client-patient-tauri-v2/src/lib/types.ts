@@ -5,18 +5,35 @@ export type Account = {
 	name: string;
 };
 
-export type AdministrativeData = {
-	id: string;
-	idHash: string;
-	name: string | undefined;
-};
-
 export type CompleteProfileSchema = typeof completeProfileSchema;
 
 export type InvokeGetMedicalRecordsResponse = {
-	index: string;
+	cid: string;
 	createdAt: string;
+	index: string;
 };
+
+export type InvokeProcessQrResponse = {
+	hospitalPersonnelHospitalName: string;
+	hospitalPersonnelName: string;
+};
+
+export type TauriAdministrativeData = {
+	id: string;
+	idHash: string;
+	iotaAddress: string;
+	prePublicKey: string;
+	name: string | undefined;
+};
+
+export type TauriMedicalData = {
+	main_category: TauriMedicalDataMainCategory;
+	sub_category: TauriMedicalDataSubCategory;
+};
+
+export type TauriMedicalDataMainCategory = 'Category1' | 'Category2';
+
+export type TauriMedicalDataSubCategory = 'SubCategory1' | 'SubCategory2';
 
 export type NavLink = {
 	label: string;

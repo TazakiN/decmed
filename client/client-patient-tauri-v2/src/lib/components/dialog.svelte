@@ -3,7 +3,7 @@
 	import { Dialog, type WithoutChild } from 'bits-ui';
 
 	type Props = Dialog.RootProps & {
-		buttonText: string;
+		buttonText?: string;
 		title: Snippet;
 		contentProps?: WithoutChild<Dialog.ContentProps>;
 		withCloseButton?: boolean;
@@ -14,7 +14,7 @@
 	let {
 		open = $bindable(false),
 		children,
-		buttonText,
+		buttonText = 'Open',
 		contentProps,
 		title,
 		withCloseButton = false,

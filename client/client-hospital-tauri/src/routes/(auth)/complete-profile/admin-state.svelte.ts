@@ -34,18 +34,6 @@ export class CompleteProfileAdminState {
 						return;
 					}
 
-					const resInvokeUpdateRegisteredHospitalName = await tryCatchAsVal(async () => {
-						return (await invoke('update_registered_hospital_name', {
-							hospitalName: form.data.hospital
-						})) as SuccessResponse<null>;
-					});
-
-					if (!resInvokeUpdateRegisteredHospitalName.success) {
-						cancel();
-						toast.error(resInvokeUpdateRegisteredHospitalName.error);
-						return;
-					}
-
 					toast.success('Profile updated successfully');
 				}
 			}

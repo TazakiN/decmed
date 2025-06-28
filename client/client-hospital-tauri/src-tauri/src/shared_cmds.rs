@@ -1,54 +1,49 @@
-use std::str::FromStr;
-
-use iota_types::{
-    base_types::IotaAddress,
-    crypto::IotaKeyPair,
-    gas_coin::NANOS_PER_IOTA,
-    transaction::{CallArg, Transaction},
-};
+use anyhow::{anyhow, Context};
 use tauri::{async_runtime::Mutex, State};
-use umbral_pre::{encrypt, DefaultSerialize, PublicKey};
+use umbral_pre::{decrypt_original, encrypt, Capsule};
 
 use crate::{
-    constants::GAS_BUDGET,
+    current_fn,
+    hospital_error::HospitalError,
     types::{
-        AdministrativeData, AppState, AuthType, CommandGetProfileResponse,
-        CommandUpdateProfileDataInput, HospitalPersonnelRole, KeyNonce,
-        PrivateAdministrativeMetadata, ResponseStatus, SuccessResponse,
+        AdministrativeData, AppState, CommandGetProfileResponseData, CommandUpdateProfileArgs,
+        HospitalPersonnelRole, KeyNonce, PrivateAdministrativeData, PrivateAdministrativeMetadata,
+        PublicAdministrativeData, ResponseStatus, SuccessResponse,
     },
     utils::{
-        aes_decrypt, aes_encrypt, construct_pt, construct_shared_object_call_arg,
-        construct_sponsored_tx_data, decode_hospital_personnel_id_to_argon, execute_tx,
-        get_ref_gas_price, handle_error_execute_tx, parse_keys_entry, reserve_gas, sha_hash,
-        validate_by_regex, validate_pin_util,
+        aes_decrypt, aes_encrypt, decode_hospital_personnel_id_to_argon,
+        encode_activation_key_from_keys_entry, generate_64_bytes_seed, generate_iota_keys_ed,
+        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
+        get_pre_keys_from_keys_entry, parse_keys_entry, serde_deserialize_from_base64,
+        serde_serialize_to_base64, validate_by_regex,
     },
 };
+
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 #[tauri::command]
 pub async fn validate_pin(
     state: State<'_, Mutex<AppState>>,
     pin: String,
     auth_type: String,
-) -> Result<SuccessResponse<()>, String> {
+) -> Result<SuccessResponse<()>, HospitalError> {
     let mut state = state.lock().await;
 
-    if !validate_pin_util(pin.clone()) {
-        return Err("Invalid PIN".to_string());
+    if !validate_by_regex(&pin, "^[0-9]{6}$").context(current_fn!())? {
+        return Err(HospitalError::Anyhow(anyhow!("Invalid PIN")));
     }
 
-    let mut auth_typ = AuthType::Signin;
-    if auth_type.as_str() == "Signup" {
-        auth_typ = AuthType::Signup;
-    } else if auth_type.as_str() != "Signin" {
-        return Err("Invalid arg auth_type".to_string());
-    }
-
-    match auth_typ {
-        AuthType::Signin => {
+    match auth_type.as_str() {
+        "Signin" => {
             state.signin_state.pin = Some(pin);
         }
-        AuthType::Signup => {
+        "Signup" => {
             state.signup_state.pin = Some(pin);
+        }
+        _ => {
+            return Err(HospitalError::Anyhow(
+                anyhow!("Invalid arg auth_type").context(current_fn!()),
+            ))
         }
     };
 
@@ -63,30 +58,32 @@ pub async fn validate_confirm_pin(
     state: State<'_, Mutex<AppState>>,
     confirm_pin: String,
     auth_type: String,
-) -> Result<SuccessResponse<()>, String> {
+) -> Result<SuccessResponse<()>, HospitalError> {
     let state = state.lock().await;
 
-    if !validate_pin_util(confirm_pin.clone()) {
-        return Err("Invalid confirm PIN".to_string());
+    if !validate_by_regex(&confirm_pin, "^[0-9]{6}$").context(current_fn!())? {
+        return Err(HospitalError::Anyhow(anyhow!("Invalid confirm PIN")));
     }
 
-    let mut auth_typ = AuthType::Signin;
-    if auth_type.as_str() == "Signup" {
-        auth_typ = AuthType::Signup;
-    } else if auth_type.as_str() != "Signin" {
-        return Err("Invalid arg auth_type".to_string());
-    }
-
-    match auth_typ {
-        AuthType::Signin => {
+    match auth_type.as_str() {
+        "Signin" => {
             if *state.signin_state.pin.as_ref().unwrap() != confirm_pin {
-                return Err("PIN and confirm PIN must be same".to_string());
+                return Err(HospitalError::Anyhow(anyhow!(
+                    "PIN and confirm PIN must be same"
+                )));
             }
         }
-        AuthType::Signup => {
+        "Signup" => {
             if *state.signup_state.pin.as_ref().unwrap() != confirm_pin {
-                return Err("PIN and confirm PIN must be same".to_string());
+                return Err(HospitalError::Anyhow(anyhow!(
+                    "PIN and confirm PIN must be same"
+                )));
             }
+        }
+        _ => {
+            return Err(HospitalError::Anyhow(
+                anyhow!("Invalid arg auth_type").context(current_fn!()),
+            ))
         }
     };
 
@@ -97,56 +94,116 @@ pub async fn validate_confirm_pin(
 }
 
 #[tauri::command]
-pub async fn get_role(
-    state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<HospitalPersonnelRole>, String> {
-    let state = state.lock().await;
-
-    if state.auth_state.role.is_none() {
-        return Err(String::from("Role not found."));
-    }
-
-    Ok(SuccessResponse {
-        status: ResponseStatus::Success,
-        data: state.auth_state.role.unwrap(),
-    })
-}
-
-#[tauri::command]
-pub async fn is_session_pin_exist(
-    state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<()>, String> {
-    let state = state.lock().await;
-
-    match state.auth_state.session_pin {
-        Some(_) => {
-            return Ok(SuccessResponse {
-                status: ResponseStatus::Success,
-                data: (),
-            })
-        }
-        None => return Err("Session PIN not found".to_string()),
-    }
-}
-
-#[tauri::command]
 pub async fn get_profile(
     state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<CommandGetProfileResponse>, String> {
-    let state = state.lock().await;
-    let administrative_data = state.administrative_data.as_ref().unwrap();
+) -> Result<SuccessResponse<CommandGetProfileResponseData>, HospitalError> {
+    let mut state = state.lock().await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
 
-    let (id_part_hash, hospital_part_hash) =
-        decode_hospital_personnel_id_to_argon(administrative_data.private.id.clone())?;
-    let id_hash = format!("{}@{}", id_part_hash, hospital_part_hash);
+    let (
+        activation_key,
+        hospital_personnel_iota_address,
+        hospital_personnel_iota_key_pair,
+        hospital_personnel_pre_public_key,
+        hospital_personnel_pre_secret_key,
+    ) = {
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
 
-    let data = CommandGetProfileResponse {
-        id: administrative_data.private.id.clone(),
-        id_hash,
-        name: administrative_data.public.name.clone(),
-        hospital: administrative_data.public.hospital_name.clone(),
-        role: state.auth_state.role.unwrap(),
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found").context(current_fn!()))?;
+        let hospital_personnel_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let hospital_personnel_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+        let (hospital_personnel_pre_secret_key, hospital_personnel_pre_public_key) =
+            get_pre_keys_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+
+        (
+            activation_key,
+            hospital_personnel_iota_address,
+            hospital_personnel_iota_key_pair,
+            hospital_personnel_pre_public_key,
+            hospital_personnel_pre_secret_key,
+        )
     };
+
+    let (hospital_personnel_administrative_metadata, role, hospital_metadata) = state
+        .move_call
+        .get_account_info(activation_key, hospital_personnel_iota_address)
+        .await
+        .context(current_fn!())?;
+
+    let administrative_metadata = hospital_personnel_administrative_metadata
+        .ok_or(anyhow!("Administrative metadata not found").context(current_fn!()))?;
+
+    let private_administrative_metadata: PrivateAdministrativeMetadata =
+        serde_deserialize_from_base64(administrative_metadata.private_metadata)
+            .context(current_fn!())?;
+    let public_administrative_data: PublicAdministrativeData =
+        serde_deserialize_from_base64(administrative_metadata.public_metadata)
+            .context(current_fn!())?;
+
+    let private_administrative_data_capsule: Capsule =
+        serde_deserialize_from_base64(private_administrative_metadata.capsule)
+            .context(current_fn!())?;
+    let private_administrative_data_key_nonce = decrypt_original(
+        &hospital_personnel_pre_secret_key,
+        &private_administrative_data_capsule,
+        &STANDARD
+            .decode(private_administrative_metadata.enc_key_nonce)
+            .context(current_fn!())?,
+    )
+    .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+    let private_administrative_data_key_nonce: KeyNonce =
+        serde_json::from_slice(&private_administrative_data_key_nonce).context(current_fn!())?;
+    let private_administrative_data = aes_decrypt(
+        &STANDARD
+            .decode(private_administrative_metadata.enc_data)
+            .context(current_fn!())?,
+        &STANDARD
+            .decode(private_administrative_data_key_nonce.key)
+            .context(current_fn!())?,
+        &STANDARD
+            .decode(private_administrative_data_key_nonce.nonce)
+            .context(current_fn!())?,
+    )?;
+    let private_administrative_data: PrivateAdministrativeData =
+        serde_json::from_slice(&private_administrative_data).context(current_fn!())?;
+
+    let hospital_personnel_id_hash = {
+        let (hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash) =
+            decode_hospital_personnel_id_to_argon(private_administrative_data.id.clone())
+                .context(current_fn!())?;
+        let hospital_personnel_id_hash = format!(
+            "{}@{}",
+            hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash
+        );
+        hospital_personnel_id_hash
+    };
+
+    let data = CommandGetProfileResponseData {
+        hospital: hospital_metadata.name.clone(),
+        id: private_administrative_data.id.clone(),
+        id_hash: hospital_personnel_id_hash,
+        iota_address: hospital_personnel_iota_address.to_string(),
+        iota_key_pair: hospital_personnel_iota_key_pair
+            .encode()
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?,
+        name: public_administrative_data.name.clone(),
+        pre_public_key: serde_serialize_to_base64(&hospital_personnel_pre_public_key)
+            .context(current_fn!())?,
+        role,
+    };
+
+    state.administrative_data = Some(AdministrativeData {
+        private: private_administrative_data,
+        public: public_administrative_data,
+    });
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
@@ -157,109 +214,110 @@ pub async fn get_profile(
 #[tauri::command]
 pub async fn update_profile(
     state: State<'_, Mutex<AppState>>,
-    data: CommandUpdateProfileDataInput,
-) -> Result<SuccessResponse<()>, String> {
+    data: CommandUpdateProfileArgs,
+) -> Result<SuccessResponse<()>, HospitalError> {
     let mut state = state.lock().await;
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-
-    let pre_public_key =
-        PublicKey::try_from_compressed_bytes(&keys_entry.pre_public_key.unwrap()).unwrap();
-
-    let iota_key_pair = aes_decrypt(
-        keys_entry.iota_key_pair.unwrap().as_slice(),
-        sha_hash(state.auth_state.session_pin.as_ref().unwrap().as_bytes()).as_slice(),
-        keys_entry.iota_nonce.unwrap().as_slice(),
-    )?;
-    let iota_key_pair = String::from_utf8(iota_key_pair).unwrap();
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
 
     // Validate data
-    if !validate_by_regex(&data.name, "^[a-zA-Z ]{2,100}$") {
-        return Err("Invalid args: data.name is invalid".to_string());
+    if !validate_by_regex(&data.name, "^[a-zA-Z ]{2,100}$").context(current_fn!())? {
+        return Err(HospitalError::Anyhow(anyhow!(
+            "Invalid args: data.name is invalid"
+        )));
     }
 
-    // Construct private administrative data
-    let private_administrative_data = state.administrative_data.as_ref().unwrap().private.clone();
-    let private_administrative_data_bytes =
-        serde_json::to_vec(&private_administrative_data).unwrap();
     let (
-        enc_private_administrative_data,
-        key_private_administrative_data,
-        nonce_private_administrative_data,
-    ) = aes_encrypt(&private_administrative_data_bytes);
-    let key_nonce_private_administrative_data = KeyNonce {
-        key: key_private_administrative_data,
-        nonce: nonce_private_administrative_data,
+        activation_key,
+        hospital_personnel_iota_key_pair,
+        hospital_personnel_iota_address,
+        hospital_personnel_pre_public_key,
+    ) = {
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
+
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found").context(current_fn!()))?;
+        let hospital_personnel_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+        let hospital_personnel_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let (_, hospital_personnel_pre_public_key) =
+            get_pre_keys_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+
+        (
+            activation_key,
+            hospital_personnel_iota_key_pair,
+            hospital_personnel_iota_address,
+            hospital_personnel_pre_public_key,
+        )
     };
-    let key_nonce_private_administrative_data_bytes =
-        serde_json::to_vec(&key_nonce_private_administrative_data).unwrap();
-    let (capsule_key_nonce_private_administrative_data, enc_key_nonce_private_administrative_data) =
-        encrypt(
-            &pre_public_key,
-            &key_nonce_private_administrative_data_bytes,
+
+    let (private_administrative_data, private_administrative_metadata) = {
+        // Construct private administrative data
+        let private_administrative_data = state
+            .administrative_data
+            .as_ref()
+            .ok_or(anyhow!("Administrative data not found on state").context(current_fn!()))?
+            .private
+            .clone();
+        let (
+            enc_private_administrative_data,
+            private_administrative_data_key,
+            private_administrative_data_nonce,
+        ) = aes_encrypt(&serde_json::to_vec(&private_administrative_data).context(current_fn!())?)
+            .context(current_fn!())?;
+
+        let private_administrative_data_key_nonce = KeyNonce {
+            key: STANDARD.encode(private_administrative_data_key),
+            nonce: STANDARD.encode(private_administrative_data_nonce),
+        };
+        let (
+            private_administrative_data_key_nonce_capsule,
+            enc_private_administrative_data_key_nonce,
+        ) = encrypt(
+            &hospital_personnel_pre_public_key,
+            &serde_json::to_vec(&private_administrative_data_key_nonce).context(current_fn!())?,
         )
         .unwrap();
-    let private_administrative_metadata = PrivateAdministrativeMetadata {
-        capsule: capsule_key_nonce_private_administrative_data
-            .to_bytes()
-            .unwrap()
-            .to_vec(),
-        enc_data: enc_private_administrative_data,
-        enc_key_nonce: enc_key_nonce_private_administrative_data.to_vec(),
+
+        let private_administrative_metadata = PrivateAdministrativeMetadata {
+            capsule: serde_serialize_to_base64(&private_administrative_data_key_nonce_capsule)
+                .context(current_fn!())?,
+            enc_data: STANDARD.encode(enc_private_administrative_data),
+            enc_key_nonce: STANDARD.encode(enc_private_administrative_data_key_nonce),
+        };
+
+        (private_administrative_data, private_administrative_metadata)
     };
-    let private_administrative_metadata_bytes =
-        serde_json::to_vec(&private_administrative_metadata).unwrap();
 
-    // Construct public administrative data
-    let mut public_administrative_data = state.administrative_data.as_ref().unwrap().public.clone();
-    public_administrative_data.hospital_name = None;
-    public_administrative_data.name = Some(data.name);
-    let public_administrative_data_bytes = serde_json::to_vec(&public_administrative_data).unwrap();
+    let public_administrative_data = {
+        // Construct public administrative data
+        let mut public_administrative_data = state
+            .administrative_data
+            .as_ref()
+            .ok_or(anyhow!("Administrative data not found on state").context(current_fn!()))?
+            .public
+            .clone();
+        public_administrative_data.name = Some(data.name);
 
-    let address_id_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.address_id_table_id,
-        state.account_package.address_id_table_version,
-        false,
-    );
-    let id_administrative_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_administrative_table_id,
-        state.account_package.id_administrative_table_version,
-        true,
-    );
-    let private_data_call_arg =
-        CallArg::Pure(bcs::to_bytes(&private_administrative_metadata_bytes).unwrap());
-    let public_data_call_arg =
-        CallArg::Pure(bcs::to_bytes(&public_administrative_data_bytes).unwrap());
+        public_administrative_data
+    };
 
-    let pt = construct_pt(
-        "update_administrative_data".to_string(),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            address_id_table_call_arg,
-            id_administrative_table_call_arg,
-            private_data_call_arg,
-            public_data_call_arg,
-        ],
-    );
-
-    let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10).await;
-    let ref_gas_price = get_ref_gas_price(&state.iota_client).await;
-
-    let tx_data = construct_sponsored_tx_data(
-        IotaAddress::from_str(keys_entry.iota_address.unwrap().as_str()).unwrap(),
-        gas_coins.clone(),
-        pt,
-        GAS_BUDGET,
-        ref_gas_price,
-        sponsor_account,
-    );
-
-    let signer = IotaKeyPair::decode(iota_key_pair.as_str()).unwrap();
-    let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
-    let response = execute_tx(tx, reservation_id).await;
-
-    handle_error_execute_tx("update_profile".to_string(), response)?;
+    let _ = state
+        .move_call
+        .update_administrative_metadata(
+            activation_key,
+            serde_serialize_to_base64(&private_administrative_metadata).context(current_fn!())?,
+            serde_serialize_to_base64(&public_administrative_data).context(current_fn!())?,
+            hospital_personnel_iota_address,
+            hospital_personnel_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
 
     state.administrative_data = Some(AdministrativeData {
         private: private_administrative_data,
@@ -268,6 +326,117 @@ pub async fn update_profile(
 
     Ok(SuccessResponse {
         data: (),
+        status: ResponseStatus::Success,
+    })
+}
+
+/**
+ * Error context:
+ * $<0>$: redirect to activation page
+ * $<1>$: redirect to signup page
+ * $<2>$: redirect to signin page
+ * $<3>$: redirect to complete-profile page
+ * $<4>$: redirect to pin page
+ */
+#[tauri::command]
+pub async fn auth_status(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<SuccessResponse<Option<HospitalPersonnelRole>>, HospitalError> {
+    let state = state.lock().await;
+    let keys_entry = parse_keys_entry(
+        &state
+            .keys_entry
+            .get_secret()
+            .context("$<0>$")
+            .context(current_fn!())?,
+    )
+    .context("$<0>$")
+    .context(current_fn!())?;
+
+    if keys_entry.activation_key.is_none() || keys_entry.id.is_none() {
+        return Err(HospitalError::Anyhow(
+            anyhow!("Activation key or id not found").context("$<0>$"),
+        ));
+    }
+
+    // With the following iota call we can check if the activation key exist
+    // and id is registered
+
+    let (
+        activation_key,
+        random_iota_address,
+        hospital_personnel_id_part_hash,
+        hospital_personnel_hospital_part_hash,
+    ) = {
+        let id = keys_entry
+            .id
+            .clone()
+            .ok_or(anyhow!("Id not found on keys entry").context(current_fn!()))?;
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let seed = generate_64_bytes_seed();
+        let (random_iota_address, _) = generate_iota_keys_ed(&seed)
+            .context("$<0>$")
+            .context(current_fn!())?;
+        let (hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash) =
+            decode_hospital_personnel_id_to_argon(id)
+                .context("$<0>$")
+                .context(current_fn!())?;
+
+        (
+            activation_key,
+            random_iota_address,
+            hospital_personnel_id_part_hash,
+            hospital_personnel_hospital_part_hash,
+        )
+    };
+
+    let (account_state, role) = state
+        .move_call
+        .get_account_state(
+            activation_key,
+            hospital_personnel_hospital_part_hash,
+            hospital_personnel_id_part_hash,
+            random_iota_address,
+        )
+        .await
+        .context("$<0>$")
+        .context(current_fn!())?;
+
+    match account_state {
+        0 => {
+            return Err(HospitalError::Anyhow(
+                anyhow!("Activation needed").context("$<0>$"),
+            ))
+        }
+        1 => {
+            return Err(HospitalError::Anyhow(
+                anyhow!("Signup needed").context("$<1>$"),
+            ))
+        }
+        _ => {}
+    };
+
+    if keys_entry.iota_key_pair.is_none() || keys_entry.pre_secret_key.is_none() {
+        return Err(HospitalError::Anyhow(
+            anyhow!("IOTA Key Pair and PRE Secret Key not found").context("$<2>$"),
+        ));
+    }
+
+    if account_state == 2 {
+        return Err(HospitalError::Anyhow(
+            anyhow!("Profile completion needed").context("$<3>$"),
+        ));
+    }
+
+    if state.auth_state.session_pin.is_none() {
+        return Err(HospitalError::Anyhow(
+            anyhow!("Session PIN not found").context("$<4>$"),
+        ));
+    }
+
+    Ok(SuccessResponse {
+        data: role,
         status: ResponseStatus::Success,
     })
 }

@@ -1,5 +1,4 @@
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
-use iota_sdk::IotaClient;
 use iota_types::{
     base_types::{IotaAddress, ObjectID},
     Identifier,
@@ -8,12 +7,9 @@ use keyring::Entry;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-// Enum
+use crate::move_call::MoveCall;
 
-pub enum AuthType {
-    Signin,
-    Signup,
-}
+// Enum
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum HospitalPersonnelRole {
@@ -34,6 +30,12 @@ pub enum MedicalDataSubCategory {
     SubCategory2,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum MoveHospitalPersonnelAccessDataType {
+    Administrative,
+    Medical,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ResponseStatus {
     Error,
@@ -42,40 +44,48 @@ pub enum ResponseStatus {
 
 // Struct
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AccessData {
+    #[serde(rename = "accessDataTypes")]
+    pub access_data_types: Vec<MoveHospitalPersonnelAccessDataType>,
+    #[serde(rename = "accessToken")]
+    pub access_token: String,
+    pub exp: u64,
+    #[serde(rename = "patientIotaAddress")]
+    pub patient_iota_address: String,
+    #[serde(rename = "patientName")]
+    pub patient_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AccessMetadata {
+    pub access_token: String,
+    pub patient_iota_address: String,
+    pub patient_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AccessMetadataEncrypted {
+    pub capsule: String,
+    pub enc_data: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct AccountPackage {
+pub struct DecmedPackage {
     pub package_id: ObjectID,
-    pub module: Identifier,
+    pub module_admin: Identifier,
+    pub module_hospital_personnel: Identifier,
 
-    pub activation_key_activation_key_metadata_table_id: ObjectID,
-    pub activation_key_activation_key_metadata_table_version: u64,
-    pub address_id_table_id: ObjectID,
-    pub address_id_table_version: u64,
-    pub hospital_id_registered_hospital_table_id: ObjectID,
-    pub hospital_id_registered_hospital_table_version: u64,
-    pub id_access_queue_table_id: ObjectID,
-    pub id_access_queue_table_version: u64,
-    pub id_activation_key_table_id: ObjectID,
-    pub id_activation_key_table_version: u64,
-    pub id_address_table_id: ObjectID,
-    pub id_address_table_version: u64,
-    pub id_administrative_table_id: ObjectID,
-    pub id_administrative_table_version: u64,
-    pub id_expected_hospital_personnel_table_id: ObjectID,
-    pub id_expected_hospital_personnel_table_version: u64,
-    pub id_hospital_personnel_access_table_id: ObjectID,
-    pub id_hospital_personnel_access_table_version: u64,
-    pub id_hospital_personnel_table_id: ObjectID,
-    pub id_hospital_personnel_table_version: u64,
-    pub id_medical_table_id: ObjectID,
-    pub id_medical_table_version: u64,
-    pub id_patient_access_log_table_id: ObjectID,
-    pub id_patient_access_log_table_version: u64,
-    pub proxy_address_table_id: ObjectID,
-    pub proxy_address_table_version: u64,
+    pub address_id_object_id: ObjectID,
+    pub address_id_object_version: u64,
+    pub hospital_id_metadata_object_id: ObjectID,
+    pub hospital_id_metadata_object_version: u64,
+    pub hospital_personnel_id_account_object_id: ObjectID,
+    pub hospital_personnel_id_account_object_version: u64,
+    pub patient_id_account_object_id: ObjectID,
+    pub patient_id_account_object_version: u64,
 
-    pub admin_cap_id: ObjectID,
-    pub global_admin_add_key_cap_id: ObjectID,
+    pub global_admin_cap_id: ObjectID,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -85,12 +95,10 @@ pub struct AdministrativeData {
 }
 
 pub struct AppState {
-    pub account_package: AccountPackage,
     pub administrative_data: Option<AdministrativeData>,
     pub auth_state: AuthState,
-    pub iota_client: IotaClient,
     pub keys_entry: Entry,
-    pub polling_state: PollingState,
+    pub move_call: MoveCall,
     pub signin_state: SignInState,
     pub signup_state: SignUpState,
 }
@@ -103,17 +111,23 @@ pub struct AuthState {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct CommandGetHospitalPersonnelsResponse {
+pub struct CommandGetHospitalPersonnelsResponseData {
     pub personnels: Vec<HospitalPersonnelMetadata>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct CommandGetProfileResponse {
-    pub hospital: Option<String>,
+pub struct CommandGetProfileResponseData {
+    pub hospital: String,
     pub id: String,
     #[serde(rename = "idHash")]
     pub id_hash: String,
+    #[serde(rename = "iotaAddress")]
+    pub iota_address: String,
+    #[serde(rename = "iotaKeyPair")]
+    pub iota_key_pair: String,
     pub name: Option<String>,
+    #[serde(rename = "prePublicKey")]
+    pub pre_public_key: String,
     pub role: HospitalPersonnelRole,
 }
 
@@ -132,7 +146,7 @@ pub struct CommandHospitalAdminAddActivationKeyResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CommandUpdateProfileDataInput {
+pub struct CommandUpdateProfileArgs {
     pub name: String,
 }
 
@@ -151,8 +165,8 @@ pub struct HospitalPersonnelMetadata {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct KeyNonce {
-    pub key: Vec<u8>,
-    pub nonce: Vec<u8>,
+    pub key: String,
+    pub nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -162,11 +176,11 @@ pub struct KeysEntry {
     pub admin_secret_key: Option<String>,
     pub id: Option<String>,
     pub iota_address: Option<String>,
-    pub iota_key_pair: Option<Vec<u8>>,
-    pub iota_nonce: Option<Vec<u8>>,
-    pub pre_nonce: Option<Vec<u8>>,
-    pub pre_public_key: Option<Vec<u8>>,
-    pub pre_secret_key: Option<Vec<u8>>,
+    pub iota_key_pair: Option<String>,
+    pub iota_nonce: Option<String>,
+    pub pre_nonce: Option<String>,
+    pub pre_public_key: Option<String>,
+    pub pre_secret_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -177,50 +191,40 @@ pub struct MedicalData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MedicalMetadata {
-    pub capsule: Vec<u8>,
+    pub capsule: String,
     pub cid: String,
     pub created_at: String,
-    pub enc_key_and_nonce: Vec<u8>,
+    pub enc_key_and_nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveGetAccessQueueResponse {
-    pub data: Vec<u8>,
+pub struct MoveHospitalMetadata {
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveAdministrative {
-    pub private_data: Vec<u8>,
-    pub public_data: Vec<u8>,
+pub struct MoveHospitalPersonnelAccessData {
+    pub access_data_types: Vec<MoveHospitalPersonnelAccessDataType>,
+    pub exp: u64,
+    pub metadata: String,
+    pub medical_metadata_index: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveGetHospitalPersonnelsResponse {
-    pub data: Vec<u8>,
+pub struct MoveHospitalPersonnelAdministrativeMetadata {
+    pub private_metadata: String,
+    pub public_metadata: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveHospitalAdminAddActivationKeyData {
-    pub capsule: Vec<u8>,
-    pub metadata: Vec<u8>,
+pub struct MoveCallHospitalAdminAddActivationKeyPayload {
+    pub capsule: String,
+    pub enc_metadata: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveInitRequestInput {
-    pub patient_id: String,
-    pub patient_pre_public_key: Vec<u8>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MoveRequestAccessInput {
-    pub hospital_personnel_hospital: String,
-    pub hospital_personnel_id: String,
-    pub hospital_personnel_name: String,
-    pub hospital_personnel_pre_public_key: Vec<u8>,
-}
-
-pub struct PollingState {
-    pub is_polling_init_access: bool,
+pub struct MoveHospitalPersonnelMetadata {
+    pub metadata: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -230,14 +234,13 @@ pub struct PrivateAdministrativeData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PrivateAdministrativeMetadata {
-    pub capsule: Vec<u8>,
-    pub enc_data: Vec<u8>,
-    pub enc_key_nonce: Vec<u8>,
+    pub capsule: String,
+    pub enc_data: String,
+    pub enc_key_nonce: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PublicAdministrativeData {
-    pub hospital_name: Option<String>,
     pub name: Option<String>,
 }
 

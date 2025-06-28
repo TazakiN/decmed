@@ -3,6 +3,7 @@ import { addPersonnelSchemas } from '$lib/schema';
 import type {
 	Account,
 	AddPersonnelSchemaStep2,
+	HospitalPersonnel,
 	InvokeHospitalAdminAddActivationKeyResponse,
 	SuccessResponse
 } from '$lib/types';
@@ -49,6 +50,7 @@ export class AdminHomeState {
 			validators: false,
 			dataType: 'json',
 			SPA: true,
+			invalidateAll: false,
 			onSubmit: async ({ cancel }) => {
 				if ((this, this.currentStep === 2)) return;
 				cancel();
@@ -71,6 +73,7 @@ export class AdminHomeState {
 
 					if (!resInvokeHospitalAdminAddActivationKey.success) {
 						cancel();
+						console.log(resInvokeHospitalAdminAddActivationKey.error);
 						toast.error(resInvokeHospitalAdminAddActivationKey.error);
 						return;
 					}
@@ -78,6 +81,8 @@ export class AdminHomeState {
 					this.askPin = false;
 					this.addPersonnelDialogOpen = false;
 					this.currentStep = 1;
+
+					this.refetchPersonnels = this.getHospitalPersonnels();
 				}
 			}
 		});
@@ -85,4 +90,21 @@ export class AdminHomeState {
 		// this is magic tho :)
 		this.addPersonnelFormMeta.form.subscribe((val) => (this.something = val));
 	}
+
+	getHospitalPersonnels = async () => {
+		const resInvokeGetHospitalPersonnels = await tryCatchAsVal(async () => {
+			return (await invoke('get_hospital_personnels')) as SuccessResponse<{
+				personnels: HospitalPersonnel[];
+			}>;
+		});
+
+		if (!resInvokeGetHospitalPersonnels.success) {
+			toast.error(resInvokeGetHospitalPersonnels.error);
+			return [];
+		}
+
+		return resInvokeGetHospitalPersonnels.data.data.personnels;
+	};
+
+	refetchPersonnels = $state<Promise<HospitalPersonnel[]>>(this.getHospitalPersonnels());
 }

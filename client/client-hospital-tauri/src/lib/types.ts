@@ -35,6 +35,16 @@ export type SuccessResponse<T> = {
 	data: T;
 };
 
+export type TauriAccessData = {
+	accessDataTypes: TauriAccessDataType[];
+	accessToken: string;
+	exp: number;
+	patientIotaAddress: string;
+	patientName: string;
+};
+
+export type TauriAccessDataType = 'Administrative' | 'Medical';
+
 export type AdministrativeData = {
 	id: string;
 	idHash: string;
@@ -43,10 +53,13 @@ export type AdministrativeData = {
 };
 
 export type GetProfileData = {
+	hospital: string | null;
 	id: string;
 	idHash: string;
+	iotaAddress: string;
+	iotaKeyPair: string;
 	name: string | null;
-	hospital: string | null;
+	prePublicKey: string;
 	role: Role;
 };
 

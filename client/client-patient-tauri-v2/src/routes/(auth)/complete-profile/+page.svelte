@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
 	import { completeProfileSchema } from '$lib/schema';
 	import type { SuccessResponse } from '$lib/types.js';
 	import { cn, tryCatchAsVal, waitMs } from '$lib/utils';

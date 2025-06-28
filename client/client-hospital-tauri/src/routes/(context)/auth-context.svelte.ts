@@ -10,7 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getContext, setContext } from 'svelte';
 
 class Auth implements AuthContext {
-	role = $state<Role | undefined>(undefined);
+	role = $state<Role | null>(null);
 	isRegistered = $state<boolean | undefined>(undefined);
 	constructor() {}
 

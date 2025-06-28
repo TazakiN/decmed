@@ -1,141 +1,284 @@
 use std::str::FromStr;
 
-use iota_types::{
-    base_types::IotaAddress,
-    crypto::IotaKeyPair,
-    gas_coin::NANOS_PER_IOTA,
-    transaction::{CallArg, Transaction},
-};
+use anyhow::{anyhow, Context};
+use iota_types::base_types::IotaAddress;
 use tauri::{async_runtime::Mutex, State};
-use umbral_pre::{encrypt, DefaultSerialize, PublicKey};
+use umbral_pre::{decrypt_original, encrypt, PublicKey};
 
 use crate::{
-    constants::GAS_BUDGET,
+    current_fn,
+    hospital_error::HospitalError,
     types::{
-        AppState, KeyNonce, MedicalData, MedicalDataMainCategory, MedicalDataSubCategory,
-        MedicalMetadata, ResponseStatus, SuccessResponse,
+        AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, KeyNonce, MedicalData,
+        MedicalDataMainCategory, MedicalDataSubCategory, MedicalMetadata, ResponseStatus,
+        SuccessResponse,
     },
     utils::{
-        add_and_pin_to_ipfs, aes_decrypt, aes_encrypt, argon_hash, construct_pt,
-        construct_shared_object_call_arg, construct_sponsored_tx_data, execute_tx,
-        get_ref_gas_price, handle_error_execute_tx, parse_keys_entry, reserve_gas, sha_hash,
-        sys_time_to_iso,
+        add_and_pin_to_ipfs, aes_encrypt, encode_activation_key_from_keys_entry,
+        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
+        get_pre_keys_from_keys_entry, parse_keys_entry, serde_deserialize_from_base64,
+        serde_serialize_to_base64, sys_time_to_iso,
     },
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 #[tauri::command]
 pub async fn new_medical_record(
     state: State<'_, Mutex<AppState>>,
-    patient_id: String,
-    patient_pre_public_key: Vec<u8>,
+    patient_iota_address: String,
+    patient_pre_public_key: String,
     pin: String,
-) -> Result<SuccessResponse<()>, String> {
+) -> Result<SuccessResponse<()>, HospitalError> {
     let state = state.lock().await;
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().unwrap());
-    let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10).await;
-    let ref_gas_price = get_ref_gas_price(&state.iota_client).await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
 
-    let iota_key_pair = aes_decrypt(
-        keys_entry.iota_key_pair.unwrap().as_slice(),
-        sha_hash(pin.as_bytes()).as_slice(),
-        keys_entry.iota_nonce.unwrap().as_slice(),
-    )?;
-    let iota_key_pair = String::from_utf8(iota_key_pair).unwrap();
+    let (activation_key, hospital_personnel_iota_address, hospital_personnel_iota_key_pair) = {
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let hospital_personnel_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let hospital_personnel_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
 
-    let id_hash = argon_hash(patient_id);
+        (
+            activation_key,
+            hospital_personnel_iota_address,
+            hospital_personnel_iota_key_pair,
+        )
+    };
 
-    let medical_metadata_bytes = {
+    let (medical_metadata, patient_iota_address) = {
+        let patient_iota_address =
+            IotaAddress::from_str(&patient_iota_address).context(current_fn!())?;
+        let patient_pre_public_key: PublicKey =
+            serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
+
         let medical_data = MedicalData {
             main_category: MedicalDataMainCategory::Category1,
             sub_category: MedicalDataSubCategory::SubCategory1,
         };
-        let medical_data_bytes = serde_json::to_vec(&medical_data).unwrap();
-        let (enc_med, med_key, med_nonce) = aes_encrypt(medical_data_bytes.as_slice());
+        let (enc_medical_data, medical_data_key, medical_data_nonce) =
+            aes_encrypt(&serde_json::to_vec(&medical_data).context(current_fn!())?)
+                .context(current_fn!())?;
 
-        let med_cid = add_and_pin_to_ipfs(enc_med).await;
+        let enc_medical_data_cid = add_and_pin_to_ipfs(STANDARD.encode(enc_medical_data))
+            .await
+            .context(current_fn!())?;
 
-        let med_key_and_nonce = KeyNonce {
-            key: med_key,
-            nonce: med_nonce,
+        let medical_data_key_nonce = KeyNonce {
+            key: STANDARD.encode(medical_data_key),
+            nonce: STANDARD.encode(medical_data_nonce),
         };
-        let med_key_and_nonce = serde_json::to_vec(&med_key_and_nonce).unwrap();
-        let patient_pre_public_key =
-            PublicKey::try_from_compressed_bytes(patient_pre_public_key.as_slice()).unwrap();
-        let (capsule_med_key_and_nonce, enc_med_key_and_nonce) =
-            encrypt(&patient_pre_public_key, med_key_and_nonce.as_slice()).unwrap();
-        let capsule_med_key_and_nonce_bytes: Vec<u8> =
-            capsule_med_key_and_nonce.to_bytes().unwrap().into();
+        let (medical_data_key_nonce_capsule, enc_medical_data_key_nonce) = encrypt(
+            &patient_pre_public_key,
+            &serde_json::to_vec(&medical_data_key_nonce).context(current_fn!())?,
+        )
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
 
         let created_at = sys_time_to_iso(std::time::SystemTime::now());
 
         let medical_metadata = MedicalMetadata {
-            capsule: capsule_med_key_and_nonce_bytes,
-            enc_key_and_nonce: enc_med_key_and_nonce.to_vec(),
-            cid: med_cid,
+            capsule: serde_serialize_to_base64(&medical_data_key_nonce_capsule)
+                .context(current_fn!())?,
+            enc_key_and_nonce: STANDARD.encode(enc_medical_data_key_nonce),
+            cid: enc_medical_data_cid,
             created_at,
         };
-        serde_json::to_vec(&medical_metadata).unwrap()
+
+        (medical_metadata, patient_iota_address)
     };
 
-    let activation_key_activation_key_metadata_table_call_arg = construct_shared_object_call_arg(
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_id,
-        state
-            .account_package
-            .activation_key_activation_key_metadata_table_version,
-        false,
-    );
-    let address_id_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.address_id_table_id,
-        state.account_package.address_id_table_version,
-        false,
-    );
-    let data_call_arg = CallArg::Pure(bcs::to_bytes(&medical_metadata_bytes).unwrap());
-    let patient_id_call_arg = CallArg::Pure(bcs::to_bytes(id_hash.as_str()).unwrap());
-    let id_activation_key_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_activation_key_table_id,
-        state.account_package.id_activation_key_table_version,
-        false,
-    );
-    let id_medical_table_call_arg = construct_shared_object_call_arg(
-        state.account_package.id_medical_table_id,
-        state.account_package.id_medical_table_version,
-        true,
-    );
-
-    let pt = construct_pt(
-        String::from("create_new_medical_record"),
-        state.account_package.package_id,
-        state.account_package.module.clone(),
-        vec![],
-        vec![
-            activation_key_activation_key_metadata_table_call_arg,
-            address_id_table_call_arg,
-            data_call_arg,
-            patient_id_call_arg,
-            id_activation_key_table_call_arg,
-            id_medical_table_call_arg,
-        ],
-    );
-
-    let tx_data = construct_sponsored_tx_data(
-        IotaAddress::from_str(keys_entry.iota_address.unwrap().as_str()).unwrap(),
-        gas_coins.clone(),
-        pt,
-        GAS_BUDGET,
-        ref_gas_price,
-        sponsor_account,
-    );
-
-    let signer = IotaKeyPair::decode(iota_key_pair.as_str()).unwrap();
-    let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
-    let response = execute_tx(tx, reservation_id).await;
-
-    handle_error_execute_tx("new_medical_record".to_string(), response)?;
+    let _ = state
+        .move_call
+        .create_medical_record(
+            activation_key,
+            serde_serialize_to_base64(&medical_metadata)?,
+            &patient_iota_address,
+            hospital_personnel_iota_address,
+            hospital_personnel_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
         data: (),
+    })
+}
+
+#[tauri::command]
+pub async fn get_read_access_medical_personnel(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<SuccessResponse<Vec<AccessData>>, HospitalError> {
+    let state = state.lock().await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
+
+    let (
+        activation_key,
+        medical_personnel_iota_address,
+        medical_personnel_iota_key_pair,
+        medical_personnel_pre_secret_key,
+    ) = {
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found on auth state").context(current_fn!()))?;
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let medical_personnel_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let medical_personnel_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+        let (medical_personnel_pre_secret_key, _) =
+            get_pre_keys_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+
+        (
+            activation_key,
+            medical_personnel_iota_address,
+            medical_personnel_iota_key_pair,
+            medical_personnel_pre_secret_key,
+        )
+    };
+
+    // do cleanup
+    let _ = state
+        .move_call
+        .cleanup_read_access(
+            activation_key.clone(),
+            medical_personnel_iota_address,
+            medical_personnel_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
+
+    // get the data
+    let access = state
+        .move_call
+        .get_read_access(activation_key, medical_personnel_iota_address)
+        .await
+        .context(current_fn!())?;
+
+    let access = access
+        .into_iter()
+        .map(|access| {
+            let access_metadata: AccessMetadataEncrypted =
+                serde_deserialize_from_base64(access.metadata).context(current_fn!())?;
+            let access_metadata = decrypt_original(
+                &medical_personnel_pre_secret_key,
+                &serde_deserialize_from_base64(access_metadata.capsule).context(current_fn!())?,
+                &STANDARD
+                    .decode(access_metadata.enc_data)
+                    .context(current_fn!())?,
+            )
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+            let access_metadata: AccessMetadata =
+                serde_json::from_slice(&access_metadata).context(current_fn!())?;
+
+            let access = AccessData {
+                access_data_types: access.access_data_types,
+                access_token: access_metadata.access_token,
+                patient_iota_address: access_metadata.patient_iota_address,
+                patient_name: access_metadata.patient_name,
+                exp: access.exp,
+            };
+
+            Ok(access)
+        })
+        .collect::<Result<Vec<AccessData>, HospitalError>>()?;
+
+    Ok(SuccessResponse {
+        data: access,
+        status: ResponseStatus::Success,
+    })
+}
+
+#[tauri::command]
+pub async fn get_update_access_medical_personnel(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<SuccessResponse<Vec<AccessData>>, HospitalError> {
+    let state = state.lock().await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
+
+    let (
+        activation_key,
+        medical_personnel_iota_address,
+        medical_personnel_iota_key_pair,
+        medical_personnel_pre_secret_key,
+    ) = {
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found on auth state").context(current_fn!()))?;
+        let activation_key =
+            encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let medical_personnel_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let medical_personnel_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+        let (medical_personnel_pre_secret_key, _) =
+            get_pre_keys_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+
+        (
+            activation_key,
+            medical_personnel_iota_address,
+            medical_personnel_iota_key_pair,
+            medical_personnel_pre_secret_key,
+        )
+    };
+
+    // do cleanup
+    let _ = state
+        .move_call
+        .cleanup_update_access(
+            activation_key.clone(),
+            medical_personnel_iota_address,
+            medical_personnel_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
+
+    // get the data
+    let access = state
+        .move_call
+        .get_update_access(activation_key, medical_personnel_iota_address)
+        .await
+        .context(current_fn!())?;
+
+    let access = access
+        .into_iter()
+        .map(|access| {
+            let access_metadata: AccessMetadataEncrypted =
+                serde_deserialize_from_base64(access.metadata).context(current_fn!())?;
+            let access_metadata = decrypt_original(
+                &medical_personnel_pre_secret_key,
+                &serde_deserialize_from_base64(access_metadata.capsule).context(current_fn!())?,
+                &STANDARD
+                    .decode(access_metadata.enc_data)
+                    .context(current_fn!())?,
+            )
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+            let access_metadata: AccessMetadata =
+                serde_json::from_slice(&access_metadata).context(current_fn!())?;
+
+            let access = AccessData {
+                access_data_types: access.access_data_types,
+                access_token: access_metadata.access_token,
+                patient_iota_address: access_metadata.patient_iota_address,
+                patient_name: access_metadata.patient_name,
+                exp: access.exp,
+            };
+
+            Ok(access)
+        })
+        .collect::<Result<Vec<AccessData>, HospitalError>>()?;
+
+    Ok(SuccessResponse {
+        data: access,
+        status: ResponseStatus::Success,
     })
 }

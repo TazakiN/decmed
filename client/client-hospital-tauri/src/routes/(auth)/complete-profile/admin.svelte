@@ -54,31 +54,5 @@
 			>
 		{/if}
 	</div>
-	<div
-		class={cn(
-			'flex flex-col w-full border border-zinc-200',
-			$completeProfileAdminFormErrors.hospital && 'border-red-200'
-		)}
-	>
-		<Label.Root
-			for="hospital"
-			class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-			>Hospital</Label.Root
-		>
-		<input
-			type="text"
-			id="hospital"
-			name="hospital"
-			class="p-2 outline-0 bg-white"
-			placeholder="xxx-xxxxxxxx"
-			bind:value={$completeProfileAdminForm.hospital}
-			{...$completeProfileAdminFormConstraints.hospital}
-		/>
-		{#if $completeProfileAdminFormErrors.hospital}
-			<span class="px-2 py-1 border-t border-zinc-200 text-xs font-medium text-red-500 bg-red-50"
-				>{$completeProfileAdminFormErrors.hospital[0]}</span
-			>
-		{/if}
-	</div>
 	<button type="submit" class="button-dark mt-2">Continue</button>
 </form>

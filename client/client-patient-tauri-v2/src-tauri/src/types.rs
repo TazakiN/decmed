@@ -1,3 +1,5 @@
+use std::fmt;
+
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
 use iota_types::{
     base_types::{IotaAddress, ObjectID},
@@ -7,12 +9,9 @@ use keyring::Entry;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-// Enum.
+use crate::move_call::MoveCall;
 
-pub enum AuthType {
-    Signin,
-    Signup,
-}
+// Enum.
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum HospitalPersonnelRole {
@@ -41,54 +40,17 @@ pub enum ResponseStatus {
 
 // Struct
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountPackage {
-    pub package_id: ObjectID,
-    pub module: Identifier,
-
-    pub activation_key_activation_key_metadata_table_id: ObjectID,
-    pub activation_key_activation_key_metadata_table_version: u64,
-    pub address_id_table_id: ObjectID,
-    pub address_id_table_version: u64,
-    pub hospital_id_registered_hospital_table_id: ObjectID,
-    pub hospital_id_registered_hospital_table_version: u64,
-    pub id_access_queue_table_id: ObjectID,
-    pub id_access_queue_table_version: u64,
-    pub id_activation_key_table_id: ObjectID,
-    pub id_activation_key_table_version: u64,
-    pub id_address_table_id: ObjectID,
-    pub id_address_table_version: u64,
-    pub id_administrative_table_id: ObjectID,
-    pub id_administrative_table_version: u64,
-    pub id_expected_hospital_personnel_table_id: ObjectID,
-    pub id_expected_hospital_personnel_table_version: u64,
-    pub id_hospital_personnel_access_table_id: ObjectID,
-    pub id_hospital_personnel_access_table_version: u64,
-    pub id_hospital_personnel_table_id: ObjectID,
-    pub id_hospital_personnel_table_version: u64,
-    pub id_medical_table_id: ObjectID,
-    pub id_medical_table_version: u64,
-    pub id_patient_access_log_table_id: ObjectID,
-    pub id_patient_access_log_table_version: u64,
-    pub proxy_address_table_id: ObjectID,
-    pub proxy_address_table_version: u64,
-
-    pub admin_cap_id: ObjectID,
-    pub global_admin_add_key_cap_id: ObjectID,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AdministrativeData {
     pub private: PrivateAdministrativeData,
-    pub public: PublicAdministrativeData,
 }
 
 pub struct AppState {
-    pub account_package: AccountPackage,
     pub administrative_data: Option<AdministrativeData>,
     pub auth_state: AuthState,
     pub keys_entry: Entry,
-    pub polling_state: PollingState,
+    pub move_call: MoveCall,
+    pub scan_state: ScanState,
     pub signin_state: SignInState,
     pub signup_state: SignUpState,
 }
@@ -101,7 +63,8 @@ pub struct AuthState {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct CommandGetMedicalRecordsResponse {
+pub struct CommandGetMedicalRecordsResponseData {
+    pub cid: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     pub index: u64,
@@ -112,18 +75,42 @@ pub struct CommandGetProfileResponse {
     pub id: String,
     #[serde(rename = "idHash")]
     pub id_hash: String,
+    #[serde(rename = "iotaAddress")]
+    pub iota_address: String,
     pub name: Option<String>,
+    #[serde(rename = "prePublicKey")]
+    pub pre_public_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandProcessQrResponse {
-    pub hospital: String,
-    pub name: String,
+    #[serde(rename = "hospitalPersonnelHospitalName")]
+    pub hospital_personnel_hospital_name: String,
+    #[serde(rename = "hospitalPersonnelName")]
+    pub hospital_personnel_name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandUpdateProfileInput {
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DecmedPackage {
+    pub package_id: ObjectID,
+    pub module_admin: Identifier,
+    pub module_patient: Identifier,
+
+    pub address_id_object_id: ObjectID,
+    pub address_id_object_version: u64,
+    pub hospital_id_metadata_object_id: ObjectID,
+    pub hospital_id_metadata_object_version: u64,
+    pub hospital_personnel_id_account_object_id: ObjectID,
+    pub hospital_personnel_id_account_object_version: u64,
+    pub patient_id_account_object_id: ObjectID,
+    pub patient_id_account_object_version: u64,
+
+    pub global_admin_cap_id: ObjectID,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -134,8 +121,8 @@ pub struct ExecuteTxResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct KeyNonce {
-    pub key: Vec<u8>,
-    pub nonce: Vec<u8>,
+    pub key: String,
+    pub nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -145,11 +132,17 @@ pub struct KeysEntry {
     pub admin_secret_key: Option<String>,
     pub id: Option<String>,
     pub iota_address: Option<String>,
-    pub iota_key_pair: Option<Vec<u8>>,
-    pub iota_nonce: Option<Vec<u8>>,
-    pub pre_nonce: Option<Vec<u8>>,
-    pub pre_public_key: Option<Vec<u8>>,
-    pub pre_secret_key: Option<Vec<u8>>,
+    pub iota_key_pair: Option<String>,
+    pub iota_nonce: Option<String>,
+    pub pre_nonce: Option<String>,
+    pub pre_public_key: Option<String>,
+    pub pre_secret_key: Option<String>,
+    pub proxy_jwt: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HospitalPersonnelPublicAdministrativeData {
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -160,38 +153,40 @@ pub struct MedicalData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MedicalMetadata {
-    pub capsule: Vec<u8>,
+    pub capsule: String,
     pub cid: String,
     pub created_at: String,
-    pub enc_key_and_nonce: Vec<u8>,
+    pub enc_key_and_nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveAdministrative {
-    pub private_data: Vec<u8>,
-    pub public_data: Vec<u8>,
+pub struct MoveCreateAccessData {
+    pub access_token: String,
+    pub patient_iota_address: String,
+    pub patient_name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveGetAccessQueueResponse {
-    pub data: Vec<u8>,
+pub struct MoveCreateAccessMetadata {
+    pub capsule: String,
+    pub enc_data: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveInitRequestInput {
-    pub patient_id: String,
-    pub patient_pre_public_key: Vec<u8>,
+pub struct MoveHospitalPersonnelPublicAdministrativeData {
+    pub hospital_name: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct MoveMedicalMetadata {
-    pub data: Vec<u8>,
+pub struct MovePatientAdministrativeMetadata {
+    pub private_metadata: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MovePatientMedicalMetadata {
     pub index: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PollingState {
-    pub request_access: bool,
+    pub metadata: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -202,13 +197,46 @@ pub struct PrivateAdministrativeData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct PrivateAdministrativeMetadata {
-    pub capsule: Vec<u8>,
-    pub enc_data: Vec<u8>,
-    pub enc_key_nonce: Vec<u8>,
+    pub capsule: String,
+    pub enc_data: String,
+    pub enc_key_nonce: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PublicAdministrativeData {}
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionPostKeysResponseData {
+    pub access_token_read: String,
+    pub access_token_update: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionErrorResponse {
+    pub error: String,
+    pub status_code: u16,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionKeysPayload {
+    pub enc_hospital_personnel_pre_secret_key_seed: String,
+    pub hospital_personnel_iota_address: String,
+    pub hospital_personnel_pre_public_key: String,
+    pub hospital_personnel_pre_secret_key_seed_capsule: String,
+    pub k_frag: String,
+    pub patient_iota_address: String,
+    pub patient_pre_public_key: String,
+    pub signature: String,
+    pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionNoncePayload {
+    pub iota_address: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionSuccessResponse<T> {
+    pub data: T,
+    pub status_code: u16,
+}
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 pub struct ReserveGasResponse {
@@ -221,6 +249,11 @@ pub struct ReserveGasResult {
     pub gas_coins: Vec<IotaObjectRef>,
     pub reservation_id: u64,
     pub sponsor_address: IotaAddress,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ScanState {
+    pub hospital_personnel_qr_content: Option<String>,
 }
 
 pub struct SignInState {
@@ -237,3 +270,19 @@ pub struct SuccessResponse<T> {
     pub data: T,
     pub status: ResponseStatus,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UtilIpfsAddResponse {
+    pub allocations: Vec<String>,
+    pub cid: String,
+    pub name: String,
+    pub size: u64,
+}
+
+impl fmt::Display for ProxyReencryptionErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::error::Error for ProxyReencryptionErrorResponse {}

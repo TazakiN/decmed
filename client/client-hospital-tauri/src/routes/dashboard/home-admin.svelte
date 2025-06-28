@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Dialog from '$lib/components/dialog.svelte';
 	import Select from '$lib/components/select.svelte';
-	import type { AddPersonnelSchemaStep2, HospitalPersonnel } from '$lib/types';
+	import type { AddPersonnelSchemaStep2 } from '$lib/types';
 	import type { Infer, SuperValidated } from 'sveltekit-superforms';
 	import { AdminHomeState } from './admin-state.svelte';
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
@@ -10,10 +10,9 @@
 
 	type Props = {
 		addPersonnelFormData: SuperValidated<Infer<AddPersonnelSchemaStep2>>;
-		personnels?: HospitalPersonnel[];
 	};
 
-	let { addPersonnelFormData, personnels }: Props = $props();
+	let { addPersonnelFormData }: Props = $props();
 
 	const adminHomeState = new AdminHomeState({ addPersonnelForm: addPersonnelFormData });
 	const {
@@ -134,34 +133,38 @@
 		</Dialog>
 	</div>
 	<div class="flex flex-col my-4 bg-white">
-		{#if personnels && personnels.length > 0}
-			{#each personnels as personnel, i (i)}
-				<div
-					class="flex flex-col p-2 border [&:not(:last-child)]:border-b-0 w-full border-zinc-200"
-				>
-					<div class="flex items-center justify-between gap-2">
-						<p class="text-zinc-400 text-sm">{personnel.id}</p>
-						<p
-							class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
-						>
-							{personnel.role}
-						</p>
+		{#await adminHomeState.refetchPersonnels}
+			Loading..
+		{:then personnels}
+			{#if personnels && personnels.length > 0}
+				{#each personnels as personnel, i (i)}
+					<div
+						class="flex flex-col p-2 border [&:not(:last-child)]:border-b-0 w-full border-zinc-200"
+					>
+						<div class="flex items-center justify-between gap-2">
+							<p class="text-zinc-400 text-sm">{personnel.id}</p>
+							<p
+								class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
+							>
+								{personnel.role}
+							</p>
+						</div>
+						<div class="flex items-center gap-2">
+							<button
+								onclick={() => {
+									navigator.clipboard.writeText(personnel.activation_key);
+								}}
+								class="cursor-pointer"
+							>
+								<Copy size={14} />
+							</button>
+							<p>{personnel.activation_key}</p>
+						</div>
 					</div>
-					<div class="flex items-center gap-2">
-						<button
-							onclick={() => {
-								navigator.clipboard.writeText(personnel.activation_key);
-							}}
-							class="cursor-pointer"
-						>
-							<Copy size={14} />
-						</button>
-						<p>{personnel.activation_key}</p>
-					</div>
-				</div>
-			{/each}
-		{:else}
-			<p>No personnels.</p>
-		{/if}
+				{/each}
+			{:else}
+				<p>No personnels.</p>
+			{/if}
+		{/await}
 	</div>
 </div>

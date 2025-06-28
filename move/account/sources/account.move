@@ -14,10 +14,11 @@ use 0x2::clock::{Clock};
 use 0x2::hex::{encode};
 use 0x2::table::{Self, Table};
 
+
 // == Constants. ==
 
 const EActivationKeyAlreadyUsed: u64 = 4;
-const EDuplicateAccount: u64 = 0;
+const EDuplicateAccount: u64 = 1001;
 const EDuplicateActivationKey: u64 = 2;
 const EIllegalAction: u64 = 5;
 const EInvalidCount: u64 = 1;
@@ -25,9 +26,14 @@ const EInvalidRoleType: u64 = 3;
 
 // == Enums. ==
 
-public enum DataAccessType has copy, drop, store {
+public enum AccessDataType has copy, drop, store {
     Administrative,
-    Medical
+    Medical,
+}
+
+public enum AccessType has copy, drop, store {
+    Read,
+    Update,
 }
 
 public enum HospitalRole has copy, drop, store {
@@ -38,13 +44,15 @@ public enum HospitalRole has copy, drop, store {
 
 // == Structs ==
 
+/**
+* data will contains: for now just patient_name
+* encrypted with hospital_personnel PRE pub key
+*/
 public struct Access has copy, drop, store {
-    access_type: DataAccessType,
+    access_data_types: vector<AccessDataType>,
     exp: u64,
-}
-
-public struct AccessQueue has copy, drop, store {
-    data: vector<u8>
+    metadata: String,
+    patient_address: address,
 }
 
 public struct AccountAddress has copy, drop, store {
@@ -66,18 +74,8 @@ public struct AdminCap has key {
 }
 
 public struct Administrative has copy, drop, store {
-    private_data: vector<u8>,
-    public_data: vector<u8>,
-}
-
-public struct ExpectedHospitalPersonnel has copy, drop, store {
-    id: String
-}
-
-public struct GetPatientAccessLogResponse has copy, drop, store {
-    hospital_personnel_id: String,
-    hospital_personnel_data: vector<u8>,
-    date: String,
+    private_data: String,
+    public_data: String,
 }
 
 public struct GlobalAdminAddKeyCap has key {
@@ -94,11 +92,12 @@ public struct HospitalPersonnel has store {
 * - data: `key: delegator id`
 */
 public struct HospitalPersonnelAccess has store {
-    data: Table<String, Access>
+   read_access: ReadAccess,
+   update_access: UpdateAccess,
 }
 
 public struct HospitalPersonnelMetadata has copy, drop, store {
-    data: vector<u8>
+    metadata: String
 }
 
 public struct Id has copy, drop, store {
@@ -106,13 +105,15 @@ public struct Id has copy, drop, store {
 }
 
 public struct MedicalMetadata has copy, drop, store {
-    data: vector<u8>,
     index: u64,
+    metadata: String,
 }
 
 public struct PatientAccessLog has copy, drop, store {
+    access_data_types: vector<AccessDataType>,
+    access_types: vector<AccessType>,
     date: String,
-    hospital_personnel_id: String,
+    hospital_personnel_public_data: String,
 }
 
 public struct ProxyAddressExist has copy, drop, store {
@@ -123,21 +124,66 @@ public struct ProxyCap has key {
     id: UID,
 }
 
+public struct ReadAccess has store {
+    index: Table<String, u64>,
+    data: vector<Access>,
+}
+
 public struct RegisteredHospital has copy, drop, store {
     admin_id: String,
     hospital_name: Option<String>,
 }
 
+public struct UpdateAccess has store {
+    index: Table<String, u64>,
+    data: vector<Access>,
+}
+
 // == Functions. ==
 
-entry fun cleanup_access_queue(
+entry fun cleanup_read_access_hospital_personnel(
     address_id_table: &Table<address, Id>,
-    id_access_queue_table: &mut Table<String, vector<AccessQueue>>,
-    ctx: &TxContext,
+    clock: &Clock,
+    id_hospital_personnel_access_table: &mut Table<String, HospitalPersonnelAccess>,
+    ctx: &TxContext
 )
 {
-    let sender_id = table::borrow(address_id_table, ctx.sender());
-    table::remove(id_access_queue_table, sender_id.id);
+    let hospital_personnel_id = table::borrow(address_id_table, ctx.sender());
+
+    if (!table::contains(id_hospital_personnel_access_table, hospital_personnel_id.id)) {
+        // Return early so there is no errors.
+        return
+    };
+
+    let hospital_personnel_read_access = &mut table::borrow_mut(id_hospital_personnel_access_table, hospital_personnel_id.id).read_access;
+
+    let current_ms = clock.timestamp_ms();
+    let mut cnt = 0;
+    let access_len = vector::length(&hospital_personnel_read_access.data);
+
+    let hospital_personnel_read_access_index = &mut hospital_personnel_read_access.index;
+    let mut new_hospital_personnel_read_access_data = vector::empty<Access>();
+
+    // Cleanup
+    while (cnt < access_len) {
+        let hospital_personnel_read_access_datum = vector::borrow(&hospital_personnel_read_access.data, cnt);
+        let patient_id = table::borrow(address_id_table, hospital_personnel_read_access_datum.patient_address);
+
+        if (current_ms > hospital_personnel_read_access_datum.exp) {
+            cnt = cnt + 1;
+            continue
+        };
+
+        let current_index = vector::length(&new_hospital_personnel_read_access_data);
+
+        table::remove(hospital_personnel_read_access_index, patient_id.id);
+        table::add(hospital_personnel_read_access_index, patient_id.id, current_index);
+        vector::push_back(&mut new_hospital_personnel_read_access_data, *hospital_personnel_read_access_datum);
+
+        cnt = cnt + 1;
+    };
+
+    hospital_personnel_read_access.data = new_hospital_personnel_read_access_data;
 }
 
 entry fun create_account(
@@ -161,75 +207,115 @@ entry fun create_account(
 }
 
 // called by patient
-entry fun create_new_access(
+entry fun create_access(
     activation_key_activation_key_metadata_table: &Table<String, ActivationKeyMetadata>,
     address_id_table: &Table<address, Id>,
     clock: &Clock,
     date: String,
-    hospital_personnel_hospital_part: String,
-    hospital_personnel_id_part: String,
+    hospital_personnel_address: address,
     id_activation_key_table: &Table<String, ActivationKey>,
+    id_administrative_table: &Table<String, Administrative>,
     id_hospital_personnel_access_table: &mut Table<String, HospitalPersonnelAccess>,
     id_patient_access_log_table: &mut Table<String, vector<PatientAccessLog>>,
+    metadata: String,
     ctx: &mut TxContext,
 )
 {
     let patient_id = table::borrow(address_id_table, ctx.sender());
 
-    let hospital_personnel_id = util_encode_hospital_personnel_id(hospital_personnel_hospital_part, hospital_personnel_id_part);
-    let hospital_personnel_activation_key = table::borrow(id_activation_key_table, hospital_personnel_id);
+    let hospital_personnel_id = table::borrow(address_id_table, hospital_personnel_address);
+    let hospital_personnel_activation_key = table::borrow(id_activation_key_table, hospital_personnel_id.id);
     let hospital_personnel_activation_key_metadata = table::borrow(activation_key_activation_key_metadata_table, hospital_personnel_activation_key.key);
 
-    assert!(hospital_personnel_activation_key_metadata.role != HospitalRole::Admin, EIllegalAction);
-
-    let mut access_type = DataAccessType::Medical;
-    if (hospital_personnel_activation_key_metadata.role == HospitalRole::AdministrativePersonnel) {
-        access_type = DataAccessType::Administrative;
+    match (hospital_personnel_activation_key_metadata.role) {
+        HospitalRole::AdministrativePersonnel => {},
+        HospitalRole::MedicalPersonnel => {},
+        _ => return assert!(false, EIllegalAction),
     };
 
-    let exp = clock.timestamp_ms() + 1000 * 60 * 60 * 2; // two hours
-    let access = Access {
-        exp,
-        access_type
+    if (!table::contains(id_hospital_personnel_access_table, hospital_personnel_id.id)) {
+        let hospital_personnel_access = util_create_empty_hospital_personnel_access(ctx);
+        table::add(id_hospital_personnel_access_table, hospital_personnel_id.id, hospital_personnel_access);
     };
 
-    if (table::contains(id_hospital_personnel_access_table, hospital_personnel_id)) {
-        let hospital_personnel_access = table::borrow_mut(id_hospital_personnel_access_table, hospital_personnel_id);
-        let hospital_personnel_access_table = &mut hospital_personnel_access.data;
+    let hospital_personnel_access = table::borrow_mut(id_hospital_personnel_access_table, hospital_personnel_id.id);
 
-        if (table::contains(hospital_personnel_access_table, patient_id.id)) {
-            table::remove(hospital_personnel_access_table, patient_id.id);
-        };
+    match (hospital_personnel_activation_key_metadata.role) {
+        HospitalRole::AdministrativePersonnel => {
+            let mut access_data_types = vector::empty<AccessDataType>();
+            vector::push_back(&mut access_data_types, AccessDataType::Administrative);
 
-        table::add(hospital_personnel_access_table, patient_id.id, access);
-    } else {
-        let mut hospital_personnel_access_table = table::new<String, Access>(ctx);
-        table::add(&mut hospital_personnel_access_table, patient_id.id, access);
+            let access = Access {
+                access_data_types,
+                exp: clock.timestamp_ms() + 1000 * 60 * 5, // 5 minutes,
+                metadata,
+                patient_address: ctx.sender(),
+            };
+            util_add_hospital_personnel_read_access(access, patient_id.id, &mut hospital_personnel_access.read_access);
 
-        let hospital_personnel_access = HospitalPersonnelAccess {
-          data: hospital_personnel_access_table
-        };
+            let mut access_types = vector::empty<AccessType>();
+            vector::push_back(&mut access_types, AccessType::Read);
 
-        table::add(id_hospital_personnel_access_table, hospital_personnel_id, hospital_personnel_access);
+            util_add_patient_access_log(
+                access_data_types,
+                access_types,
+                date,
+                hospital_personnel_id.id,
+                id_administrative_table,
+                id_patient_access_log_table,
+                patient_id.id
+            );
+        },
+        HospitalRole::MedicalPersonnel => {
+            let mut read_access_data_types = vector::empty<AccessDataType>();
+            vector::push_back(&mut read_access_data_types, AccessDataType::Administrative);
+            vector::push_back(&mut read_access_data_types, AccessDataType::Medical);
+
+            let mut update_access_data_types = vector::empty<AccessDataType>();
+            vector::push_back(&mut update_access_data_types, AccessDataType::Medical);
+
+            let read_access = Access {
+                access_data_types: read_access_data_types,
+                exp: clock.timestamp_ms() + 1000 * 60 * 15, // 15 minutes,
+                metadata,
+                patient_address: ctx.sender(),
+            };
+            let update_access = Access {
+                access_data_types: update_access_data_types,
+                exp: clock.timestamp_ms() + 1000 * 60 * 60 * 2, // 2 hours,
+                metadata,
+                patient_address: ctx.sender(),
+            };
+
+            util_add_hospital_personnel_read_access(read_access, patient_id.id, &mut hospital_personnel_access.read_access);
+            util_add_hospital_personnel_update_access(update_access, patient_id.id, &mut hospital_personnel_access.update_access);
+
+            let mut access_types = vector::empty<AccessType>();
+            vector::push_back(&mut access_types, AccessType::Read);
+            vector::push_back(&mut access_types, AccessType::Update);
+
+            util_add_patient_access_log(
+                read_access_data_types,
+                access_types,
+                date,
+                hospital_personnel_id.id,
+                id_administrative_table,
+                id_patient_access_log_table,
+                patient_id.id
+            );
+        },
+        _ => {}
     };
-
-    // Add to log
-    let new_patient_access_log_entry = PatientAccessLog {
-        hospital_personnel_id,
-        date
-    };
-    let patient_access_log = table::borrow_mut(id_patient_access_log_table, patient_id.id);
-    vector::push_back(patient_access_log, new_patient_access_log_entry);
 }
 
 // called by medical personnel
 entry fun create_new_medical_record(
     activation_key_activation_key_metadata_table: &Table<String, ActivationKeyMetadata>,
     address_id_table: &Table<address, Id>,
-    data: vector<u8>,
-    patient_id: String,
     id_activation_key_table: &Table<String, ActivationKey>,
     id_medical_table: &mut Table<String, vector<MedicalMetadata>>,
+    metadata: String,
+    patient_address: address,
     ctx: &TxContext,
 )
 {
@@ -241,10 +327,10 @@ entry fun create_new_medical_record(
 
     let mut medical_metadata = MedicalMetadata {
         index: 0,
-        data
+        metadata,
     };
 
-    let patient_id = util_sha2_256_to_hex(patient_id.into_bytes());
+    let patient_id = table::borrow(address_id_table, patient_address).id;
 
     if (table::contains(id_medical_table, patient_id)) {
         let medical_metadata_vec = table::borrow_mut(id_medical_table, patient_id);
@@ -268,22 +354,59 @@ entry fun create_new_proxy_capability(
     transfer::transfer(ProxyCap { id: object::new(ctx) }, proxy_address);
 }
 
-entry fun get_access_queue(
+entry fun get_read_access_hospital_personnel(
     address_id_table: &Table<address, Id>,
-    id_access_queue_table: &Table<String, vector<AccessQueue>>,
+    id_hospital_personnel_access_table: &Table<String, HospitalPersonnelAccess>,
     ctx: &TxContext
-): vector<AccessQueue>
+): vector<Access>
 {
-    let sender_id = table::borrow(address_id_table, ctx.sender());
+    let hospital_personnel_id = table::borrow(address_id_table, ctx.sender());
+    let hospital_personnel_read_access = &table::borrow(id_hospital_personnel_access_table, hospital_personnel_id.id).read_access;
 
-    if (table::contains(id_access_queue_table, sender_id.id)) {
-        return *table::borrow(id_access_queue_table, sender_id.id)
-    };
-
-    vector::empty<AccessQueue>()
+    hospital_personnel_read_access.data
 }
 
-// Return: (profile_data, role: ['Admin', 'MedicalPersonnel', 'AdministrativePersonnel', 'Patient'], hospital_name)
+entry fun get_update_access_hospital_personnel(
+    address_id_table: &Table<address, Id>,
+    clock: &Clock,
+    id_hospital_personnel_access_table: &mut Table<String, HospitalPersonnelAccess>,
+    ctx: &TxContext
+): vector<Access>
+{
+    let hospital_personnel_id = table::borrow(address_id_table, ctx.sender());
+    let hospital_personnel_update_access = &mut table::borrow_mut(id_hospital_personnel_access_table, hospital_personnel_id.id).update_access;
+
+    let current_ms = clock.timestamp_ms();
+    let mut cnt = 0;
+    let access_len = vector::length(&hospital_personnel_update_access.data);
+
+    let hospital_personnel_update_access_index = &mut hospital_personnel_update_access.index;
+    let mut new_hospital_personnel_update_access_data = vector::empty<Access>();
+
+    // Cleanup
+    while (cnt < access_len) {
+        cnt = cnt + 1;
+
+        let hospital_personnel_update_access_datum = vector::borrow(&hospital_personnel_update_access.data, cnt);
+        let patient_id = table::borrow(address_id_table, hospital_personnel_update_access_datum.patient_address);
+
+        if (current_ms > hospital_personnel_update_access_datum.exp) {
+            continue
+        };
+
+
+        let current_index = vector::length(&new_hospital_personnel_update_access_data);
+
+        table::remove(hospital_personnel_update_access_index, patient_id.id);
+        table::add(hospital_personnel_update_access_index, patient_id.id, current_index);
+        vector::push_back(&mut new_hospital_personnel_update_access_data, *hospital_personnel_update_access_datum);
+    };
+
+    hospital_personnel_update_access.data = new_hospital_personnel_update_access_data;
+    new_hospital_personnel_update_access_data
+}
+
+// Return: (profile_data, role: ['Admin', 'MedicalPersonnel', 'AdministrativePersonnel'], hospital_name)
 entry fun get_administrative_data_hospital_personnel(
     activation_key_activation_key_metadata_table: &Table<String, ActivationKeyMetadata>,
     address_id_table: &Table<address, Id>,
@@ -321,7 +444,7 @@ entry fun get_administrative_data_patient(
     *table::borrow(id_administrative_table, patient_id.id)
 }
 
-entry fun get_hospital_personnel(
+entry fun get_hospital_personnels(
     address_id_table: &Table<address, Id>,
     id_hospital_personnel_table: &Table<String, HospitalPersonnel>,
     ctx: &TxContext
@@ -335,34 +458,41 @@ entry fun get_hospital_personnel(
 * Called by patient
 * Return: (public_data, hospital_name)
 */
-entry fun get_hospital_personnel_public_data(
+entry fun get_hospital_personnel_public_administrative_data(
+    address_id_table: &Table<address, Id>,
     activation_key_activation_key_metadata_table: &Table<String,ActivationKeyMetadata>,
     hospital_id_registered_hospital_table: &Table<String, RegisteredHospital>,
-    hospital_personnel_hospital_part: String,
-    hospital_personnel_id_part: String,
+    hospital_personnel_address: address,
     id_activation_key_table: &Table<String, ActivationKey>,
     id_administrative_table: &Table<String, Administrative>,
     _ctx: &TxContext
-): (vector<u8>, String)
+): (String, String)
 {
-    let hospital_personnel_id = util_encode_hospital_personnel_id(hospital_personnel_hospital_part, hospital_personnel_id_part);
-    let public_data = table::borrow(id_administrative_table, hospital_personnel_id).public_data;
+    let hospital_personnel_id = table::borrow(address_id_table, hospital_personnel_address);
+    let public_data = table::borrow(id_administrative_table, hospital_personnel_id.id).public_data;
 
-    let activation_key = table::borrow(id_activation_key_table, hospital_personnel_id);
+    let activation_key = table::borrow(id_activation_key_table, hospital_personnel_id.id);
     let activation_key_metadata = table::borrow(activation_key_activation_key_metadata_table, activation_key.key);
 
     let hospital_name = table::borrow(hospital_id_registered_hospital_table, activation_key_metadata.hospital_id).hospital_name;
     (public_data, *option::borrow(&hospital_name))
 }
 
-entry fun get_hospital_personnel_role(
+entry fun get_role_proxy(
     activation_key_activation_key_metadata_table: &Table<String, ActivationKeyMetadata>,
+    address: address,
     address_id_table: &Table<address, Id>,
     id_activation_key_table: &Table<String, ActivationKey>,
-    ctx: &TxContext
+    _: &ProxyCap,
+    _ctx: &TxContext
 ): String
 {
-    let id = table::borrow(address_id_table, ctx.sender());
+    let id = table::borrow(address_id_table, address);
+
+    if (!table::contains(id_activation_key_table, id.id)) {
+        return string::utf8(b"Patient")
+    };
+
     let activation_key = table::borrow(id_activation_key_table, id.id);
     let activation_key_metadata = table::borrow(activation_key_activation_key_metadata_table, activation_key.key);
 
@@ -373,6 +503,7 @@ entry fun get_hospital_personnel_role(
     }
 }
 
+// Called by patient
 entry fun get_medical_records(
     address_id_table: &Table<address, Id>,
     id_medical_table: &Table<String, vector<MedicalMetadata>>,
@@ -383,35 +514,39 @@ entry fun get_medical_records(
     *table::borrow(id_medical_table, id.id)
 }
 
-// Only proxy can invoke this method
-entry fun get_medical_record_medical_personnel(
+// Called by proxy
+entry fun get_medical_record_proxy(
     address_id_table: &Table<address, Id>,
     clock: &Clock,
+    medical_personnel_address: address,
     id_hospital_personnel_access_table: &Table<String, HospitalPersonnelAccess>,
     id_medical_table: &Table<String, vector<MedicalMetadata>>,
-    index: u64,
-    patient_id: String,
+    medical_metadata_index: u64,
+    patient_address: address,
     _: &ProxyCap,
-    ctx: &TxContext
+    _: &TxContext
 ): MedicalMetadata
 {
-    let medical_personnel_id = *table::borrow(address_id_table, ctx.sender());
-    let medical_personnel_access_table = &table::borrow(id_hospital_personnel_access_table, medical_personnel_id.id).data;
+    let medical_personnel_id = table::borrow(address_id_table, medical_personnel_address);
+    let patient_id = table::borrow(address_id_table, patient_address);
 
-    let patient_id = util_sha2_256_to_hex(patient_id.into_bytes());
-
-    let access = table::borrow(medical_personnel_access_table, patient_id);
+    let medical_personnel_read_access = &table::borrow(id_hospital_personnel_access_table, medical_personnel_id.id).read_access;
+    let medical_personnel_read_access_index = table::borrow(&medical_personnel_read_access.index, patient_id.id);
+    let medical_personnel_read_access_data = vector::borrow(&medical_personnel_read_access.data, *medical_personnel_read_access_index);
 
     assert!(
-        access.access_type == DataAccessType::Medical &&
-        access.exp >= clock.timestamp_ms(),
+        vector::contains(&medical_personnel_read_access_data.access_data_types, &AccessDataType::Medical) &&
+        medical_personnel_read_access_data.exp > clock.timestamp_ms(),
         EIllegalAction
     );
 
-    let medical_metadata_vec = table::borrow(id_medical_table, patient_id);
-    *vector::borrow(medical_metadata_vec, index)
+    let patient_medical_metadata_vec = table::borrow(id_medical_table, patient_id.id);
+    let patient_medical_metadata = vector::borrow(patient_medical_metadata_vec, medical_metadata_index);
+
+    *patient_medical_metadata
 }
 
+// Called by patient who owned the data
 entry fun get_medical_record_patient(
     address_id_table: &Table<address, Id>,
     id_medical_table: &Table<String, vector<MedicalMetadata>>,
@@ -429,10 +564,9 @@ entry fun get_patient_access_log(
     address_id_table: &Table<address, Id>,
     cursor: u64,
     count: u64,
-    id_administrative_table: &Table<String, Administrative>,
     id_patient_access_log_table: &Table<String, vector<PatientAccessLog>>,
     ctx: &TxContext,
-): vector<GetPatientAccessLogResponse>
+): vector<PatientAccessLog>
 {
     let patient_id = table::borrow(address_id_table, ctx.sender());
     let patient_access_log_vec = table::borrow(id_patient_access_log_table, patient_id.id);
@@ -447,17 +581,11 @@ entry fun get_patient_access_log(
     let min_index = cursor - count;
     let mut current_index = cursor - 1;
 
-    let mut response = vector::empty<GetPatientAccessLogResponse>();
+    let mut response = vector::empty<PatientAccessLog>();
 
     loop {
         let access_log = vector::borrow(patient_access_log_vec, cursor);
-        let hospital_personnel_data = table::borrow(id_administrative_table, access_log.hospital_personnel_id);
-        let res_entry = GetPatientAccessLogResponse {
-            hospital_personnel_id: access_log.hospital_personnel_id,
-            hospital_personnel_data: hospital_personnel_data.public_data,
-            date: access_log.date,
-        };
-        vector::push_back(&mut response, res_entry);
+        vector::push_back(&mut response, *access_log);
 
         if (current_index == min_index) {
             break
@@ -520,10 +648,10 @@ entry fun hospital_admin_add_activation_key (
     activation_key: String,
     activation_key_activation_key_metadata_table: &mut Table<String, ActivationKeyMetadata>,
     address_id_table: &Table<address, Id>,
-    data: vector<u8>,
     hospital_id_registered_hospital_table: &Table<String, RegisteredHospital>,
     id_activation_key_table: &mut Table<String, ActivationKey>,
     id_hospital_personnel_table: &mut Table<String, HospitalPersonnel>,
+    metadata: String,
     personnel_hospital_part: String,
     personnel_id_part: String,
     role: String,
@@ -570,7 +698,7 @@ entry fun hospital_admin_add_activation_key (
     table::add(id_activation_key_table, personnel_id, activation_key);
 
     let hospital_personnel_metadata = HospitalPersonnelMetadata {
-        data
+        metadata
     };
 
     if (table::contains(id_hospital_personnel_table, admin_id.id)) {
@@ -613,12 +741,10 @@ fun init(ctx: &mut TxContext) {
     let activation_key_activation_key_metadata_table = table::new<String, ActivationKeyMetadata>(ctx);
     let address_id_table = table::new<address, Id>(ctx);
     let hospital_id_registered_hospital_table = table::new<String, RegisteredHospital>(ctx);
-    let id_access_queue_table = table::new<String, vector<AccessQueue>>(ctx);
     let id_activation_key_table = table::new<String, ActivationKey>(ctx);
     let id_address_table = table::new<String, AccountAddress>(ctx);
     let id_administrative_table = table::new<String, Administrative>(ctx);
-    let id_expected_hospital_personnel_table = table::new<String, ExpectedHospitalPersonnel>(ctx); // only for patient
-    let id_hospital_personnel_access_table = table::new<String, Access>(ctx);
+    let id_hospital_personnel_access_table = table::new<String, HospitalPersonnelAccess>(ctx);
     let id_hospital_personnel_table = table::new<String, HospitalPersonnel>(ctx);
     let id_medical_table = table::new<String, vector<MedicalMetadata>>(ctx);
     let id_patient_access_log_table = table::new<String, vector<PatientAccessLog>>(ctx);
@@ -626,96 +752,15 @@ fun init(ctx: &mut TxContext) {
 
     transfer::public_share_object(activation_key_activation_key_metadata_table);
     transfer::public_share_object(address_id_table);
-    transfer::public_share_object(id_access_queue_table);
     transfer::public_share_object(id_activation_key_table);
     transfer::public_share_object(id_address_table);
     transfer::public_share_object(id_administrative_table);
-    transfer::public_share_object(id_expected_hospital_personnel_table);
     transfer::public_share_object(id_hospital_personnel_access_table);
     transfer::public_share_object(id_hospital_personnel_table);
     transfer::public_share_object(id_medical_table);
     transfer::public_share_object(hospital_id_registered_hospital_table);
     transfer::public_share_object(id_patient_access_log_table);
     transfer::public_share_object(proxy_address_table);
-}
-
-// Called by patient
-entry fun init_access(
-    activation_key_activation_key_metadata_table: &Table<String, ActivationKeyMetadata>,
-    address_id_table: &Table<address, Id>,
-    data: vector<u8>,
-    hospital_personnel_hospital_part: String,
-    hospital_personnel_id_part: String,
-    id_access_queue_table: &mut Table<String, vector<AccessQueue>>,
-    id_activation_key_table: &Table<String, ActivationKey>,
-    id_expected_hospital_personnel_table: &mut Table<String, ExpectedHospitalPersonnel>,
-    ctx: &TxContext,
-)
-{
-    // Make sure only patient can use this method
-    let patient_id = table::borrow(address_id_table, ctx.sender());
-    assert!(!table::contains(id_activation_key_table, patient_id.id), EIllegalAction);
-
-    let hospital_personnel_id = util_encode_hospital_personnel_id(hospital_personnel_hospital_part, hospital_personnel_id_part);
-
-    let hospital_personnel_activation_key = table::borrow(id_activation_key_table, hospital_personnel_id);
-    let hospital_personnel_activation_key_metadata = table::borrow(activation_key_activation_key_metadata_table, hospital_personnel_activation_key.key);
-
-    assert!(
-        hospital_personnel_activation_key_metadata.role == HospitalRole::MedicalPersonnel ||
-        hospital_personnel_activation_key_metadata.role == HospitalRole::AdministrativePersonnel,
-        EIllegalAction
-    );
-
-    let access_queue = AccessQueue {
-        data
-    };
-
-    if (table::contains(id_access_queue_table, hospital_personnel_id)) {
-        let access_queue_vec = table::borrow_mut(id_access_queue_table, hospital_personnel_id);
-        vector::push_back(access_queue_vec, access_queue);
-    } else {
-        let mut access_queue_vec = vector::empty<AccessQueue>();
-        vector::push_back(&mut access_queue_vec, access_queue);
-        table::add(id_access_queue_table, hospital_personnel_id, access_queue_vec);
-    };
-
-    if (table::contains(id_expected_hospital_personnel_table, patient_id.id)) {
-        table::remove(id_expected_hospital_personnel_table, patient_id.id);
-    };
-
-    let expected_delegatee_data = ExpectedHospitalPersonnel {
-        id: hospital_personnel_id
-    };
-    table::add(id_expected_hospital_personnel_table, patient_id.id, expected_delegatee_data);
-}
-
-// called by proxy_reencryption
-entry fun is_access_exist(
-    access_type: String,
-    clock: &Clock,
-    hospital_personnel_hospital_part: String,
-    hospital_personnel_id_part: String,
-    id_hospital_personnel_access_table: &Table<String, HospitalPersonnelAccess>,
-    patient_id: String,
-    _: &ProxyCap,
-    _ctx: &TxContext,
-): bool
-{
-    let hospital_personnel_id = util_encode_hospital_personnel_id(hospital_personnel_hospital_part, hospital_personnel_id_part);
-    let patient_id = util_sha2_256_to_hex(patient_id.into_bytes());
-
-    let hospital_personnel_access_table = &table::borrow(id_hospital_personnel_access_table, hospital_personnel_id).data;
-    let access = table::borrow(hospital_personnel_access_table, patient_id);
-
-    let mut acc_type = DataAccessType::Medical;
-    if (access_type.as_bytes() == b"Administrative") {
-        acc_type = DataAccessType::Administrative;
-    } else if (access_type.as_bytes() != b"Medical") {
-        return false
-    };
-
-    access.exp > clock.timestamp_ms() && access.access_type == acc_type
 }
 
 // For signin
@@ -726,6 +771,18 @@ entry fun is_account_registered(
 ): bool
 {
     table::contains(address_id_table, ctx.sender())
+}
+
+
+// Called by the proxy
+entry fun is_account_registered_proxy(
+    address: address,
+    address_id_table: &Table<address, Id>,
+    _: &ProxyCap,
+    _ctx: &TxContext
+): bool
+{
+    table::contains(address_id_table, address)
 }
 
 // return type: (
@@ -766,8 +823,8 @@ entry fun register_hospital_personnel(
     id_activation_key_table: &Table<String, ActivationKey>,
     id_address_table: &mut Table<String, AccountAddress>,
     id_administrative_table: &mut Table<String, Administrative>,
-    private_data: vector<u8>,
-    public_data: vector<u8>,
+    private_data: String,
+    public_data: String,
     ctx: &TxContext,
 )
 {
@@ -795,8 +852,8 @@ entry fun register_patient(
     patient_id: String,
     id_address_table: &mut Table<String, AccountAddress>,
     id_administrative_table: &mut Table<String, Administrative>,
-    private_data: vector<u8>,
-    public_data: vector<u8>,
+    private_data: String,
+    public_data: String,
     ctx: &TxContext,
 )
 {
@@ -816,45 +873,11 @@ entry fun register_patient(
     );
 }
 
-// Called by hospital personnels
-entry fun request_access(
-    address_id_table: &Table<address, Id>,
-    data: vector<u8>,
-    id_access_queue_table: &mut Table<String, vector<AccessQueue>>,
-    id_activation_key_table: &Table<String, ActivationKey>,
-    id_expected_hospital_personnel_table: &Table<String, ExpectedHospitalPersonnel>,
-    patient_id: String,
-    ctx: &TxContext
-)
-{
-    // Make sure sender is the expected hospital personnel
-    let patient_id = util_sha2_256_to_hex(patient_id.into_bytes());
-    let hospital_personnel_id = table::borrow(address_id_table, ctx.sender());
-    let expected_hospital_personnel = table::borrow(id_expected_hospital_personnel_table, patient_id);
-    assert!(expected_hospital_personnel.id == hospital_personnel_id.id, EIllegalAction);
-
-    // Make sure delegator is patient
-    assert!(!table::contains(id_activation_key_table, patient_id), EIllegalAction);
-
-    let access_queue = AccessQueue {
-        data
-    };
-
-    if (table::contains(id_access_queue_table, patient_id)) {
-        let access_queue_vec = table::borrow_mut(id_access_queue_table, patient_id);
-        vector::push_back(access_queue_vec, access_queue);
-    } else {
-        let mut access_queue_vec = vector::empty<AccessQueue>();
-        vector::push_back(&mut access_queue_vec, access_queue);
-        table::add(id_access_queue_table, patient_id, access_queue_vec);
-    };
-}
-
 entry fun update_administrative_data(
     address_id_table: &Table<address, Id>,
     id_administrative_table: &mut Table<String, Administrative>,
-    private_data: vector<u8>,
-    public_data: vector<u8>,
+    private_data: String,
+    public_data: String,
     ctx: &TxContext,
 )
 {
@@ -902,6 +925,95 @@ entry fun use_activation_key(
     assert!(!prev_activation_key_metadata.is_used, EActivationKeyAlreadyUsed);
     prev_activation_key_metadata.is_used = true;
 }
+
+
+fun util_add_hospital_personnel_read_access(
+    access: Access,
+    patient_id: String,
+    read_access: &mut ReadAccess,
+)
+{
+    vector::push_back(&mut read_access.data, access);
+    let mut access_index = vector::length(&read_access.data);
+
+    if (table::contains(&read_access.index, patient_id)) {
+        let prev_index = table::remove(&mut read_access.index, patient_id);
+        access_index = prev_index;
+        vector::swap_remove(&mut read_access.data, prev_index);
+    };
+
+    table::add(&mut read_access.index, patient_id, access_index);
+}
+
+fun util_add_hospital_personnel_update_access(
+    access: Access,
+    patient_id: String,
+    update_access: &mut UpdateAccess,
+)
+{
+    let update_access_data = &mut update_access.data;
+    let update_access_index = &mut update_access.index;
+
+    vector::push_back(update_access_data, access);
+    let mut access_index = vector::length(update_access_data);
+
+    if (table::contains(update_access_index, patient_id)) {
+        let prev_index = table::remove(update_access_index, patient_id);
+        access_index = prev_index;
+        vector::swap_remove(update_access_data, prev_index);
+    };
+
+    table::add(update_access_index, patient_id, access_index);
+}
+
+fun util_add_patient_access_log(
+    access_data_types: vector<AccessDataType>,
+    access_types: vector<AccessType>,
+    date: String,
+    hospital_personnel_id: String,
+    id_administrative_table: &Table<String, Administrative>,
+    id_patient_access_log_table: &mut Table<String, vector<PatientAccessLog>>,
+    patient_id: String,
+)
+{
+    let hospital_personnel_public_data = table::borrow(id_administrative_table, hospital_personnel_id).public_data;
+
+    let new_patient_access_log_entry = PatientAccessLog {
+        access_data_types,
+        access_types,
+        date,
+        hospital_personnel_public_data,
+    };
+
+    if (!table::contains(id_patient_access_log_table, patient_id)) {
+        let patient_access_log_vec = vector::empty<PatientAccessLog>();
+        table::add(id_patient_access_log_table, patient_id, patient_access_log_vec);
+    };
+
+    let patient_access_log = table::borrow_mut(id_patient_access_log_table, patient_id);
+    vector::push_back(patient_access_log, new_patient_access_log_entry);
+}
+
+fun util_create_empty_hospital_personnel_access(
+    ctx: &mut TxContext
+): HospitalPersonnelAccess
+{
+    let read_access = ReadAccess {
+        index: table::new<String, u64>(ctx),
+        data: vector::empty<Access>(),
+    };
+
+    let update_access = UpdateAccess {
+        index: table::new<String, u64>(ctx),
+        data: vector::empty<Access>(),
+    };
+
+    HospitalPersonnelAccess {
+        read_access,
+        update_access
+    }
+}
+
 
 fun util_encode_hospital_personnel_id(
     hospital_part: String,

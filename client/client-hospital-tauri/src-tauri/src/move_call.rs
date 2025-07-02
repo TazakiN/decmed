@@ -71,14 +71,6 @@ impl MoveCall {
         )
     }
 
-    pub fn construct_patient_id_account_object_call_arg(&self, mutable: bool) -> CallArg {
-        construct_shared_object_call_arg(
-            self.decmed_package.patient_id_account_object_id,
-            self.decmed_package.patient_id_account_object_version,
-            mutable,
-        )
-    }
-
     pub async fn cleanup_read_access(
         &self,
         activation_key: String,
@@ -145,60 +137,6 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_clock_call_arg(),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
-            ],
-        )
-        .context(current_fn!())?;
-
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
-        let ref_gas_price = get_ref_gas_price(&iota_client)
-            .await
-            .context(current_fn!())?;
-
-        let tx_data = construct_sponsored_tx_data(
-            sender,
-            gas_coins,
-            pt,
-            GAS_BUDGET,
-            ref_gas_price,
-            sponsor_account,
-        );
-
-        let signer = sender_key_pair;
-        let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
-
-        let response = execute_tx(tx, reservation_id)
-            .await
-            .context(current_fn!())?;
-
-        handle_error_execute_tx(response).context(current_fn!())?;
-
-        Ok(())
-    }
-
-    pub async fn create_medical_record(
-        &self,
-        activation_key: String,
-        metadata: String,
-        patient_address: &IotaAddress,
-        sender: IotaAddress,
-        sender_key_pair: IotaKeyPair,
-    ) -> Result<(), HospitalError> {
-        let iota_client = get_iota_client().await.context(current_fn!())?;
-        let pt = construct_pt(
-            "create_medical_record".to_string(),
-            self.decmed_package.package_id,
-            self.decmed_package.module_hospital_personnel.clone(),
-            vec![],
-            vec![
-                CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
-                self.construct_address_id_object_call_arg(false),
-                self.construct_clock_call_arg(),
-                self.construct_hospital_personnel_id_account_object_call_arg(true),
-                CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
-                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_patient_id_account_object_call_arg(true),
             ],
         )
         .context(current_fn!())?;

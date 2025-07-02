@@ -1,4 +1,7 @@
-use std::{fmt::Debug, str::FromStr, time::SystemTime};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
 use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, Context};
@@ -7,7 +10,6 @@ use argon2::{
     Algorithm, Argon2, Params, PasswordHash, PasswordVerifier, Version,
 };
 use bip39::Mnemonic;
-use chrono::{DateTime, Utc};
 use iota_json_rpc_types::{
     DevInspectResults, IotaObjectDataOptions, IotaTransactionBlockEffectsAPI,
 };
@@ -31,10 +33,7 @@ use tauri::http::StatusCode;
 use tauri_plugin_http::reqwest::{self, Client, IntoUrl};
 use umbral_pre::{PublicKey, SecretKey, SecretKeyFactory};
 
-use crate::{
-    constants::{GAS_STATION_BASE_URL, HASH_SALT, IPFS_BASE_URL},
-    types::UtilIpfsAddResponse,
-};
+use crate::constants::{GAS_STATION_BASE_URL, HASH_SALT};
 use crate::{
     constants::{IOTA_URL, _IPFS_GATEWAY_BASE_URL},
     current_fn,
@@ -400,8 +399,6 @@ pub fn _decode_hospital_personnel_qr(
         ));
     }
 
-    println!("{:#?}", content);
-
     let iota_address = IotaAddress::from_str(content[0]).context(current_fn!())?;
     let pre_public_key =
         serde_deserialize_from_base64(content[1].to_string()).context(current_fn!())?;
@@ -409,7 +406,8 @@ pub fn _decode_hospital_personnel_qr(
     Ok((iota_address, pre_public_key))
 }
 
-pub async fn _do_http_post_json_request<P, T, E>(
+pub async fn do_http_post_request_json<P, T, E>(
+    access_token: Option<String>,
     endpoint: &str,
     payload: &P,
     req_client: &Client,
@@ -420,12 +418,11 @@ where
     E: DeserializeOwned + Debug,
     T: DeserializeOwned,
 {
-    let res = req_client
-        .post(endpoint)
-        .json(payload)
-        .send()
-        .await
-        .context(current_fn!())?;
+    let mut res = req_client.post(endpoint).json(payload);
+    if access_token.is_some() {
+        res = res.bearer_auth(access_token.unwrap());
+    }
+    let res = res.send().await.context(current_fn!())?;
 
     let res_status = res.status();
     let res_body = res.bytes().await.context(current_fn!())?;
@@ -442,9 +439,37 @@ where
     Ok(res_body)
 }
 
-pub fn sys_time_to_iso(system_time: SystemTime) -> String {
-    let iso: DateTime<Utc> = system_time.into();
-    iso.to_rfc3339()
+pub async fn do_http_put_request_json<P, T, E>(
+    access_token: Option<String>,
+    endpoint: &str,
+    payload: &P,
+    req_client: &Client,
+    success_status_code: StatusCode,
+) -> Result<T, HospitalError>
+where
+    P: Serialize,
+    E: DeserializeOwned + Debug,
+    T: DeserializeOwned,
+{
+    let mut res = req_client.put(endpoint).json(payload);
+    if access_token.is_some() {
+        res = res.bearer_auth(access_token.unwrap());
+    }
+    let res = res.send().await.context(current_fn!())?;
+
+    let res_status = res.status();
+    let res_body = res.bytes().await.context(current_fn!())?;
+
+    if res_status != success_status_code {
+        let error: E = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
+        return Err(HospitalError::Anyhow(
+            anyhow!(format!("{:#?}", error)).context(current_fn!()),
+        ));
+    }
+
+    let res_body: T = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
+
+    Ok(res_body)
 }
 
 pub fn get_iota_address_from_keys_entry(
@@ -580,17 +605,23 @@ pub fn compute_seed_from_seed_words(
     Ok(mnemonic.to_seed_normalized(passphrase))
 }
 
-pub async fn _do_http_get_request<T, E, U>(
+pub async fn do_http_get_request_json<T, E, U>(
+    access_token: Option<String>,
     req_client: &Client,
     success_status_code: StatusCode,
     url: U,
 ) -> Result<T, HospitalError>
 where
-    T: DeserializeOwned + From<String>,
+    T: DeserializeOwned,
     E: DeserializeOwned + Debug,
     U: IntoUrl,
 {
-    let res = req_client.get(url).send().await.context(current_fn!())?;
+    let mut res = req_client.get(url);
+    if access_token.is_some() {
+        res = res.bearer_auth(access_token.unwrap());
+    }
+    let res = res.send().await.context(current_fn!())?;
+
     let res_status = res.status();
     let content_type = res
         .headers()
@@ -612,9 +643,53 @@ where
         "application/json" => {
             Ok(serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?)
         }
-        "text/plain; charset=utf-8" => Ok(T::from(
-            String::from_utf8(res_body.to_vec()).context(current_fn!())?,
-        )),
+        _ => {
+            return Err(HospitalError::Anyhow(
+                anyhow!(format!("Unknown content-type: {}", content_type)).context(current_fn!()),
+            ))
+        }
+    }
+}
+
+pub async fn _do_http_get_request_text<T, E, U>(
+    access_token: Option<String>,
+    req_client: &Client,
+    success_status_code: StatusCode,
+    url: U,
+) -> Result<T, HospitalError>
+where
+    T: FromStr,
+    T::Err: Display,
+    E: DeserializeOwned + Debug,
+    U: IntoUrl,
+{
+    let mut res = req_client.get(url);
+    if access_token.is_some() {
+        res = res.bearer_auth(access_token.unwrap());
+    }
+    let res = res.send().await.context(current_fn!())?;
+    let res_status = res.status();
+    let content_type = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or(anyhow!("Failed to get content type from header").context(current_fn!()))?
+        .to_string();
+    let res_body = res.bytes().await.context(current_fn!())?;
+
+    if res_status != success_status_code {
+        let error: E = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
+
+        return Err(HospitalError::Anyhow(
+            anyhow!(format!("{:#?}", error)).context(current_fn!()),
+        ));
+    }
+
+    match content_type.as_str() {
+        "text/plain; charset=utf-8" => Ok(T::from_str(
+            &String::from_utf8(res_body.to_vec()).context(current_fn!())?,
+        )
+        .map_err(|e| anyhow!(e.to_string()))?),
         _ => {
             return Err(HospitalError::Anyhow(
                 anyhow!(format!("Unknown content-type: {}", content_type)).context(current_fn!()),
@@ -625,7 +700,8 @@ where
 
 pub async fn _get_data_ipfs(cid: String) -> Result<String, HospitalError> {
     let req_client = reqwest::Client::new();
-    let content = _do_http_get_request::<String, String, _>(
+    let content = _do_http_get_request_text::<String, String, _>(
+        None,
         &req_client,
         StatusCode::OK,
         format!("{}/ipfs/{}", _IPFS_GATEWAY_BASE_URL, cid),
@@ -671,25 +747,6 @@ pub fn decode_hospital_personnel_id_to_argon(
     let hospital_part = argon_hash(id[1].to_string()).context(current_fn!())?;
 
     Ok((id_part, hospital_part))
-}
-
-pub async fn add_and_pin_to_ipfs(data: String) -> Result<String, HospitalError> {
-    let path_part = reqwest::multipart::Part::text(data);
-    let form = reqwest::multipart::Form::new().part("path", path_part);
-    let req_client = reqwest::Client::new();
-    let res = req_client
-        .post(format!("{}/add", IPFS_BASE_URL))
-        .multipart(form)
-        .send()
-        .await
-        .context(current_fn!())?;
-
-    let res = res
-        .json::<UtilIpfsAddResponse>()
-        .await
-        .context(current_fn!())?;
-
-    Ok(res.cid)
 }
 
 /// ## Params:

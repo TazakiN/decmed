@@ -175,7 +175,7 @@ fun create_access_administrative_personnel(
     let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_read,
         exp_read,
-        metadata[0],
+        *metadata.borrow(0),
         option::none(),
     );
 
@@ -214,13 +214,13 @@ fun create_access_medical_personnel(
     let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_read,
         exp_read,
-        metadata[0],
+        *metadata.borrow(0),
         option::none(),
     );
     let hospital_personnel_access_data_update = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_update,
         exp_update,
-        metadata[1],
+        *metadata.borrow(1),
         option::none(),
     );
 

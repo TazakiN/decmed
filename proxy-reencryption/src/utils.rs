@@ -1,4 +1,8 @@
-use std::{fmt::Debug, str::FromStr};
+use std::{
+    fmt::{self, Debug},
+    str::FromStr,
+    time::SystemTime,
+};
 
 use anyhow::{anyhow, Context};
 use axum::{
@@ -7,6 +11,7 @@ use axum::{
     Json,
 };
 use bip39::Mnemonic;
+use chrono::{DateTime, Utc};
 use iota_json_rpc_types::{
     DevInspectResults, IotaObjectData, IotaObjectDataFilter, IotaObjectDataOptions,
     IotaObjectResponseQuery, IotaTransactionBlockEffectsAPI,
@@ -28,30 +33,41 @@ use jwt_simple::prelude::ES256KeyPair;
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use rand::Rng;
 use reqwest::{Client, IntoUrl};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{
+    de::{self, DeserializeOwned},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_json::json;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use crate::{
-    constants::{GAS_STATION_BASE_URL, IOTA_URL, IPFS_GATEWAY_BASE_URL},
+    constants::{GAS_STATION_BASE_URL, IOTA_URL, IPFS_BASE_URL, IPFS_GATEWAY_BASE_URL},
     current_fn,
     proxy_error::ProxyError,
-    types::{ErrorResponse, ExecuteTxResponse, ReserveGasResponse, SuccessResponse},
+    types::{ExecuteTxResponse, ReserveGasResponse, SuccessResponse, UtilIpfsAddResponse},
 };
 
 pub struct Utils {}
 
 impl Utils {
-    pub fn build_error_response(message: String, status_code: StatusCode) -> Response {
-        (
-            status_code,
-            Json(ErrorResponse {
-                status_code: status_code.as_u16(),
-                error: message,
-            }),
-        )
-            .into_response()
+    pub async fn add_and_pin_to_ipfs(data: String) -> Result<String, ProxyError> {
+        let path_part = reqwest::multipart::Part::text(data);
+        let form = reqwest::multipart::Form::new().part("path", path_part);
+        let req_client = reqwest::Client::new();
+        let res = req_client
+            .post(format!("{}/add", IPFS_BASE_URL))
+            .multipart(form)
+            .send()
+            .await
+            .context(current_fn!())?;
+
+        let res = res
+            .json::<UtilIpfsAddResponse>()
+            .await
+            .context(current_fn!())?;
+
+        Ok(res.cid)
     }
 
     pub fn build_success_response<T>(data: T, status_code: StatusCode) -> Response
@@ -227,6 +243,19 @@ impl Utils {
                     code: StatusCode::INTERNAL_SERVER_ERROR,
                 })
             }
+        }
+    }
+
+    pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: FromStr,
+        T::Err: fmt::Display,
+    {
+        let opt = Option::<String>::deserialize(de)?;
+        match opt.as_deref() {
+            None | Some("") => Ok(None),
+            Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
         }
     }
 
@@ -466,5 +495,10 @@ impl Utils {
     {
         let ser_val = serde_json::to_vec(val).context(current_fn!())?;
         Ok(STANDARD.encode(ser_val))
+    }
+
+    pub fn sys_time_to_iso(system_time: SystemTime) -> String {
+        let iso: DateTime<Utc> = system_time.into();
+        iso.to_rfc3339()
     }
 }

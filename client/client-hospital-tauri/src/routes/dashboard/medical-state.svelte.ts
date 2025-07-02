@@ -33,6 +33,8 @@ export class MedicalHomeState {
 			>;
 		});
 
+		console.log('update-access', resInvokeGetUpdateAccess);
+
 		if (!resInvokeGetUpdateAccess.success) {
 			toast.error(resInvokeGetUpdateAccess.error);
 

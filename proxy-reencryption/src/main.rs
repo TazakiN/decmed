@@ -12,7 +12,7 @@ use std::{env, error::Error, str::FromStr, sync::Arc};
 
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use constants::{
@@ -76,13 +76,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         jwt_ecdsa_pub_key,
         move_call,
         proxy_iota_address,
-        _proxy_iota_keypair: proxy_iota_key_pair,
+        proxy_iota_key_pair,
         redis_pool,
     });
 
     let protected_routes = Router::new()
         .route("/", get(|| async { "Hello, world!" }))
-        .route("/reencrypt", post(Handlers::reencrypt))
+        .route("/medical-record", get(Handlers::get_medical_record))
+        .route("/medical-record", post(Handlers::create_medical_record))
+        .route("/medical-record", put(Handlers::update_medical_record))
+        .route(
+            "/medical-record-update",
+            get(Handlers::get_medical_record_update),
+        )
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             shared_state.clone(),
             middlewares::auth_middleware,

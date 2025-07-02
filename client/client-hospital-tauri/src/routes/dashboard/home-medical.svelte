@@ -5,25 +5,10 @@
 	import { MedicalHomeState } from './medical-state.svelte';
 	import { ChevronRight, Copy, Loader2 } from '@lucide/svelte';
 	import { copyToClipboard } from '$lib/utils';
+	import { getEmrState } from './emr/state.svelte';
 
 	const medicalHomeState = new MedicalHomeState();
-
-	async function addTempMedicalRecord() {
-		try {
-			await invoke('new_medical_record', {
-				patientIotaAddress: '0x04115d6b58d1743effc74d757ff51f029aa3736b22a5ccc54107e80c91a85bc8',
-				patientPrePublicKey:
-					'IjB4MDIzNzc1NzY2NmU5YjdlZTc4NTliNDEyODQ2YjhmNjcxM2IzYTVhZDFiNjE3YmZiYWVmOTc4OGViZDQ5YjNlMDhmIg==',
-				pin: '123456'
-			});
-			toast.success('Success');
-		} catch (err) {
-			console.log(err);
-			if (err instanceof Error) {
-				toast.error(err.message);
-			}
-		}
-	}
+	const emrState = getEmrState();
 </script>
 
 <Tabs.Root bind:value={medicalHomeState.currentTab} class="w-full">
@@ -57,7 +42,7 @@
 				{#if readAccess && readAccess.length > 0}
 					{#each readAccess as access, i (i)}
 						<a
-							href={`/dashboard/emr/${access.patientIotaAddress}`}
+							href={`/dashboard/emr/${access.patientIotaAddress}?accessToken=${access.accessToken}&index=0`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div
@@ -65,20 +50,7 @@
 							>
 								<p class="text-xs font-medium">{i + 1}</p>
 							</div>
-							<div class="flex flex-col">
-								<p class="flex-1 flex">{access.patientName}</p>
-								<p class="break-all">{access.accessToken}</p>
-								<button
-									class="bg-zinc-200"
-									onclick={(e) => {
-										e.stopPropagation();
-										e.preventDefault();
-										copyToClipboard(access.accessToken);
-									}}
-								>
-									<Copy />
-								</button>
-							</div>
+							<p class="flex-1 flex">{access.patientName}</p>
 							<span class="flex items-center justify-center">
 								<ChevronRight />
 							</span>
@@ -94,7 +66,6 @@
 	</Tabs.Content>
 
 	<Tabs.Content value={medicalHomeState.tabs[1]}>
-		<button class="button-dark" onclick={addTempMedicalRecord}>Add Temp Medical Record</button>
 		<div class="bg-white border border-zinc-200 my-4 rounded-md">
 			{#await medicalHomeState.get_update_access()}
 				<div class="p-4">
@@ -108,7 +79,7 @@
 				{#if updateAccess && updateAccess.length > 0}
 					{#each updateAccess as access, i (i)}
 						<a
-							href={`/dashboard/emr/update/${access.patientIotaAddress}`}
+							href={`/dashboard/emr/${access.patientIotaAddress}/update?accessToken=${access.accessToken}&patientPrePublicKey=${access.patientPrePublicKey}&medicalMetadataIndex=${access.medicalMetadataIndex}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div

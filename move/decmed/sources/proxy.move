@@ -151,6 +151,46 @@ entry fun get_medical_record(
     (*medical_metadata, prev_index, next_index)
 }
 
+entry fun get_medical_record_update(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    index: u64,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    _: &ProxyCap,
+): PatientMedicalMetadata
+{
+    let address_id_table = address_id.borrow_table();
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
+
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+
+    // Check access
+    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
+    let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+    let update_access = hospital_personnel_update_access.get(&patient_id);
+
+    assert!(update_access.borrow_medical_metadata_index().is_some(), EMedicalRecordNotFound);
+    assert!(update_access.borrow_medical_metadata_index().borrow() == index, EMedicalRecordNotFound);
+
+    if (update_access.borrow_exp() < clock.timestamp_ms()) {
+        hospital_personnel_update_access.remove(&patient_id);
+        assert!(false, EAccessExpired);
+    };
+
+    let patient_medical_metadata = patient_account.borrow_medical_metadata();
+    let medical_metadata = patient_medical_metadata.borrow(index);
+
+    *medical_metadata
+}
+
 entry fun is_patient_registered(
     address_id: &AddressId,
     patient_id_account: &PatientIdAccount,

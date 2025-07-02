@@ -34,10 +34,10 @@ pub enum ReencryptionPurposeType {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccessKeys {
-    pub enc_hospital_personnel_pre_secret_key_seed: String,
-    pub hospital_personnel_pre_public_key: String,
-    pub hospital_personnel_pre_secret_key_seed_capsule: String,
+    pub enc_medical_record_pre_secret_key_seed: String,
     pub k_frag: String,
+    pub medical_record_pre_public_key: String,
+    pub medical_record_pre_secret_key_seed_capsule: String,
     pub patient_pre_public_key: String,
     pub signer_pre_public_key: String,
 }
@@ -49,7 +49,7 @@ pub struct AppState {
     pub jwt_ecdsa_pub_key: String,
     pub move_call: MoveCall,
     pub proxy_iota_address: String,
-    pub _proxy_iota_keypair: String,
+    pub proxy_iota_key_pair: String,
     pub redis_pool: Pool<Client>,
 }
 
@@ -62,6 +62,13 @@ pub struct AuthenticateHandlerPayload {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AuthenticateHandlerResponse {
     pub access_token: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ClientMedicalMetadata {
+    pub capsule: String,
+    pub enc_data: String,
+    pub enc_key_and_nonce: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -131,14 +138,6 @@ pub struct JwtClaims {
     pub purpose: ReencryptionPurposeType,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MedicalMetadata {
-    pub capsule: String,
-    pub cid: String,
-    pub created_at: String,
-    pub enc_key_and_nonce: String,
-}
-
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 pub struct ReserveGasResponse {
     pub error: Option<String>,
@@ -153,23 +152,50 @@ pub struct ReserveGasResult {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct HandlerReencryptPayload {
+pub struct HandlerCreateMedicalRecordPayload {
+    pub medical_metadata: String,
+    pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HandlerGetMedicalRecordQueryParams {
+    #[serde(deserialize_with = "crate::utils::Utils::empty_string_as_none")]
     pub index: Option<u64>,
     pub patient_iota_address: String,
-    pub reencryption_purpose_type: ReencryptionPurposeType,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HandlerGetMedicalRecordUpdateQueryParams {
+    #[serde(deserialize_with = "crate::utils::Utils::empty_string_as_none")]
+    pub index: Option<u64>,
+    pub patient_iota_address: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HandlerStoreKeysPayload {
-    pub enc_hospital_personnel_pre_secret_key_seed: String,
+    pub enc_medical_record_pre_secret_key_seed: String,
     pub hospital_personnel_iota_address: String,
-    pub hospital_personnel_pre_public_key: String,
-    pub hospital_personnel_pre_secret_key_seed_capsule: String,
     pub k_frag: String,
+    pub medical_record_pre_public_key: String,
+    pub medical_record_pre_secret_key_seed_capsule: String,
     pub patient_iota_address: String,
     pub patient_pre_public_key: String,
     pub signature: String,
     pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerUpdateMedicalRecordPayload {
+    pub medical_metadata: String,
+    pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MedicalMetadata {
+    pub capsule: String,
+    pub cid: String,
+    pub created_at: String,
+    pub enc_key_and_nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -185,4 +211,12 @@ where
 {
     pub data: T,
     pub status_code: u16,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UtilIpfsAddResponse {
+    pub allocations: Vec<String>,
+    pub cid: String,
+    pub name: String,
+    pub size: u64,
 }

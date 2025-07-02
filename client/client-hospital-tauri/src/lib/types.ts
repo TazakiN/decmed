@@ -2,10 +2,15 @@ import type {
 	addPersonnelSchemaStep2,
 	completeProfileAdminSchema,
 	completeProfilePersonnelSchema,
+	createMedicalRecordSchema,
+	medicalDataMainCategory,
+	medicalDataSubCategory,
 	signInSchemaStep3,
-	signUpSchemaStep4
+	signUpSchemaStep4,
+	updateMedicalRecordSchema
 } from './schema';
 import { ADMIN_ROLE, ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from './constants';
+import type { z } from 'zod';
 
 export type Role =
 	| typeof ADMIN_ROLE
@@ -39,8 +44,10 @@ export type TauriAccessData = {
 	accessDataTypes: TauriAccessDataType[];
 	accessToken: string;
 	exp: number;
+	medicalMetadataIndex: number | null;
 	patientIotaAddress: string;
 	patientName: string;
+	patientPrePublicKey: string | null;
 };
 
 export type TauriAccessDataType = 'Administrative' | 'Medical';
@@ -63,6 +70,14 @@ export type GetProfileData = {
 	role: Role;
 };
 
+export type InvokeGetMedicalRecordResponseData = {
+	createdAt: string;
+	mainCategory: string;
+	nextIndex: string;
+	prevIndex: string;
+	subCategory: string;
+};
+
 export type InvokeGlobalAdminAddActivationKeyData = {
 	activationKey: string;
 	id: string;
@@ -77,8 +92,13 @@ export type TryCatchAsValSuccess<T> = { success: true; data: T };
 export type TryCatchAsValError = { success: false; error: string };
 export type TryCatchAsValReturn<T> = TryCatchAsValSuccess<T> | TryCatchAsValError;
 
-export type SignUpSchemaStep4 = typeof signUpSchemaStep4;
-export type SIgnInSchemaStep3 = typeof signInSchemaStep3;
 export type AddPersonnelSchemaStep2 = typeof addPersonnelSchemaStep2;
 export type CompleteProfileAdminSchema = typeof completeProfileAdminSchema;
 export type CompleteProfilePersonnelSchema = typeof completeProfilePersonnelSchema;
+export type CreateMedicalRecordSchema = typeof createMedicalRecordSchema;
+export type SignUpSchemaStep4 = typeof signUpSchemaStep4;
+export type SignInSchemaStep3 = typeof signInSchemaStep3;
+export type UpdateMedicalRecordSchema = typeof updateMedicalRecordSchema;
+
+export type MedicalDataMainCategory = z.infer<typeof medicalDataMainCategory.mainCategory>;
+export type MedicalDataSubCategory = z.infer<typeof medicalDataSubCategory.subCategory>;

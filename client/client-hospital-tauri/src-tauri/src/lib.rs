@@ -130,8 +130,11 @@ pub fn run() {
             shared_cmds::auth_status,
             admin::get_hospital_personnels,
             medical_personnel::new_medical_record,
+            medical_personnel::get_medical_record,
+            medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,
             medical_personnel::get_update_access_medical_personnel,
+            medical_personnel::update_medical_record,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

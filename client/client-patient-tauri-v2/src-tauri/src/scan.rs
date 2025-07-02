@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context};
 use iota_types::crypto::{EncodeDecodeBase64, Signature};
+use serde_json::json;
 use shared_crypto::intent::{Intent, IntentMessage};
 use tauri::{async_runtime::Mutex, http::StatusCode, State};
 use tauri_plugin_http::reqwest;
@@ -12,9 +13,8 @@ use crate::{
     types::{
         AppState, CommandProcessQrResponse, HospitalPersonnelPublicAdministrativeData,
         MoveCreateAccessData, MoveCreateAccessMetadata, ProxyReencryptionErrorResponse,
-        ProxyReencryptionKeysPayload, ProxyReencryptionNoncePayload,
-        ProxyReencryptionPostKeysResponseData, ProxyReencryptionSuccessResponse, ResponseStatus,
-        SuccessResponse,
+        ProxyReencryptionNoncePayload, ProxyReencryptionPostKeysResponseData,
+        ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
     },
     utils::{
         compute_pre_keys, decode_hospital_personnel_qr, do_http_post_json_request,
@@ -67,6 +67,7 @@ pub async fn create_access(
             ProxyReencryptionSuccessResponse<String>,
             ProxyReencryptionErrorResponse,
         >(
+            None,
             &format!("{}/nonce", PROXY_BASE_URL),
             &payload,
             &req_client,
@@ -80,9 +81,9 @@ pub async fn create_access(
     let (
         hospital_personnel_iota_address,
         hospital_personnel_pre_public_key,
-        hospital_personnel_pre_secret_key_seed_new_capsule,
-        enc_hospital_personnel_pre_secret_key_seed_new,
-        hospital_personnel_pre_public_key_new,
+        medical_record_pre_secret_key_seed_capsule,
+        enc_medical_record_pre_secret_key_seed,
+        medical_record_pre_public_key,
     ) = {
         let (hospital_personnel_iota_address, hospital_personnel_pre_public_key) =
             decode_hospital_personnel_qr(
@@ -94,26 +95,23 @@ pub async fn create_access(
             )
             .context(current_fn!())?;
 
-        let hospital_personnel_pre_secret_key_seed_new = generate_64_bytes_seed();
-        let (
-            hospital_personnel_pre_secret_key_seed_new_capsule,
-            enc_hospital_personnel_pre_secret_key_seed_new,
-        ) = encrypt(
-            &hospital_personnel_pre_public_key,
-            &hospital_personnel_pre_secret_key_seed_new[0..32],
-        )
-        .map_err(|e| anyhow!(e.to_string()))?;
+        let medical_record_pre_secret_key_seed = generate_64_bytes_seed();
+        let (medical_record_pre_secret_key_seed_capsule, enc_medical_record_pre_secret_key_seed) =
+            encrypt(
+                &hospital_personnel_pre_public_key,
+                &medical_record_pre_secret_key_seed[0..32],
+            )
+            .map_err(|e| anyhow!(e.to_string()))?;
 
-        let (_, hospital_personnel_pre_public_key_new) =
-            compute_pre_keys(&hospital_personnel_pre_secret_key_seed_new[0..32])
-                .context(current_fn!())?;
+        let (_, medical_record_pre_public_key) =
+            compute_pre_keys(&medical_record_pre_secret_key_seed[0..32]).context(current_fn!())?;
 
         (
             hospital_personnel_iota_address,
             hospital_personnel_pre_public_key,
-            hospital_personnel_pre_secret_key_seed_new_capsule,
-            enc_hospital_personnel_pre_secret_key_seed_new,
-            hospital_personnel_pre_public_key_new,
+            medical_record_pre_secret_key_seed_capsule,
+            enc_medical_record_pre_secret_key_seed,
+            medical_record_pre_public_key,
         )
     };
 
@@ -127,7 +125,7 @@ pub async fn create_access(
     let k_frag = {
         let k_frags = generate_kfrags(
             &patient_pre_secret_key,
-            &hospital_personnel_pre_public_key_new,
+            &medical_record_pre_public_key,
             &signer_secret_key,
             1,
             1,
@@ -142,31 +140,32 @@ pub async fn create_access(
         Signature::new_secure(&intent_message, &patient_iota_key_pair)
     };
 
-    let payload = ProxyReencryptionKeysPayload {
-        enc_hospital_personnel_pre_secret_key_seed: STANDARD
-            .encode(enc_hospital_personnel_pre_secret_key_seed_new),
-        hospital_personnel_iota_address: hospital_personnel_iota_address.to_string(),
-        hospital_personnel_pre_public_key: serde_serialize_to_base64(
-            &hospital_personnel_pre_public_key_new,
+    let payload = json!({
+        "enc_medical_record_pre_secret_key_seed": STANDARD
+            .encode(enc_medical_record_pre_secret_key_seed),
+        "hospital_personnel_iota_address": hospital_personnel_iota_address.to_string(),
+        "k_frag": serde_serialize_to_base64(&k_frag).context(current_fn!())?,
+        "medical_record_pre_public_key": serde_serialize_to_base64(
+            &medical_record_pre_public_key,
         )
         .context(current_fn!())?,
-        hospital_personnel_pre_secret_key_seed_capsule: serde_serialize_to_base64(
-            &hospital_personnel_pre_secret_key_seed_new_capsule,
+        "medical_record_pre_secret_key_seed_capsule": serde_serialize_to_base64(
+            &medical_record_pre_secret_key_seed_capsule,
         )
         .context(current_fn!())?,
-        k_frag: serde_serialize_to_base64(&k_frag).context(current_fn!())?,
-        patient_iota_address: patient_iota_address.to_string(),
-        patient_pre_public_key: serde_serialize_to_base64(&patient_pre_public_key)
+        "patient_iota_address": patient_iota_address.to_string(),
+        "patient_pre_public_key": serde_serialize_to_base64(&patient_pre_public_key)
             .context(current_fn!())?,
-        signature: signature.encode_base64(),
-        signer_pre_public_key: serde_serialize_to_base64(&signer_public_key)
+        "signature": signature.encode_base64(),
+        "signer_pre_public_key": serde_serialize_to_base64(&signer_public_key)
             .context(current_fn!())?,
-    };
+    });
     let access_token = do_http_post_json_request::<
         _,
         ProxyReencryptionSuccessResponse<ProxyReencryptionPostKeysResponseData>,
         ProxyReencryptionErrorResponse,
     >(
+        None,
         &format!("{}/keys", PROXY_BASE_URL),
         &payload,
         &req_client,
@@ -190,6 +189,7 @@ pub async fn create_access(
             patient_name: patient_name.clone(),
             patient_iota_address: patient_iota_address.to_string(),
             access_token: access_token.access_token_read,
+            patient_pre_public_key: None,
         };
         let (data_capsule_read, enc_data_read) = encrypt(
             &hospital_personnel_pre_public_key,
@@ -203,10 +203,14 @@ pub async fn create_access(
 
         let metadata_update = if access_token.access_token_update.is_some() {
             let data_update = MoveCreateAccessData {
+                access_token: access_token.access_token_update.unwrap(),
                 patient_name,
                 patient_iota_address: patient_iota_address.to_string(),
-                access_token: access_token.access_token_update.unwrap(),
+                patient_pre_public_key: Some(
+                    serde_serialize_to_base64(&patient_pre_public_key).context(current_fn!())?,
+                ),
             };
+
             let (data_capsule_update, enc_data_update) = encrypt(
                 &hospital_personnel_pre_public_key,
                 &serde_json::to_vec(&data_update).context(current_fn!())?,

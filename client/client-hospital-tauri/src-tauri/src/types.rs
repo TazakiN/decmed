@@ -51,10 +51,14 @@ pub struct AccessData {
     #[serde(rename = "accessToken")]
     pub access_token: String,
     pub exp: u64,
+    #[serde(rename = "medicalMetadataIndex")]
+    pub medical_metadata_index: Option<u64>,
     #[serde(rename = "patientIotaAddress")]
     pub patient_iota_address: String,
     #[serde(rename = "patientName")]
     pub patient_name: String,
+    #[serde(rename = "patientPrePublicKey")]
+    pub patient_pre_public_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -62,6 +66,7 @@ pub struct AccessMetadata {
     pub access_token: String,
     pub patient_iota_address: String,
     pub patient_name: String,
+    pub patient_pre_public_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -145,6 +150,22 @@ pub struct CommandHospitalAdminAddActivationKeyResponse {
     pub id: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommandNewMedicalRecordPayload {
+    #[serde(rename = "mainCategory")]
+    pub main_category: MedicalDataMainCategory,
+    #[serde(rename = "subCategory")]
+    pub sub_category: MedicalDataSubCategory,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommandUpdateMedicalRecordPayload {
+    #[serde(rename = "mainCategory")]
+    pub main_category: MedicalDataMainCategory,
+    #[serde(rename = "subCategory")]
+    pub sub_category: MedicalDataSubCategory,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommandUpdateProfileArgs {
     pub name: String,
@@ -192,8 +213,7 @@ pub struct MedicalData {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MedicalMetadata {
     pub capsule: String,
-    pub cid: String,
-    pub created_at: String,
+    pub enc_data: String,
     pub enc_key_and_nonce: String,
 }
 
@@ -237,6 +257,48 @@ pub struct PrivateAdministrativeMetadata {
     pub capsule: String,
     pub enc_data: String,
     pub enc_key_nonce: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionErrorResponse {
+    pub error: String,
+    pub status_code: u16,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionGetMedicalRecordResponseData {
+    pub c_frag: String,
+    pub enc_medical_data: String,
+    pub enc_medical_data_key_nonce: String,
+    pub enc_medical_record_pre_secret_key_seed: String,
+    pub medical_data_capsule: String,
+    pub medical_data_created_at: String,
+    pub medical_record_pre_public_key: String,
+    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub next_index: Option<u64>,
+    pub patient_pre_public_key: String,
+    pub prev_index: Option<u64>,
+    pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionGetMedicalRecordUpdateResponseData {
+    pub c_frag: String,
+    pub enc_medical_data: String,
+    pub enc_medical_data_key_nonce: String,
+    pub enc_medical_record_pre_secret_key_seed: String,
+    pub medical_data_capsule: String,
+    pub medical_data_created_at: String,
+    pub medical_record_pre_public_key: String,
+    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub patient_pre_public_key: String,
+    pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionSuccessResponse<T> {
+    pub data: T,
+    pub status_code: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

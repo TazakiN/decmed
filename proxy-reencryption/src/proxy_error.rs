@@ -21,7 +21,7 @@ impl IntoResponse for ProxyError {
         };
 
         let error_response = json!({
-            "code": code.as_u16(),
+            "status_code": code.as_u16(),
             "error": error_message,
         });
 

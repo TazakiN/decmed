@@ -24,15 +24,23 @@ const nameSchema = {
 		.transform((val) => val.trim())
 };
 
-const hospitalSchema = {
-	hospital: z
-		.string({ required_error: 'Hospital is required.', invalid_type_error: 'Hospital is invalid.' })
-		.trim()
-		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
-			message: 'Hospital must consist of alphanumeric characters only of length 2 - 100.'
-		})
-		.transform((val) => val.trim())
+export const medicalDataMainCategory = {
+	mainCategory: z.enum(['Category1', 'Category2'])
 };
+
+export const medicalDataSubCategory = {
+	subCategory: z.enum(['SubCategory1', 'SubCategory2'])
+};
+
+// const _hospitalSchema = {
+// 	hospital: z
+// 		.string({ required_error: 'Hospital is required.', invalid_type_error: 'Hospital is invalid.' })
+// 		.trim()
+// 		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
+// 			message: 'Hospital must consist of alphanumeric characters only of length 2 - 100.'
+// 		})
+// 		.transform((val) => val.trim())
+// };
 
 export const activationSchema = z.object({
 	id: z
@@ -117,10 +125,18 @@ export const addPersonnelSchemaStep1 = z.object({
 		invalid_type_error: 'Role is invalid.'
 	})
 });
+
 export const addPersonnelSchemaStep2 = addPersonnelSchemaStep1.extend(pinSchema);
 export const completeProfileAdminSchema = z.object(nameSchema);
 export const completeProfilePersonnelSchema = z.object(nameSchema);
+export const createMedicalRecordSchema = z
+	.object(medicalDataMainCategory)
+	.extend(medicalDataSubCategory);
+export const updateMedicalRecordSchema = z
+	.object(medicalDataMainCategory)
+	.extend(medicalDataSubCategory);
 
+export const addPersonnelSchemas = [addPersonnelSchemaStep1, addPersonnelSchemaStep2];
 export const signInSchemas = [signInSchemaStep1, signInSchemaStep2, signInSchemaStep3];
 export const signUpSchemas = [
 	signUpSchemaStep1,
@@ -128,4 +144,3 @@ export const signUpSchemas = [
 	signUpSchemaStep2,
 	signUpSchemaStep4
 ];
-export const addPersonnelSchemas = [addPersonnelSchemaStep1, addPersonnelSchemaStep2];

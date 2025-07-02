@@ -1,6 +1,6 @@
 import { SIGNIN_TOTAL_STEP } from '$lib/constants';
 import { signInSchemas } from '$lib/schema';
-import type { SIgnInSchemaStep3, SuccessResponse } from '$lib/types';
+import type { SignInSchemaStep3, SuccessResponse } from '$lib/types';
 import { invoke } from '@tauri-apps/api/core';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
@@ -9,12 +9,12 @@ import { tryCatchAsVal } from '$lib/utils';
 import { toast } from 'svelte-sonner';
 
 type Constructor = {
-	signInForm: SuperValidated<Infer<SIgnInSchemaStep3>>;
+	signInForm: SuperValidated<Infer<SignInSchemaStep3>>;
 };
 
 export class SignInState {
 	currentStep = $state<number>(1);
-	signInFormMeta: SuperForm<Infer<SIgnInSchemaStep3>>;
+	signInFormMeta: SuperForm<Infer<SignInSchemaStep3>>;
 	authContext = getAuthContext();
 
 	constructor({ signInForm }: Constructor) {

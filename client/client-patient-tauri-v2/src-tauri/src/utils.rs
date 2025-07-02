@@ -378,8 +378,6 @@ pub fn decode_hospital_personnel_qr(content: String) -> Result<(IotaAddress, Pub
         .context(current_fn!());
     }
 
-    println!("{:#?}", content);
-
     let iota_address = IotaAddress::from_str(content[0]).context(current_fn!())?;
     let pre_public_key =
         serde_deserialize_from_base64(content[1].to_string()).context(current_fn!())?;
@@ -388,6 +386,7 @@ pub fn decode_hospital_personnel_qr(content: String) -> Result<(IotaAddress, Pub
 }
 
 pub async fn do_http_post_json_request<P, T, E>(
+    access_token: Option<String>,
     endpoint: &str,
     payload: &P,
     req_client: &Client,
@@ -398,12 +397,11 @@ where
     E: DeserializeOwned + Debug,
     T: DeserializeOwned,
 {
-    let res = req_client
-        .post(endpoint)
-        .json(payload)
-        .send()
-        .await
-        .context(current_fn!())?;
+    let mut res = req_client.post(endpoint).json(payload);
+    if access_token.is_some() {
+        res = res.bearer_auth(access_token.unwrap());
+    }
+    let res = res.send().await.context(current_fn!())?;
 
     let res_status = res.status();
     let res_body = res.bytes().await.context(current_fn!())?;

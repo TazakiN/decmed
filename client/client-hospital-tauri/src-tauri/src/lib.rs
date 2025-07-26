@@ -1,5 +1,6 @@
 mod activation;
 mod admin;
+mod administrative_personnel;
 mod constants;
 mod hospital_error;
 mod macros;
@@ -135,6 +136,8 @@ pub fn run() {
             medical_personnel::get_read_access_medical_personnel,
             medical_personnel::get_update_access_medical_personnel,
             medical_personnel::update_medical_record,
+            administrative_personnel::get_administrative_data,
+            administrative_personnel::get_read_access_administrative_personnel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

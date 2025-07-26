@@ -1,5 +1,9 @@
 module decmed::proxy;
 
+use decmed::std_enum_hospital_personnel_access_data_type::{
+    administrative as hospital_personnel_access_data_type_administrative,
+    medical as hospital_personnel_access_data_type_medical,
+};
 use decmed::std_enum_hospital_personnel_role::{
     HospitalPersonnelRole,
 };
@@ -11,6 +15,7 @@ use decmed::shared::{
 };
 use decmed::std_struct_address_id::AddressId;
 use decmed::std_struct_hospital_personnel_id_account::HospitalPersonnelIdAccount;
+use decmed::std_struct_patient_administrative_metadata::PatientAdministrativeMetadata;
 use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::{
     PatientMedicalMetadata,
@@ -27,6 +32,7 @@ const EAccessExpired: u64 = 3000;
 const EAccountNotFound: vector<u8> = b"Account not found";
 #[error]
 const EAddressNotFound: vector<u8> = b"Address not found";
+const EInvalidAccessType: u64 = 3003;
 const EMedicalRecordCreationLimit: u64 = 3001;
 const EMedicalRecordNotFound: u64 = 3002;
 
@@ -84,6 +90,44 @@ entry fun create_medical_record(
     update_access.set_medical_metadata_index(option::some(index));
 }
 
+entry fun get_administrative_data(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    _: &ProxyCap,
+): PatientAdministrativeMetadata
+{
+    let address_id_table = address_id.borrow_table();
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
+
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+
+    // Check access
+    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
+    let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+    let read_access = hospital_personnel_read_access.get(&patient_id);
+
+    let read_access_types = read_access.borrow_access_data_types();
+    assert!(read_access_types.contains(&hospital_personnel_access_data_type_administrative()), EInvalidAccessType);
+
+    if (read_access.borrow_exp() < clock.timestamp_ms()) {
+        hospital_personnel_read_access.remove(&patient_id);
+        assert!(false, EAccessExpired);
+    };
+
+    let patient_administrative_metadata = patient_account.borrow_administrative_metadata();
+
+    *patient_administrative_metadata
+}
+
 entry fun get_hospital_personnel_role(
     address_id: &AddressId,
     hospital_personnel_id_account: &HospitalPersonnelIdAccount,
@@ -129,6 +173,9 @@ entry fun get_medical_record(
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
     let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
     let read_access = hospital_personnel_read_access.get(&patient_id);
+
+    let read_access_types = read_access.borrow_access_data_types();
+    assert!(read_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
 
     if (read_access.borrow_exp() < clock.timestamp_ms()) {
         hospital_personnel_read_access.remove(&patient_id);
@@ -176,7 +223,9 @@ entry fun get_medical_record_update(
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
     let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
     let update_access = hospital_personnel_update_access.get(&patient_id);
+    let update_access_types = update_access.borrow_access_data_types();
 
+    assert!(update_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
     assert!(update_access.borrow_medical_metadata_index().is_some(), EMedicalRecordNotFound);
     assert!(update_access.borrow_medical_metadata_index().borrow() == index, EMedicalRecordNotFound);
 
@@ -229,7 +278,9 @@ entry fun update_medical_record(
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
     let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
     let update_access = hospital_personnel_update_access.get(patient_id);
+    let update_access_types = update_access.borrow_access_data_types();
 
+    assert!(update_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
     assert!(update_access.borrow_medical_metadata_index().is_some(), EMedicalRecordNotFound);
 
     let index = *update_access.borrow_medical_metadata_index().borrow();

@@ -89,6 +89,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "/medical-record-update",
             get(Handlers::get_medical_record_update),
         )
+        .route("/administrative", get(Handlers::get_administrative_data))
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             shared_state.clone(),
             middlewares::auth_middleware,

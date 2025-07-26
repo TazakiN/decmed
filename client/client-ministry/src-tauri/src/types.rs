@@ -56,10 +56,34 @@ pub struct CommandCreateActivationKeyPayload {
     pub hospital_name: String,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct CommandGetHospitalsPayload {
+    pub cursor: Option<u64>,
+    pub size: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct CommandUpdateActivationKeyPayload {
+    #[serde(rename = "hospitalAdminCid")]
+    pub hospital_admin_cid: String,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 pub struct ExecuteTxResponse {
     pub effects: Option<IotaTransactionBlockEffects>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HospitalAdminMetadata {
+    pub activation_key: String,
+    pub hospital_admin_cid: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HospitalAdminMetadataEncrypted {
+    pub capsule: String,
+    pub enc_metadata: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -72,12 +96,24 @@ pub struct KeyNonce {
 pub struct KeysEntry {
     pub admin_address: Option<String>,
     pub admin_secret_key: Option<String>,
+    pub admin_pre_seed: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 pub struct ReserveGasResponse {
     pub error: Option<String>,
     pub result: Option<ReserveGasResult>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MoveHospital {
+    pub admin_metadata: String,
+    pub hospital_metadata: HospitalMetadata,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HospitalMetadata {
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

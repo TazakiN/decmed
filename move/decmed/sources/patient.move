@@ -170,7 +170,7 @@ fun create_access_administrative_personnel(
     let mut hospital_personnel_access_data_types_read = vector::empty<HospitalPersonnelAccessDataType>();
     hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_administrative());
 
-    let exp_read = clock.timestamp_ms() + (10 * 60 * 1000); // 10 minutes
+    let exp_read = clock.timestamp_ms() + (5 * 60 * 1000); // 5 minutes
 
     let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_read,
@@ -331,7 +331,9 @@ entry fun get_hospital_personnel_info(
     let hospital_personnel_administrative_metadata = hospital_personnel_account.borrow_administrative_metadata().borrow();
 
     let hospital_id_metadata_table = hospital_id_metadata.borrow_table();
-    let hospital_metadata = hospital_id_metadata_table.borrow(*hospital_personnel_account.borrow_hospital_id());
+    let hospital_id_metadata_vec = hospital_id_metadata.borrow_vec();
+    let hospital_metadata_index = hospital_id_metadata_table.borrow(*hospital_personnel_account.borrow_hospital_id());
+    let hospital_metadata = hospital_id_metadata_vec.borrow(*hospital_metadata_index).borrow_hospital_metadata();
 
     let public_data = *hospital_personnel_administrative_metadata.borrow_public_metadata();
     let hospital_name = *hospital_metadata.borrow_name();

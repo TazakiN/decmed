@@ -3,20 +3,17 @@ use std::{
     str::FromStr,
 };
 
-use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, Context};
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
     Algorithm, Argon2, Params, PasswordHash, PasswordVerifier, Version,
 };
-use bip39::Mnemonic;
 use iota_json_rpc_types::{
     DevInspectResults, IotaObjectDataOptions, IotaTransactionBlockEffectsAPI,
 };
-use iota_keys::key_derive::derive_key_pair_from_path;
 use iota_sdk::{IotaClient, IotaClientBuilder};
 use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
-use iota_types::crypto::{EmptySignInfo, IotaKeyPair, SignatureScheme};
+use iota_types::crypto::{EmptySignInfo, IotaKeyPair};
 use iota_types::message_envelope::Envelope;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use iota_types::transaction::{
@@ -25,7 +22,6 @@ use iota_types::transaction::{
 };
 use iota_types::{Identifier, TypeTag};
 use rand::Rng;
-use regex::Regex;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -115,15 +111,6 @@ pub fn generate_64_bytes_seed() -> [u8; 64] {
     rng.fill(&mut random_seed);
 
     random_seed
-}
-
-pub fn generate_iota_keys_ed(seed: &[u8]) -> Result<(IotaAddress, IotaKeyPair), ClientError> {
-    Ok(derive_key_pair_from_path(
-        &seed,
-        Some(bip32::DerivationPath::from_str("m/44'/4218'/0'/0'/0'").context(current_fn!())?),
-        &SignatureScheme::ED25519,
-    )
-    .context(current_fn!())?)
 }
 
 pub fn construct_pt(
@@ -257,59 +244,9 @@ pub fn _argon_verify(hash: String, password: String) -> Result<bool, ClientError
     Ok(argon2.verify_password(password.as_bytes(), &hash).is_ok())
 }
 
-/**
-* output:
-* key: 32 bytes
-* nonce: 12 bytes
-* return: (ciphertext, key, nonce)
-*/
-pub fn aes_encrypt(data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), ClientError> {
-    let key = Aes256Gcm::generate_key(aes_gcm::aead::OsRng);
-    let cipher = Aes256Gcm::new(&key);
-    let nonce = Aes256Gcm::generate_nonce(&mut aes_gcm::aead::OsRng);
-
-    let ciphertext = cipher
-        .encrypt(&nonce, data)
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-
-    Ok((ciphertext, key.to_vec(), nonce.to_vec()))
-}
-
-pub fn aes_encrypt_custom_key(key: &[u8], data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), ClientError> {
-    let cipher = Aes256Gcm::new_from_slice(key).unwrap();
-    let nonce = Aes256Gcm::generate_nonce(&mut aes_gcm::aead::OsRng);
-
-    let ciphertext = cipher
-        .encrypt(&nonce, data)
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-
-    Ok((ciphertext, nonce.to_vec()))
-}
-
-pub fn aes_decrypt(ciphertext: &[u8], key: &[u8], nonce: &[u8]) -> Result<Vec<u8>, ClientError> {
-    let cipher = Aes256Gcm::new_from_slice(key).unwrap();
-    let nonce = Nonce::from_slice(nonce);
-
-    let original = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-
-    Ok(original)
-}
-
-pub fn sha_hash(data: &[u8]) -> Vec<u8> {
-    let hash = Sha256::digest(data);
-    hash.to_vec()
-}
-
 pub fn _sha_hash_to_hex(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(hash)
-}
-
-pub fn validate_by_regex(value: &str, regex: &str) -> Result<bool, ClientError> {
-    let re = Regex::new(regex).context(current_fn!())?;
-    Ok(re.is_match(value))
 }
 
 pub fn compute_pre_keys(seed: &[u8]) -> Result<(SecretKey, PublicKey), ClientError> {
@@ -358,7 +295,7 @@ pub fn handle_error_move_call_read_only(response: DevInspectResults) -> Result<(
 /**
  * Return: `(id_part, hospital_part)`
  */
-pub fn _decode_hospital_personnel_id(id: String) -> Result<(String, String), ClientError> {
+pub fn decode_hospital_personnel_id(id: String) -> Result<(String, String), ClientError> {
     let id: Vec<&str> = id.split("@").collect();
 
     if id.len() != 2 {
@@ -370,7 +307,7 @@ pub fn _decode_hospital_personnel_id(id: String) -> Result<(String, String), Cli
     Ok((id[0].to_string(), id[1].to_string()))
 }
 
-pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), ClientError> {
+pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<u64, ClientError> {
     if response.error.is_some() {
         return Err(ClientError::Anyhow(
             anyhow!(response.error.unwrap()).context(current_fn!()),
@@ -383,7 +320,7 @@ pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), Client
         ));
     }
 
-    Ok(())
+    Ok(0)
 }
 
 pub fn _decode_hospital_personnel_qr(
@@ -403,72 +340,6 @@ pub fn _decode_hospital_personnel_qr(
         serde_deserialize_from_base64(content[1].to_string()).context(current_fn!())?;
 
     Ok((iota_address, pre_public_key))
-}
-
-pub async fn do_http_post_request_json<P, T, E>(
-    access_token: Option<String>,
-    endpoint: &str,
-    payload: &P,
-    req_client: &Client,
-    success_status_code: StatusCode,
-) -> Result<T, ClientError>
-where
-    P: Serialize,
-    E: DeserializeOwned + Debug,
-    T: DeserializeOwned,
-{
-    let mut res = req_client.post(endpoint).json(payload);
-    if access_token.is_some() {
-        res = res.bearer_auth(access_token.unwrap());
-    }
-    let res = res.send().await.context(current_fn!())?;
-
-    let res_status = res.status();
-    let res_body = res.bytes().await.context(current_fn!())?;
-
-    if res_status != success_status_code {
-        let error: E = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
-        return Err(ClientError::Anyhow(
-            anyhow!(format!("{:#?}", error)).context(current_fn!()),
-        ));
-    }
-
-    let res_body: T = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
-
-    Ok(res_body)
-}
-
-pub async fn do_http_put_request_json<P, T, E>(
-    access_token: Option<String>,
-    endpoint: &str,
-    payload: &P,
-    req_client: &Client,
-    success_status_code: StatusCode,
-) -> Result<T, ClientError>
-where
-    P: Serialize,
-    E: DeserializeOwned + Debug,
-    T: DeserializeOwned,
-{
-    let mut res = req_client.put(endpoint).json(payload);
-    if access_token.is_some() {
-        res = res.bearer_auth(access_token.unwrap());
-    }
-    let res = res.send().await.context(current_fn!())?;
-
-    let res_status = res.status();
-    let res_body = res.bytes().await.context(current_fn!())?;
-
-    if res_status != success_status_code {
-        let error: E = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
-        return Err(ClientError::Anyhow(
-            anyhow!(format!("{:#?}", error)).context(current_fn!()),
-        ));
-    }
-
-    let res_body: T = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
-
-    Ok(res_body)
 }
 
 pub fn get_global_admin_iota_address_from_keys_entry(
@@ -493,6 +364,17 @@ pub fn get_global_admin_iota_key_pair_from_keys_entry(
     )
 }
 
+pub fn get_global_admin_pre_keys_from_keys_entry(
+    keys_entry: &KeysEntry,
+) -> Result<(SecretKey, PublicKey), ClientError> {
+    let pre_seed = STANDARD
+        .decode(keys_entry.admin_pre_seed.clone())
+        .context(current_fn!())?;
+    let (pre_secret_key, pre_public_key) = compute_pre_keys(&pre_seed).context(current_fn!())?;
+
+    Ok((pre_secret_key, pre_public_key))
+}
+
 pub fn serde_serialize_to_base64<T>(val: &T) -> Result<String, ClientError>
 where
     T: Serialize,
@@ -509,60 +391,6 @@ where
     let ori_val: T = serde_json::from_slice(&val).context(current_fn!())?;
 
     Ok(ori_val)
-}
-
-pub fn compute_seed_from_seed_words(
-    seed_words: &str,
-    passphrase: &str,
-) -> Result<[u8; 64], ClientError> {
-    let mnemonic = Mnemonic::from_str(seed_words).context(current_fn!())?;
-    Ok(mnemonic.to_seed_normalized(passphrase))
-}
-
-pub async fn do_http_get_request_json<T, E, U>(
-    access_token: Option<String>,
-    req_client: &Client,
-    success_status_code: StatusCode,
-    url: U,
-) -> Result<T, ClientError>
-where
-    T: DeserializeOwned,
-    E: DeserializeOwned + Debug,
-    U: IntoUrl,
-{
-    let mut res = req_client.get(url);
-    if access_token.is_some() {
-        res = res.bearer_auth(access_token.unwrap());
-    }
-    let res = res.send().await.context(current_fn!())?;
-
-    let res_status = res.status();
-    let content_type = res
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .ok_or(anyhow!("Failed to get content type from header").context(current_fn!()))?
-        .to_string();
-    let res_body = res.bytes().await.context(current_fn!())?;
-
-    if res_status != success_status_code {
-        let error: E = serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?;
-
-        return Err(ClientError::Anyhow(
-            anyhow!(format!("{:#?}", error)).context(current_fn!()),
-        ));
-    }
-
-    match content_type.as_str() {
-        "application/json" => {
-            Ok(serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?)
-        }
-        _ => {
-            return Err(ClientError::Anyhow(
-                anyhow!(format!("Unknown content-type: {}", content_type)).context(current_fn!()),
-            ))
-        }
-    }
 }
 
 pub async fn _do_http_get_request_text<T, E, U>(
@@ -610,48 +438,4 @@ where
             ))
         }
     }
-}
-
-/**
- * return: `(id_part,hospital_part)`
- */
-pub fn decode_hospital_personnel_id(id: String) -> Result<(String, String), ClientError> {
-    let id: Vec<&str> = id.split("@").collect();
-
-    if id.len() != 2 {
-        return Err(ClientError::Anyhow(
-            anyhow!(format!("Invalid id length, expected 2, found {}", id.len()))
-                .context(current_fn!()),
-        ));
-    }
-
-    Ok((id[0].to_string(), id[1].to_string()))
-}
-
-/**
- * return: `(id_part_hash,hospital_part_hash)`
- */
-pub fn decode_hospital_personnel_id_to_argon(id: String) -> Result<(String, String), ClientError> {
-    let id: Vec<&str> = id.split("@").collect();
-
-    if id.len() != 2 {
-        return Err(ClientError::Anyhow(
-            anyhow!(format!("Invalid id length, expected 2, found {}", id.len()))
-                .context(current_fn!()),
-        ));
-    }
-
-    let id_part = argon_hash(id[0].to_string()).context(current_fn!())?;
-    let hospital_part = argon_hash(id[1].to_string()).context(current_fn!())?;
-
-    Ok((id_part, hospital_part))
-}
-
-/// ## Params:
-/// - `activation_key`: raw_uuid_v4
-/// - `id`: raw_id
-pub fn encode_activation_key(activation_key: String, id: String) -> Result<String, ClientError> {
-    let activation_key = format!("{}@{}", activation_key, id);
-
-    Ok(STANDARD.encode(argon_hash(activation_key).context(current_fn!())?))
 }

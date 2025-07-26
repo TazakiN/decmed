@@ -7,11 +7,11 @@ public struct HospitalMetadata has copy, drop, store {
 }
 
 public(package) fun new(
-    name: String
+    name: String,
 ): HospitalMetadata
 {
     HospitalMetadata {
-        name
+        name,
     }
 }
 

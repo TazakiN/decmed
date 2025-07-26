@@ -143,13 +143,13 @@ pub async fn get_medical_record(
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
         let medical_record_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.medical_record_pre_secret_key_seed_capsule)
+            serde_deserialize_from_base64(res.data.data_pre_secret_key_seed_capsule)
                 .context(current_fn!())?;
         let medical_record_pre_secret_key_seed = decrypt_original(
             &hospital_personnel_pre_secret_key,
             &medical_record_pre_secret_key_seed_capsule,
             STANDARD
-                .decode(res.data.enc_medical_record_pre_secret_key_seed)
+                .decode(res.data.enc_data_pre_secret_key_seed)
                 .context(current_fn!())?,
         )
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
@@ -258,13 +258,13 @@ pub async fn get_medical_record_update(
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
         let medical_record_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.medical_record_pre_secret_key_seed_capsule)
+            serde_deserialize_from_base64(res.data.data_pre_secret_key_seed_capsule)
                 .context(current_fn!())?;
         let medical_record_pre_secret_key_seed = decrypt_original(
             &hospital_personnel_pre_secret_key,
             &medical_record_pre_secret_key_seed_capsule,
             STANDARD
-                .decode(res.data.enc_medical_record_pre_secret_key_seed)
+                .decode(res.data.enc_data_pre_secret_key_seed)
                 .context(current_fn!())?,
         )
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;

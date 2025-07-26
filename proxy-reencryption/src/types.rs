@@ -34,10 +34,10 @@ pub enum ReencryptionPurposeType {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccessKeys {
-    pub enc_medical_record_pre_secret_key_seed: String,
+    pub enc_data_pre_secret_key_seed: String,
     pub k_frag: String,
-    pub medical_record_pre_public_key: String,
-    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
     pub patient_pre_public_key: String,
     pub signer_pre_public_key: String,
 }
@@ -158,6 +158,11 @@ pub struct HandlerCreateMedicalRecordPayload {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct HandlerGetAdministrativeDataQueryParams {
+    pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HandlerGetMedicalRecordQueryParams {
     #[serde(deserialize_with = "crate::utils::Utils::empty_string_as_none")]
     pub index: Option<u64>,
@@ -173,11 +178,11 @@ pub struct HandlerGetMedicalRecordUpdateQueryParams {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HandlerStoreKeysPayload {
-    pub enc_medical_record_pre_secret_key_seed: String,
+    pub enc_data_pre_secret_key_seed: String,
     pub hospital_personnel_iota_address: String,
     pub k_frag: String,
-    pub medical_record_pre_public_key: String,
-    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
     pub patient_iota_address: String,
     pub patient_pre_public_key: String,
     pub signature: String,
@@ -199,9 +204,21 @@ pub struct MedicalMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct MovePatientAdministrativeMetadata {
+    pub private_metadata: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MovePatientMedicalMetadata {
     pub index: u64,
     pub metadata: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PatientPrivateAdministrativeMetadata {
+    pub capsule: String,
+    pub enc_data: String,
+    pub enc_key_nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

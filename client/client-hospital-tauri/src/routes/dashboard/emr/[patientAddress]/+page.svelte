@@ -9,8 +9,6 @@
 		index: data.index,
 		patientIotaAddress: data.patientIotaAddress
 	});
-
-	console.log(data);
 </script>
 
 {#if data.accessToken}

@@ -78,6 +78,11 @@ export type InvokeGetMedicalRecordResponseData = {
 	subCategory: string;
 };
 
+export type InvokeGetPatientAdministrativeDataResponseData = {
+	id: string;
+	name: string | null;
+};
+
 export type InvokeGlobalAdminAddActivationKeyData = {
 	activationKey: string;
 	id: string;

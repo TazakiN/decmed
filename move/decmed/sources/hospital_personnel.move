@@ -48,8 +48,7 @@ use std::string::{String};
 const EAccountAlreadyRegistered: vector<u8> = b"Account already registered";
 #[error]
 const EAccountNotActivated: vector<u8> = b"Account not activated";
-#[error]
-const EAccountNotFound: vector<u8> = b"Account not found";
+const EAccountNotFound: u64 = 5555;
 #[error]
 const EActivationKeyAlreadyUsed: vector<u8> = b"Activation key already used";
 #[error]
@@ -309,10 +308,13 @@ entry fun get_account_info(
     require_account_activation(activation_key, hospital_personnel_account);
 
     let hospital_id_metadata_table = hospital_id_metadata.borrow_table();
-    let hospital_metadata = hospital_id_metadata_table.borrow(*hospital_personnel_account.borrow_hospital_id());
+    let hospital_id_metadata_vec = hospital_id_metadata.borrow_vec();
+    let hospital_metadata_index = *hospital_id_metadata_table.borrow(*hospital_personnel_account.borrow_hospital_id());
+    let hospital_metadata = hospital_id_metadata_vec.borrow(hospital_metadata_index).borrow_hospital_metadata();
 
     (*hospital_personnel_account.borrow_administrative_metadata(), *hospital_personnel_account.borrow_role(), *hospital_metadata)
 }
+
 
 /// ## Params
 /// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)

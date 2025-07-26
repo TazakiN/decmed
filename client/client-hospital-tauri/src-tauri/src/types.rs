@@ -247,6 +247,12 @@ pub struct MoveHospitalPersonnelMetadata {
     pub metadata: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PatientPrivateAdministrativeData {
+    pub id: String,
+    pub name: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PrivateAdministrativeData {
     pub id: String,
@@ -266,15 +272,28 @@ pub struct ProxyReencryptionErrorResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionGetPatientAdministrativeDataResponseData {
+    pub c_frag: String,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
+    pub enc_data_pre_secret_key_seed: String,
+    pub enc_patient_private_adm_data: String,
+    pub enc_patient_private_adm_data_key_nonce: String,
+    pub patient_pre_public_key: String,
+    pub patient_private_adm_data_capsule: String,
+    pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionGetMedicalRecordResponseData {
     pub c_frag: String,
     pub enc_medical_data: String,
     pub enc_medical_data_key_nonce: String,
-    pub enc_medical_record_pre_secret_key_seed: String,
+    pub enc_data_pre_secret_key_seed: String,
     pub medical_data_capsule: String,
     pub medical_data_created_at: String,
-    pub medical_record_pre_public_key: String,
-    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
     pub next_index: Option<u64>,
     pub patient_pre_public_key: String,
     pub prev_index: Option<u64>,
@@ -286,11 +305,11 @@ pub struct ProxyReencryptionGetMedicalRecordUpdateResponseData {
     pub c_frag: String,
     pub enc_medical_data: String,
     pub enc_medical_data_key_nonce: String,
-    pub enc_medical_record_pre_secret_key_seed: String,
+    pub enc_data_pre_secret_key_seed: String,
     pub medical_data_capsule: String,
     pub medical_data_created_at: String,
-    pub medical_record_pre_public_key: String,
-    pub medical_record_pre_secret_key_seed_capsule: String,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
     pub patient_pre_public_key: String,
     pub signer_pre_public_key: String,
 }

@@ -16,7 +16,10 @@ use crate::{
     constants::{DECMED_MODULE_SHARED, DECMED_PACKAGE_ID, GAS_BUDGET},
     current_fn,
     proxy_error::{ProxyError, ResultExt},
-    types::{DecmedPackage, MoveHospitalPersonnelRole, MovePatientMedicalMetadata},
+    types::{
+        DecmedPackage, MoveHospitalPersonnelRole, MovePatientAdministrativeMetadata,
+        MovePatientMedicalMetadata,
+    },
     utils::Utils,
 };
 
@@ -196,6 +199,51 @@ impl MoveCall {
         Utils::handle_error_execute_tx(response).context(current_fn!())?;
 
         Ok(())
+    }
+
+    pub async fn get_administrative_data(
+        &self,
+        hospital_personnel_address: &IotaAddress,
+        patient_address: &IotaAddress,
+        sender: IotaAddress,
+    ) -> Result<MovePatientAdministrativeMetadata, ProxyError> {
+        let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
+        let pt = Utils::construct_pt(
+            "get_administrative_data",
+            self.decmed_package.package_id,
+            self.decmed_package.module_proxy.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                self.construct_clock_call_arg(),
+                CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(false),
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+
+        Utils::handle_error_move_call_read_only(response.clone())
+            .context(current_fn!())
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        let role: MovePatientAdministrativeMetadata =
+            Utils::parse_move_read_only_result(response, 0).context(current_fn!())?;
+
+        Ok(role)
     }
 
     pub async fn get_hospital_personnel_role(

@@ -1,14 +1,9 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
 	import { Tabs } from 'bits-ui';
-	import { toast } from 'svelte-sonner';
 	import { MedicalHomeState } from './medical-state.svelte';
-	import { ChevronRight, Copy, Loader2 } from '@lucide/svelte';
-	import { copyToClipboard } from '$lib/utils';
-	import { getEmrState } from './emr/state.svelte';
+	import { ChevronRight, Loader2 } from '@lucide/svelte';
 
 	const medicalHomeState = new MedicalHomeState();
-	const emrState = getEmrState();
 </script>
 
 <Tabs.Root bind:value={medicalHomeState.currentTab} class="w-full">

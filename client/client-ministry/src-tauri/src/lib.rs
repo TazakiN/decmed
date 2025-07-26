@@ -1,6 +1,7 @@
 mod activation;
 mod client_error;
 mod constants;
+mod hospital;
 mod macros;
 mod move_call;
 mod types;
@@ -53,6 +54,7 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         admin_secret_key: Some(String::from(
             "iotaprivkey1qpfc5nqsvs64p40347h0vcdxz3pgfn72uznw4pfvkak59fhpevxs73z6kwn",
         )),
+        admin_pre_seed: String::from("sM5LRtjsf30Gsbmw7sWesgkdrAOzA9F6qMP8xrmXl1o="),
     };
     let move_call = MoveCall {
         decmed_package: decmed_package.clone(),
@@ -87,7 +89,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(setup)
-        .invoke_handler(tauri::generate_handler![activation::create_activation_key])
+        .invoke_handler(tauri::generate_handler![
+            activation::create_activation_key,
+            activation::generate_pre_seed,
+            activation::update_activation_key,
+            hospital::get_hospitals,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

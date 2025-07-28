@@ -12,7 +12,10 @@ use crate::{
     constants::GAS_BUDGET,
     current_fn,
     patient_error::PatientError,
-    types::{DecmedPackage, MovePatientAdministrativeMetadata, MovePatientMedicalMetadata},
+    types::{
+        DecmedPackage, MovePatientAccessLog, MovePatientAdministrativeMetadata,
+        MovePatientMedicalMetadata,
+    },
     utils::{
         construct_pt, construct_shared_object_call_arg, construct_sponsored_tx_data, execute_tx,
         get_iota_client, get_ref_gas_price, handle_error_execute_tx,
@@ -84,6 +87,7 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_clock_call_arg(),
                 CallArg::Pure(bcs::to_bytes(&date).context(current_fn!())?),
+                self.construct_hospital_id_metadata_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
@@ -234,6 +238,39 @@ impl MoveCall {
         ))
     }
 
+    pub async fn get_access_log(
+        &self,
+        cursor: u64,
+        size: u64,
+        sender: IotaAddress,
+    ) -> Result<Vec<MovePatientAccessLog>, PatientError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            "get_access_log".to_string(),
+            self.decmed_package.package_id,
+            self.decmed_package.module_patient.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&cursor).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&size).context(current_fn!())?),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+
+        handle_error_move_call_read_only(response.clone()).context(current_fn!())?;
+
+        let access_log: Vec<MovePatientAccessLog> =
+            parse_move_read_only_result(response.clone(), 0)?;
+
+        Ok(access_log)
+    }
+
     pub async fn get_medical_records(
         &self,
         cursor: u64,
@@ -295,6 +332,56 @@ impl MoveCall {
             parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
 
         Ok(medical_metadata)
+    }
+
+    pub async fn revoke_access(
+        &self,
+        hospital_personnel_address: IotaAddress,
+        index: u64,
+        sender: IotaAddress,
+        sender_key_pair: IotaKeyPair,
+    ) -> Result<(), PatientError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            String::from("revoke_access"),
+            self.decmed_package.package_id,
+            self.decmed_package.module_patient.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&hospital_personnel_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(true),
+            ],
+        )
+        .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
+            .await
+            .context(current_fn!())?;
+        let ref_gas_price = get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
+
+        let tx_data = construct_sponsored_tx_data(
+            sender,
+            gas_coins,
+            pt,
+            GAS_BUDGET,
+            ref_gas_price,
+            sponsor_account,
+        );
+
+        let signer = sender_key_pair;
+        let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
+
+        let response = execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
+
+        handle_error_execute_tx(response).context(current_fn!())?;
+
+        Ok(())
     }
 
     pub async fn signup(

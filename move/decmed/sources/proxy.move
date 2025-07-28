@@ -28,10 +28,9 @@ use iota::clock::Clock;
 use std::string::String;
 
 const EAccessExpired: u64 = 3000;
-#[error]
-const EAccountNotFound: vector<u8> = b"Account not found";
-#[error]
-const EAddressNotFound: vector<u8> = b"Address not found";
+const EAccessNotFound: u64 = 3006;
+const EAccountNotFound: u64 = 3004;
+const EAddressNotFound: u64 = 3005;
 const EInvalidAccessType: u64 = 3003;
 const EMedicalRecordCreationLimit: u64 = 3001;
 const EMedicalRecordNotFound: u64 = 3002;
@@ -113,6 +112,8 @@ entry fun get_administrative_data(
     // Check access
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
     let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+
+    assert!(hospital_personnel_read_access.contains(&patient_id), EAccessNotFound);
     let read_access = hospital_personnel_read_access.get(&patient_id);
 
     let read_access_types = read_access.borrow_access_data_types();
@@ -126,6 +127,28 @@ entry fun get_administrative_data(
     let patient_administrative_metadata = patient_account.borrow_administrative_metadata();
 
     *patient_administrative_metadata
+}
+
+#[test_only]
+public(package) fun get_administrative_data_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    proxy_cap: &ProxyCap,
+): PatientAdministrativeMetadata
+{
+    get_administrative_data(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        patient_address,
+        patient_id_account,
+        proxy_cap
+    )
 }
 
 entry fun get_hospital_personnel_role(
@@ -196,6 +219,30 @@ entry fun get_medical_record(
     };
 
     (*medical_metadata, prev_index, next_index)
+}
+
+#[test_only]
+public(package) fun get_medical_record_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    index: u64,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    proxy_cap: &ProxyCap,
+): (PatientMedicalMetadata, Option<u64>, Option<u64>)
+{
+    get_medical_record(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        index,
+        patient_address,
+        patient_id_account,
+        proxy_cap
+    )
 }
 
 entry fun get_medical_record_update(

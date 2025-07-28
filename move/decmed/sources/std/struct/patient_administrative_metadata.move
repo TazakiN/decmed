@@ -1,6 +1,6 @@
 module decmed::std_struct_patient_administrative_metadata;
 
-use std::string::String;
+use std::string::{Self, String};
 
 public struct PatientAdministrativeMetadata has copy, drop, store {
     private_metadata: String,
@@ -33,4 +33,12 @@ public(package) fun set_private_metadata(
 )
 {
     self.private_metadata = private_metadata;
+}
+
+#[test_only]
+public(package) fun default(): PatientAdministrativeMetadata
+{
+    PatientAdministrativeMetadata {
+        private_metadata: string::utf8(b"PatientPrivateMetadata")
+    }
 }

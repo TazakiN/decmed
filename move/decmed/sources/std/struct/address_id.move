@@ -39,3 +39,12 @@ fun init(ctx: &mut TxContext) {
 
     transfer::share_object(address_id);
 }
+
+#[test_only]
+public(package) fun default(ctx: &mut TxContext): AddressId
+{
+    AddressId {
+        id: object::new(ctx),
+        table: table::new<address, String>(ctx),
+    }
+}

@@ -58,3 +58,13 @@ fun init(ctx: &mut TxContext) {
 
     transfer::share_object(hospital_id_metadata);
 }
+
+#[test_only]
+public(package) fun default(ctx: &mut TxContext): HospitalIdMetadata
+{
+    HospitalIdMetadata {
+        id: object::new(ctx),
+	    table: table::new<String, u64>(ctx),
+        vec: table_vec::empty<Hospital>(ctx),
+    }
+}

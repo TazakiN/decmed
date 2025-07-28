@@ -32,6 +32,18 @@ pub enum MedicalDataSubCategory {
     SubCategory2,
 }
 
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub enum MoveHospitalPersonnelAccessDataType {
+    Administrative,
+    Medical,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub enum MoveHospitalPersonnelAccessType {
+    Read,
+    Update,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ResponseStatus {
     Error,
@@ -160,6 +172,19 @@ pub struct MedicalMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct MovePatientAccessLog {
+    pub access_data_type: Vec<MoveHospitalPersonnelAccessDataType>,
+    pub access_type: MoveHospitalPersonnelAccessType,
+    pub date: String,
+    pub exp_dur: u64,
+    pub hospital_metadata: MoveHospitalMetadata,
+    pub hospital_personnel_address: IotaAddress,
+    pub hospital_personnel_metadata: String,
+    pub index: u64,
+    pub is_revoked: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MoveCreateAccessData {
     pub access_token: String,
     pub patient_iota_address: String,
@@ -171,6 +196,11 @@ pub struct MoveCreateAccessData {
 pub struct MoveCreateAccessMetadata {
     pub capsule: String,
     pub enc_data: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MoveHospitalMetadata {
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

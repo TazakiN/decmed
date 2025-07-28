@@ -1,10 +1,13 @@
 module decmed::std_struct_patient_account;
 
 use decmed::std_struct_patient_access_log::PatientAccessLog;
-use decmed::std_struct_patient_administrative_metadata::PatientAdministrativeMetadata;
+use decmed::std_struct_patient_administrative_metadata::{
+    PatientAdministrativeMetadata,
+    default as patient_administrative_metadata_default,
+};
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
 
-use iota::table_vec::TableVec;
+use iota::table_vec::{Self, TableVec};
 
 public struct PatientAccount has store {
     access_log: TableVec<PatientAccessLog>,
@@ -94,4 +97,19 @@ public(package) fun borrow_mut_medical_metadata(
 ): &mut TableVec<PatientMedicalMetadata>
 {
     &mut self.medical_metadata
+}
+
+#[test_only]
+public(package) fun default(
+    address: address,
+    ctx: &mut TxContext,
+): PatientAccount
+{
+    PatientAccount {
+    	access_log: table_vec::empty<PatientAccessLog>(ctx),
+    	address,
+    	administrative_metadata: patient_administrative_metadata_default(),
+    	is_profile_completed: false,
+    	medical_metadata: table_vec::empty<PatientMedicalMetadata>(ctx),
+    }
 }

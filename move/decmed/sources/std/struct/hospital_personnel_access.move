@@ -2,7 +2,7 @@ module decmed::std_struct_hospital_personnel_access;
 
 use decmed::std_struct_hospital_personnel_access_data::HospitalPersonnelAccessData;
 
-use iota::vec_map::VecMap;
+use iota::vec_map::{Self, VecMap};
 
 use std::string::String;
 
@@ -61,4 +61,13 @@ public(package) fun set_update(
 )
 {
     self.update = update;
+}
+
+#[test_only]
+public(package) fun default(): HospitalPersonnelAccess
+{
+    HospitalPersonnelAccess {
+        read: vec_map::empty<String, HospitalPersonnelAccessData>(),
+        update: vec_map::empty<String, HospitalPersonnelAccessData>(),
+    }
 }

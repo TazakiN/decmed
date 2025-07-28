@@ -144,7 +144,7 @@
 				<form method="post" use:signInFormEnhance class="flex flex-col flex-1 w-full">
 					<div class="flex-1 flex flex-col justify-center w-full gap-4">
 						<h3 class="font-medium">Sign In</h3>
-						<SuperDebug data={$signInForm} />
+						<!-- <SuperDebug data={$signInForm} /> -->
 						{#if currentStep === 1}
 							<p>Enter PIN:</p>
 

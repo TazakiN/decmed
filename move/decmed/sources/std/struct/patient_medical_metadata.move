@@ -1,6 +1,6 @@
 module decmed::std_struct_patient_medical_metadata;
 
-use std::string::String;
+use std::string::{Self, String};
 
 public struct PatientMedicalMetadata has copy, drop, store {
     index: u64,
@@ -17,16 +17,9 @@ public(package) fun new(
 
 public(package) fun borrow_index(
     self: &PatientMedicalMetadata,
-): &u64
+): u64
 {
-    &self.index
-}
-
-public(package) fun borrow_mut_index(
-    self: &mut PatientMedicalMetadata,
-): &mut u64
-{
-    &mut self.index
+    self.index
 }
 
 public(package) fun set_index(
@@ -57,4 +50,13 @@ public(package) fun set_metadata(
 )
 {
     self.metadata = metadata;
+}
+
+#[test_only]
+public(package) fun default(): PatientMedicalMetadata
+{
+    PatientMedicalMetadata {
+        index: 0,
+        metadata: string::utf8(b"MedicalMetadata")
+    }
 }

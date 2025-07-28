@@ -13,6 +13,22 @@ export type InvokeGetMedicalRecordsResponse = {
 	index: string;
 };
 
+export type InvokeGetAccessLog = {
+	access_data_type: ('Administrative' | 'Medical')[];
+	access_type: 'Read' | 'Update';
+	date: string;
+	exp_dur: number;
+	hospital_metadata: {
+		name: string;
+	};
+	hospital_personnel_address: string;
+	hospital_personnel_metadata: {
+		name: string;
+	};
+	index: number;
+	is_revoked: boolean;
+};
+
 export type InvokeProcessQrResponse = {
 	hospitalPersonnelHospitalName: string;
 	hospitalPersonnelName: string;

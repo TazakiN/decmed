@@ -1,3 +1,4 @@
+mod access;
 mod constants;
 mod home;
 mod macros;
@@ -163,6 +164,8 @@ pub fn run() {
             scan::create_access,
             home::get_medical_records,
             home::get_medical_record,
+            access::revoke_access,
+            access::get_access_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

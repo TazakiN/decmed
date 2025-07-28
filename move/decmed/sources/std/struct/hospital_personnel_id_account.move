@@ -41,3 +41,12 @@ fun init(ctx: &mut TxContext) {
 
     transfer::share_object(hospital_personnel_id_account);
 }
+
+#[test_only]
+public(package) fun default(ctx: &mut TxContext): HospitalPersonnelIdAccount
+{
+    HospitalPersonnelIdAccount{
+        id: object::new(ctx),
+        table: table::new<String, HospitalPersonnelAccount>(ctx),
+    }
+}

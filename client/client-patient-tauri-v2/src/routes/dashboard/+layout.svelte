@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { cn } from '$lib/utils';
-	import { Home, Scan, User } from '@lucide/svelte';
+	import { Home, LucideHistory, Scan, User } from '@lucide/svelte';
 
 	let { children } = $props();
 
@@ -9,6 +9,10 @@
 		{
 			icon: Home,
 			url: '/dashboard'
+		},
+		{
+			icon: LucideHistory,
+			url: '/dashboard/log'
 		},
 		{
 			icon: Scan,

@@ -1,16 +1,24 @@
 module decmed::std_struct_hospital_personnel_account;
 
-use decmed::std_enum_hospital_personnel_role::HospitalPersonnelRole;
-use decmed::std_struct_hospital_personnel_access::HospitalPersonnelAccess;
-use decmed::std_struct_hospital_personnel_administrative_metadata::HospitalPersonnelAdministrativeMetadata;
+use decmed::std_enum_hospital_personnel_role::{
+    HospitalPersonnelRole,
+};
+use decmed::std_struct_hospital_personnel_access::{
+    HospitalPersonnelAccess,
+    default as hospital_personnel_access_default,
+};
+use decmed::std_struct_hospital_personnel_administrative_metadata::{
+    HospitalPersonnelAdministrativeMetadata,
+    default as hospital_personnel_administrative_metadata_default,
+};
 use decmed::std_struct_hospital_personnel_metadata::HospitalPersonnelMetadata;
 
 use iota::vec_map::VecMap;
 
-use std::string::String;
+use std::string::{Self, String};
 
 /// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)
-/// - `hospital_id`: argon_hash(raw_hospital_id)
+/// - `hospital_id`: encoded argon_hash(raw_hospital_id)
 /// - `personnels`: <K: hospital_personnel_id>
 public struct HospitalPersonnelAccount has copy, drop, store {
     access: Option<HospitalPersonnelAccess>,
@@ -231,4 +239,20 @@ public(package) fun set_role(
 )
 {
     self.role = role;
+}
+
+#[test_only]
+public(package) fun default(role: HospitalPersonnelRole): HospitalPersonnelAccount
+{
+    HospitalPersonnelAccount {
+    	access: option::some(hospital_personnel_access_default()),
+    	activation_key: string::utf8(b"ActivationKey"),
+    	address: option::none(),
+    	administrative_metadata: option::some(hospital_personnel_administrative_metadata_default()),
+    	hospital_id: string::utf8(b"Hos1"),
+    	is_activation_key_used: false,
+    	is_profile_completed: false,
+    	personnels: option::none(),
+    	role,
+    }
 }

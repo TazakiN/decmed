@@ -2,7 +2,7 @@ module decmed::std_struct_hospital_personnel_access_data;
 
 use decmed::std_enum_hospital_personnel_access_data_type::HospitalPersonnelAccessDataType;
 
-use std::string::String;
+use std::string::{Self, String};
 
 public struct HospitalPersonnelAccessData has copy, drop, store {
     access_data_types: vector<HospitalPersonnelAccessDataType>,
@@ -76,4 +76,15 @@ public(package) fun set_medical_metadata_index(
 )
 {
     self.medical_metadata_index = medical_metadata_index;
+}
+
+#[test_only]
+public(package) fun default(): HospitalPersonnelAccessData
+{
+    HospitalPersonnelAccessData {
+    	access_data_types: vector::empty<HospitalPersonnelAccessDataType>(),
+    	exp: 0,
+    	metadata: string::utf8(b"Metadata"),
+    	medical_metadata_index: option::none(),
+    }
 }

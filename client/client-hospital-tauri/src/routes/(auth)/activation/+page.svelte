@@ -71,7 +71,7 @@
 			<Label.Root
 				for="id"
 				class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-				>ID</Label.Root
+				>CID</Label.Root
 			>
 			<input
 				type="text"
@@ -117,8 +117,4 @@
 
 		<Button.Root type="submit" class="button-dark mt-2">Activate</Button.Root>
 	</form>
-
-	<button class="p-2 bg-blue-50 w-full border-t border-zinc-200" onclick={addActivationKey}
-		>+ activation key (debug)</button
-	>
 </div>

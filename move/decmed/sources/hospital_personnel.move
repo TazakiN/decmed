@@ -44,27 +44,17 @@ use std::string::{String};
 
 // Constants
 
-#[error]
-const EAccountAlreadyRegistered: vector<u8> = b"Account already registered";
-#[error]
-const EAccountNotActivated: vector<u8> = b"Account not activated";
-const EAccountNotFound: u64 = 5555;
-#[error]
-const EActivationKeyAlreadyUsed: vector<u8> = b"Activation key already used";
-#[error]
-const EAddressAlreadyRegistered: vector<u8> = b"Address already registered";
-#[error]
-const EIllegalActionAccessExpired: vector<u8> = b"Illegal action access expired";
-#[error]
-const EIllegalActionInvalidRole: vector<u8> = b"Illegal action invalid role";
-#[error]
-const EIllegalActionNoUpdateAccess: vector<u8> = b"Illegal action not update access";
-#[error]
-const EInvalidActivationKey: vector<u8> = b"Invalid activation key";
-#[error]
-const EInvalidHospitalPersonnelRole: vector<u8> = b"Invalid hospital personnel role";
-#[error]
-const EPatientNotFound: vector<u8> = b"Patient not found";
+const EAccountAlreadyRegistered: u64 = 2000;
+const EAccountNotActivated: u64 = 2001;
+const EAccountNotFound: u64 = 2002;
+const EActivationKeyAlreadyUsed: u64 = 2003;
+const EAddressAlreadyRegistered: u64 = 2004;
+const EIllegalActionAccessExpired: u64 = 2005;
+const EIllegalActionInvalidRole: u64 = 2006;
+const EIllegalActionNoUpdateAccess: u64 = 2007;
+const EInvalidActivationKey: u64 = 2008;
+const EInvalidHospitalPersonnelRole: u64 = 2009;
+const EPatientNotFound: u64 = 2010;
 
 // Functions
 
@@ -205,6 +195,30 @@ entry fun create_activation_key(
     let personnel_metadata = hospital_personnel_metadata_new(metadata);
 
     hospital_admin_account_personnels.insert(hospital_personnel_id, personnel_metadata);
+}
+
+#[test_only]
+public(package) fun create_activation_key_test(
+    address_id: &AddressId,
+    admin_activation_key: String,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    metadata: String,
+    personnel_activation_key: String,
+    personnel_id: String,
+    role: vector<u8>,
+    ctx: &TxContext,
+)
+{
+    create_activation_key(
+        address_id,
+        admin_activation_key,
+        hospital_personnel_id_account,
+        metadata,
+        personnel_activation_key,
+        personnel_id,
+        role,
+        ctx
+    );
 }
 
 /// ## Params:
@@ -508,6 +522,30 @@ entry fun signup(
     };
 }
 
+#[test_only]
+public(package) fun signup_test(
+    activation_key: String,
+    address_id: &mut AddressId,
+    hospital_id: String,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    personnel_id: String,
+    private_metadata: String,
+    public_metadata: String,
+    ctx: &TxContext,
+)
+{
+    signup(
+        activation_key,
+        address_id,
+        hospital_id,
+        hospital_personnel_id_account,
+        personnel_id,
+        private_metadata,
+        public_metadata,
+        ctx
+    );
+}
+
 /// ## Params
 /// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)
 /// - `id`: argon_hash(raw_id)
@@ -587,4 +625,20 @@ entry fun use_activation_key(
     assert!(!hospital_personnel_account.borrow_is_activation_key_used(), EActivationKeyAlreadyUsed);
 
     hospital_personnel_account.set_is_activation_key_used(true);
+}
+
+#[test_only]
+public(package) fun use_activation_key_test(
+    activation_key: String,
+    hospital_id: String,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    personnel_id: String,
+)
+{
+    use_activation_key(
+        activation_key,
+        hospital_id,
+        hospital_personnel_id_account,
+        personnel_id,
+    );
 }

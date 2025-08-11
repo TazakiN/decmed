@@ -1,13 +1,14 @@
 module decmed::std_struct_patient_account;
 
 use decmed::std_struct_patient_access_log::PatientAccessLog;
-use decmed::std_struct_patient_administrative_metadata::{
-    PatientAdministrativeMetadata,
-    default as patient_administrative_metadata_default,
-};
+use decmed::std_struct_patient_administrative_metadata::PatientAdministrativeMetadata;
+#[test_only]
+use decmed::std_struct_patient_administrative_metadata::default as patient_administrative_metadata_default;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
 
-use iota::table_vec::{Self, TableVec};
+#[test_only]
+use iota::table_vec::Self;
+use iota::table_vec::TableVec;
 
 public struct PatientAccount has store {
     access_log: TableVec<PatientAccessLog>,

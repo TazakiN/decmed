@@ -1,21 +1,19 @@
 module decmed::std_struct_hospital_personnel_account;
 
-use decmed::std_enum_hospital_personnel_role::{
-    HospitalPersonnelRole,
-};
-use decmed::std_struct_hospital_personnel_access::{
-    HospitalPersonnelAccess,
-    default as hospital_personnel_access_default,
-};
-use decmed::std_struct_hospital_personnel_administrative_metadata::{
-    HospitalPersonnelAdministrativeMetadata,
-    default as hospital_personnel_administrative_metadata_default,
-};
+use decmed::std_enum_hospital_personnel_role::HospitalPersonnelRole;
+use decmed::std_struct_hospital_personnel_access::HospitalPersonnelAccess;
+#[test_only]
+use decmed::std_struct_hospital_personnel_access::default as hospital_personnel_access_default;
+use decmed::std_struct_hospital_personnel_administrative_metadata::HospitalPersonnelAdministrativeMetadata;
+#[test_only]
+use decmed::std_struct_hospital_personnel_administrative_metadata::default as hospital_personnel_administrative_metadata_default;
 use decmed::std_struct_hospital_personnel_metadata::HospitalPersonnelMetadata;
 
 use iota::vec_map::VecMap;
 
-use std::string::{Self, String};
+#[test_only]
+use std::string::Self;
+use std::string::String;
 
 /// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)
 /// - `hospital_id`: encoded argon_hash(raw_hospital_id)

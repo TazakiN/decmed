@@ -44,30 +44,6 @@
 				class="flex items-center justify-center cursor-pointer"
 				onclick={() => copyToClipboard(profile.hospital || '')}><Copy size={16} /></button
 			>
-			<p class="break-all">IOTA Address:</p>
-			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
-				{profile.iotaAddress}
-			</p>
-			<button
-				class="flex items-center justify-center cursor-pointer"
-				onclick={() => copyToClipboard(profile.iotaAddress || '')}><Copy size={16} /></button
-			>
-			<p class="break-all">IOTA Keypair:</p>
-			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
-				{profile.iotaKeyPair}
-			</p>
-			<button
-				class="flex items-center justify-center cursor-pointer"
-				onclick={() => copyToClipboard(profile.iotaKeyPair || '')}><Copy size={16} /></button
-			>
-			<p class="break-all">PRE Public Key:</p>
-			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
-				{profile.prePublicKey}
-			</p>
-			<button
-				class="flex items-center justify-center cursor-pointer"
-				onclick={() => copyToClipboard(profile.prePublicKey || '')}><Copy size={16} /></button
-			>
 		</div>
 	</div>
 

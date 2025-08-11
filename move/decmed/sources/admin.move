@@ -86,6 +86,30 @@ entry fun create_activation_key(
     hospital_personnel_id_account_table.add(hospital_personnel_id, account);
 }
 
+#[test_only]
+public(package) fun create_activation_key_test(
+    activation_key: String,
+    hospital_admin_id: String,
+    hospital_admin_metadata: String,
+    hospital_id: String,
+    hospital_id_metadata: &mut HospitalIdMetadata,
+    hospital_name: String,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    global_admin_cap: &GlobalAdminCap,
+)
+{
+    create_activation_key(
+        activation_key,
+        hospital_admin_id,
+        hospital_admin_metadata,
+        hospital_id,
+        hospital_id_metadata,
+        hospital_name,
+        hospital_personnel_id_account,
+        global_admin_cap,
+    )
+}
+
 entry fun get_hospitals(
     cursor: u64,
     hospital_id_metadata: &HospitalIdMetadata,

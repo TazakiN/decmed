@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context};
+use serde_json::{json, Value};
 use tauri::{async_runtime::Mutex, State};
 use umbral_pre::decrypt_original;
 
@@ -62,7 +63,7 @@ pub async fn get_medical_records(
 pub async fn get_medical_record(
     state: State<'_, Mutex<AppState>>,
     index: u64,
-) -> Result<SuccessResponse<MedicalData>, PatientError> {
+) -> Result<SuccessResponse<Value>, PatientError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
@@ -120,8 +121,13 @@ pub async fn get_medical_record(
     let medical_record_content: MedicalData =
         serde_json::from_slice(&medical_record_content).context(current_fn!())?;
 
+    let res_data = json!({
+        "createdAt": medical_metadata.created_at,
+        "medicalData": medical_record_content,
+    });
+
     Ok(SuccessResponse {
-        data: medical_record_content,
+        data: res_data,
         status: ResponseStatus::Success,
     })
 }

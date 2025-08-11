@@ -2,7 +2,9 @@ module decmed::std_struct_hospital_personnel_access;
 
 use decmed::std_struct_hospital_personnel_access_data::HospitalPersonnelAccessData;
 
-use iota::vec_map::{Self, VecMap};
+#[test_only]
+use iota::vec_map::Self;
+use iota::vec_map::VecMap;
 
 use std::string::String;
 

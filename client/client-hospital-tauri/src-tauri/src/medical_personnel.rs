@@ -14,7 +14,7 @@ use crate::{
     types::{
         AccessData, AccessMetadata, AccessMetadataEncrypted, AppState,
         CommandNewMedicalRecordPayload, CommandUpdateMedicalRecordPayload, KeyNonce, MedicalData,
-        MedicalMetadata, ProxyReencryptionErrorResponse,
+        MedicalMetadata, PatientPrivateAdministrativeData, ProxyReencryptionErrorResponse,
         ProxyReencryptionGetMedicalRecordResponseData,
         ProxyReencryptionGetMedicalRecordUpdateResponseData, ProxyReencryptionSuccessResponse,
         ResponseStatus, SuccessResponse,
@@ -46,8 +46,11 @@ pub async fn new_medical_record(
             serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
         let medical_data = MedicalData {
-            main_category: data.main_category,
-            sub_category: data.sub_category,
+            anamnesis: data.anamnesis,
+            diagnose: data.diagnose,
+            physical_check: data.physical_check,
+            psychological_check: data.psychological_check,
+            therapy: data.therapy,
         };
         let (enc_medical_data, medical_data_key, medical_data_nonce) =
             aes_encrypt(&serde_json::to_vec(&medical_data).context(current_fn!())?)
@@ -138,7 +141,7 @@ pub async fn get_medical_record(
     .await
     .context(current_fn!())?;
 
-    let medical_data = {
+    let (medical_data, administrative_data) = {
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
@@ -155,13 +158,13 @@ pub async fn get_medical_record(
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
         let (medical_record_pre_secret_key, medical_record_pre_public_key) =
             compute_pre_keys(&medical_record_pre_secret_key_seed).context(current_fn!())?;
-        let c_frag: CapsuleFrag =
-            serde_deserialize_from_base64(res.data.c_frag).context(current_fn!())?;
-        let medical_data_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.medical_data_capsule).context(current_fn!())?;
         let signer_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.signer_pre_public_key).context(current_fn!())?;
-        let verified_cfrag = c_frag
+        let c_frag_medical: CapsuleFrag =
+            serde_deserialize_from_base64(res.data.c_frag_medical).context(current_fn!())?;
+        let medical_data_capsule: Capsule =
+            serde_deserialize_from_base64(res.data.medical_data_capsule).context(current_fn!())?;
+        let verified_cfrag_medical = c_frag_medical
             .verify(
                 &medical_data_capsule,
                 &signer_pre_public_key,
@@ -173,7 +176,7 @@ pub async fn get_medical_record(
             &medical_record_pre_secret_key,
             &patient_pre_public_key,
             &medical_data_capsule,
-            [verified_cfrag],
+            [verified_cfrag_medical],
             STANDARD
                 .decode(res.data.enc_medical_data_key_nonce)
                 .context(current_fn!())?,
@@ -196,15 +199,56 @@ pub async fn get_medical_record(
         let medical_data: MedicalData =
             serde_json::from_slice(&medical_data).context(current_fn!())?;
 
-        medical_data
+        let c_frag_administrative: CapsuleFrag =
+            serde_deserialize_from_base64(res.data.c_frag_administrative).context(current_fn!())?;
+        let administrative_data_capsule: Capsule =
+            serde_deserialize_from_base64(res.data.administrative_data_capsule)
+                .context(current_fn!())?;
+        let verified_cfrag_administrative = c_frag_administrative
+            .verify(
+                &administrative_data_capsule,
+                &signer_pre_public_key,
+                &patient_pre_public_key,
+                &medical_record_pre_public_key,
+            )
+            .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
+        let administrative_data_key_nonce = decrypt_reencrypted(
+            &medical_record_pre_secret_key,
+            &patient_pre_public_key,
+            &administrative_data_capsule,
+            [verified_cfrag_administrative],
+            STANDARD
+                .decode(res.data.enc_administrative_data_key_nonce)
+                .context(current_fn!())?,
+        )
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+        let administrative_data_key_nonce: KeyNonce =
+            serde_json::from_slice(&administrative_data_key_nonce).context(current_fn!())?;
+        let administrative_data = aes_decrypt(
+            &STANDARD
+                .decode(res.data.enc_administrative_data)
+                .context(current_fn!())?,
+            &STANDARD
+                .decode(administrative_data_key_nonce.key)
+                .context(current_fn!())?,
+            &STANDARD
+                .decode(administrative_data_key_nonce.nonce)
+                .context(current_fn!())?,
+        )
+        .context(current_fn!())?;
+        let administrative_data: PatientPrivateAdministrativeData =
+            serde_json::from_slice(&administrative_data).context(current_fn!())?;
+
+        (medical_data, administrative_data)
     };
 
     let res_data = json!({
+        "administrativeData": administrative_data,
         "createdAt": res.data.medical_data_created_at,
-        "mainCategory": medical_data.main_category,
+        "currentIndex": res.data.current_index,
+        "medicalData": medical_data,
         "nextIndex": res.data.next_index,
         "prevIndex": res.data.prev_index,
-        "subCategory": medical_data.sub_category,
     });
 
     Ok(SuccessResponse {
@@ -253,7 +297,7 @@ pub async fn get_medical_record_update(
     .await
     .context(current_fn!())?;
 
-    let medical_data = {
+    let (medical_data, administrative_data) = {
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
@@ -270,13 +314,13 @@ pub async fn get_medical_record_update(
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
         let (medical_record_pre_secret_key, medical_record_pre_public_key) =
             compute_pre_keys(&medical_record_pre_secret_key_seed).context(current_fn!())?;
-        let c_frag: CapsuleFrag =
-            serde_deserialize_from_base64(res.data.c_frag).context(current_fn!())?;
-        let medical_data_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.medical_data_capsule).context(current_fn!())?;
         let signer_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.signer_pre_public_key).context(current_fn!())?;
-        let verified_cfrag = c_frag
+        let c_frag_medical: CapsuleFrag =
+            serde_deserialize_from_base64(res.data.c_frag_medical).context(current_fn!())?;
+        let medical_data_capsule: Capsule =
+            serde_deserialize_from_base64(res.data.medical_data_capsule).context(current_fn!())?;
+        let verified_cfrag_medical = c_frag_medical
             .verify(
                 &medical_data_capsule,
                 &signer_pre_public_key,
@@ -288,7 +332,7 @@ pub async fn get_medical_record_update(
             &medical_record_pre_secret_key,
             &patient_pre_public_key,
             &medical_data_capsule,
-            [verified_cfrag],
+            [verified_cfrag_medical],
             STANDARD
                 .decode(res.data.enc_medical_data_key_nonce)
                 .context(current_fn!())?,
@@ -311,13 +355,53 @@ pub async fn get_medical_record_update(
         let medical_data: MedicalData =
             serde_json::from_slice(&medical_data).context(current_fn!())?;
 
-        medical_data
+        let c_frag_administrative: CapsuleFrag =
+            serde_deserialize_from_base64(res.data.c_frag_administrative).context(current_fn!())?;
+        let administrative_data_capsule: Capsule =
+            serde_deserialize_from_base64(res.data.administrative_data_capsule)
+                .context(current_fn!())?;
+        let verified_cfrag_administrative = c_frag_administrative
+            .verify(
+                &administrative_data_capsule,
+                &signer_pre_public_key,
+                &patient_pre_public_key,
+                &medical_record_pre_public_key,
+            )
+            .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
+        let administrative_data_key_nonce = decrypt_reencrypted(
+            &medical_record_pre_secret_key,
+            &patient_pre_public_key,
+            &administrative_data_capsule,
+            [verified_cfrag_administrative],
+            STANDARD
+                .decode(res.data.enc_administrative_data_key_nonce)
+                .context(current_fn!())?,
+        )
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+        let administrative_data_key_nonce: KeyNonce =
+            serde_json::from_slice(&administrative_data_key_nonce).context(current_fn!())?;
+        let administrative_data = aes_decrypt(
+            &STANDARD
+                .decode(res.data.enc_administrative_data)
+                .context(current_fn!())?,
+            &STANDARD
+                .decode(administrative_data_key_nonce.key)
+                .context(current_fn!())?,
+            &STANDARD
+                .decode(administrative_data_key_nonce.nonce)
+                .context(current_fn!())?,
+        )
+        .context(current_fn!())?;
+        let administrative_data: PatientPrivateAdministrativeData =
+            serde_json::from_slice(&administrative_data).context(current_fn!())?;
+
+        (medical_data, administrative_data)
     };
 
     let res_data = json!({
+        "administrativeData": administrative_data,
         "createdAt": res.data.medical_data_created_at,
-        "mainCategory": medical_data.main_category,
-        "subCategory": medical_data.sub_category,
+        "medicalData": medical_data,
     });
 
     Ok(SuccessResponse {
@@ -523,8 +607,11 @@ pub async fn update_medical_record(
             serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
         let medical_data = MedicalData {
-            main_category: data.main_category,
-            sub_category: data.sub_category,
+            anamnesis: data.anamnesis,
+            diagnose: data.diagnose,
+            physical_check: data.physical_check,
+            psychological_check: data.psychological_check,
+            therapy: data.therapy,
         };
         let (enc_medical_data, medical_data_key, medical_data_nonce) =
             aes_encrypt(&serde_json::to_vec(&medical_data).context(current_fn!())?)

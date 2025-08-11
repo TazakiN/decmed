@@ -1,8 +1,11 @@
 import { goto } from '$app/navigation';
 import { createMedicalRecordSchema } from '$lib/schema';
-import type { CreateMedicalRecordSchema, SuccessResponse } from '$lib/types';
+import type {
+	CreateMedicalRecordSchema,
+	InvokeGetPatientAdministrativeDataResponseData,
+	SuccessResponse
+} from '$lib/types';
 import { tryCatchAsVal } from '$lib/utils';
-import { redirect } from '@sveltejs/kit';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -20,26 +23,6 @@ export class EmrCreateState {
 	patientIotaAddress = $state('');
 	patientPrePublicKey = $state<string>('');
 	createMedicalRecordFormMeta: SuperForm<Infer<CreateMedicalRecordSchema>>;
-	medicalDataMainCategory = [
-		{
-			value: 'Category1',
-			label: 'Category 1'
-		},
-		{
-			value: 'Category2',
-			label: 'Category 2'
-		}
-	];
-	medicalDataSubCategory = [
-		{
-			value: 'SubCategory1',
-			label: 'Sub Category 1'
-		},
-		{
-			value: 'SubCategory2',
-			label: 'SubCategory 2'
-		}
-	];
 
 	constructor({
 		accessToken,
@@ -61,7 +44,13 @@ export class EmrCreateState {
 					const resInvokeCreateMedicalRecord = await tryCatchAsVal(async () => {
 						return (await invoke('new_medical_record', {
 							accessToken,
-							data: { mainCategory: form.data.mainCategory, subCategory: form.data.subCategory },
+							data: {
+								anamnesis: form.data.anamnesis,
+								physicalCheck: form.data.physicalCheck,
+								psychologicalCheck: form.data.psychologicalCheck,
+								diagnose: form.data.diagnose,
+								therapy: form.data.therapy
+							},
 							patientIotaAddress,
 							patientPrePublicKey
 						})) as SuccessResponse<null>;
@@ -79,4 +68,26 @@ export class EmrCreateState {
 			}
 		});
 	}
+
+	getPatientAdministrativeData = async (accessToken: string | null, patientIotaAddress: string) => {
+		const resInvokeGetPatientAdministrativeData = await tryCatchAsVal(async () => {
+			return (await invoke('get_administrative_data', {
+				accessToken,
+				patientIotaAddress
+			})) as SuccessResponse<InvokeGetPatientAdministrativeDataResponseData>;
+		});
+
+		console.log(resInvokeGetPatientAdministrativeData);
+
+		if (!resInvokeGetPatientAdministrativeData.success) {
+			toast.error(resInvokeGetPatientAdministrativeData.error);
+			throw new Error(resInvokeGetPatientAdministrativeData.error);
+		}
+
+		return resInvokeGetPatientAdministrativeData.data.data;
+	};
+
+	fetchPatientAdministrativeData = $derived(
+		this.getPatientAdministrativeData(this.accessToken, this.patientIotaAddress)
+	);
 }

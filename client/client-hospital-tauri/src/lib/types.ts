@@ -52,6 +52,26 @@ export type TauriAccessData = {
 
 export type TauriAccessDataType = 'Administrative' | 'Medical';
 
+export type TauriMedicalData = {
+	anamnesis: string;
+	physical_check: string;
+	psychological_check: string;
+	diagnose: string;
+	therapy: string;
+};
+
+export type TauriPatientPrivateAdministrativeData = {
+	id: string;
+	name: string | null;
+	birth_place: string | null;
+	date_of_birth: string | null;
+	gender: string | null;
+	religion: string | null;
+	education: string | null;
+	occupation: string | null;
+	marital_status: string | null;
+};
+
 export type AdministrativeData = {
 	id: string;
 	idHash: string;
@@ -71,16 +91,16 @@ export type GetProfileData = {
 };
 
 export type InvokeGetMedicalRecordResponseData = {
+	administrativeData: TauriPatientPrivateAdministrativeData;
 	createdAt: string;
-	mainCategory: string;
-	nextIndex: string;
-	prevIndex: string;
-	subCategory: string;
+	medicalData: TauriMedicalData;
+	currentIndex: number;
+	nextIndex?: number | null;
+	prevIndex?: number | null;
 };
 
 export type InvokeGetPatientAdministrativeDataResponseData = {
-	id: string;
-	name: string | null;
+	administrativeData: TauriPatientPrivateAdministrativeData;
 };
 
 export type InvokeGlobalAdminAddActivationKeyData = {
@@ -105,5 +125,6 @@ export type SignUpSchemaStep4 = typeof signUpSchemaStep4;
 export type SignInSchemaStep3 = typeof signInSchemaStep3;
 export type UpdateMedicalRecordSchema = typeof updateMedicalRecordSchema;
 
+export type MedicalData = z.infer<typeof createMedicalRecordSchema>;
 export type MedicalDataMainCategory = z.infer<typeof medicalDataMainCategory.mainCategory>;
 export type MedicalDataSubCategory = z.infer<typeof medicalDataSubCategory.subCategory>;

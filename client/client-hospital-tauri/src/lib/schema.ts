@@ -32,6 +32,71 @@ export const medicalDataSubCategory = {
 	subCategory: z.enum(['SubCategory1', 'SubCategory2'])
 };
 
+const anamnesisSchema = {
+	anamnesis: z
+		.string({
+			required_error: 'Anamnesis is required.',
+			invalid_type_error: 'Anamnesis is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
+			message: 'Anamnesis must consist of alphanumeric characters only of length 2 - 100.'
+		})
+		.transform((val) => val.trim())
+};
+
+const physicalCheckSchema = {
+	physicalCheck: z
+		.string({
+			required_error: 'Physical check is required.',
+			invalid_type_error: 'Physical check is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
+			message: 'Physical check must consist of alphanumeric characters only of length 2 - 100.'
+		})
+		.transform((val) => val.trim())
+};
+
+const psychologicalCheckSchema = {
+	psychologicalCheck: z
+		.string({
+			required_error: 'Psychological check is required.',
+			invalid_type_error: 'Psychological check is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
+			message: 'Psychological check must consist of alphanumeric characters only of length 2 - 100.'
+		})
+		.transform((val) => val.trim())
+};
+
+const diagnoseSchema = {
+	diagnose: z
+		.string({
+			required_error: 'Diagnose is required.',
+			invalid_type_error: 'Diagnose is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
+			message: 'Diagnose must consist of alphanumeric characters only of length 2 - 100.'
+		})
+		.transform((val) => val.trim())
+};
+
+const therapySchema = {
+	therapy: z
+		.string({
+			required_error: 'Therapy is required.',
+			invalid_type_error: 'Therapy is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
+			message: 'Therapy must consist of alphanumeric characters only of length 2 - 100.'
+		})
+		.transform((val) => val.trim())
+};
+
 // const _hospitalSchema = {
 // 	hospital: z
 // 		.string({ required_error: 'Hospital is required.', invalid_type_error: 'Hospital is invalid.' })
@@ -130,11 +195,17 @@ export const addPersonnelSchemaStep2 = addPersonnelSchemaStep1.extend(pinSchema)
 export const completeProfileAdminSchema = z.object(nameSchema);
 export const completeProfilePersonnelSchema = z.object(nameSchema);
 export const createMedicalRecordSchema = z
-	.object(medicalDataMainCategory)
-	.extend(medicalDataSubCategory);
+	.object(anamnesisSchema)
+	.extend(physicalCheckSchema)
+	.extend(psychologicalCheckSchema)
+	.extend(diagnoseSchema)
+	.extend(therapySchema);
 export const updateMedicalRecordSchema = z
-	.object(medicalDataMainCategory)
-	.extend(medicalDataSubCategory);
+	.object(anamnesisSchema)
+	.extend(physicalCheckSchema)
+	.extend(psychologicalCheckSchema)
+	.extend(diagnoseSchema)
+	.extend(therapySchema);
 
 export const addPersonnelSchemas = [addPersonnelSchemaStep1, addPersonnelSchemaStep2];
 export const signInSchemas = [signInSchemaStep1, signInSchemaStep2, signInSchemaStep3];

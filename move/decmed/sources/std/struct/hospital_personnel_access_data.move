@@ -2,7 +2,9 @@ module decmed::std_struct_hospital_personnel_access_data;
 
 use decmed::std_enum_hospital_personnel_access_data_type::HospitalPersonnelAccessDataType;
 
-use std::string::{Self, String};
+#[test_only]
+use std::string::Self;
+use std::string::String;
 
 public struct HospitalPersonnelAccessData has copy, drop, store {
     access_data_types: vector<HospitalPersonnelAccessDataType>,

@@ -105,6 +105,16 @@ pub struct CommandProcessQrResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandUpdateProfileInput {
     pub name: String,
+    #[serde(rename = "birthPlace")]
+    pub birth_place: String,
+    #[serde(rename = "dateOfBirth")]
+    pub date_of_birth: String,
+    pub gender: String,
+    pub religion: String,
+    pub education: String,
+    pub occupation: String,
+    #[serde(rename = "maritalStatus")]
+    pub marital_status: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -159,8 +169,11 @@ pub struct HospitalPersonnelPublicAdministrativeData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MedicalData {
-    pub main_category: MedicalDataMainCategory,
-    pub sub_category: MedicalDataSubCategory,
+    pub anamnesis: String,
+    pub physical_check: String,
+    pub psychological_check: String,
+    pub diagnose: String,
+    pub therapy: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -220,10 +233,17 @@ pub struct MovePatientMedicalMetadata {
     pub metadata: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct PrivateAdministrativeData {
     pub id: String,
     pub name: Option<String>,
+    pub birth_place: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub religion: Option<String>,
+    pub education: Option<String>,
+    pub occupation: Option<String>,
+    pub marital_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

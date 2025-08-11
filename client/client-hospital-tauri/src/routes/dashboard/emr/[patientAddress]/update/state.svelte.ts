@@ -1,6 +1,8 @@
 import { updateMedicalRecordSchema } from '$lib/schema';
 import type {
 	InvokeGetMedicalRecordResponseData,
+	InvokeGetPatientAdministrativeDataResponseData,
+	MedicalData,
 	MedicalDataMainCategory,
 	MedicalDataSubCategory,
 	SuccessResponse,
@@ -75,7 +77,13 @@ export class EmrUpdateState {
 					const resInvokeUpdateMedicalRecord = await tryCatchAsVal(async () => {
 						return (await invoke('update_medical_record', {
 							accessToken,
-							data: { mainCategory: form.data.mainCategory, subCategory: form.data.subCategory },
+							data: {
+								anamnesis: form.data.anamnesis,
+								diagnose: form.data.diagnose,
+								physicalCheck: form.data.physicalCheck,
+								psychologicalCheck: form.data.psychologicalCheck,
+								therapy: form.data.therapy
+							},
 							patientIotaAddress,
 							patientPrePublicKey
 						})) as SuccessResponse<null>;
@@ -110,7 +118,7 @@ export class EmrUpdateState {
 			})) as SuccessResponse<InvokeGetMedicalRecordResponseData>;
 		});
 
-		console.log(resInvokeGetMedicalRecord);
+		console.log('HEREEEE', resInvokeGetMedicalRecord);
 
 		if (!resInvokeGetMedicalRecord.success) {
 			toast.error(resInvokeGetMedicalRecord.error);
@@ -118,8 +126,11 @@ export class EmrUpdateState {
 		}
 
 		this.setFormData({
-			mainCategory: resInvokeGetMedicalRecord.data.data.mainCategory as MedicalDataMainCategory,
-			subCategory: resInvokeGetMedicalRecord.data.data.subCategory as MedicalDataSubCategory
+			anamnesis: resInvokeGetMedicalRecord.data.data.medicalData.anamnesis,
+			diagnose: resInvokeGetMedicalRecord.data.data.medicalData.diagnose,
+			physicalCheck: resInvokeGetMedicalRecord.data.data.medicalData.physical_check,
+			psychologicalCheck: resInvokeGetMedicalRecord.data.data.medicalData.psychological_check,
+			therapy: resInvokeGetMedicalRecord.data.data.medicalData.therapy
 		});
 
 		return resInvokeGetMedicalRecord.data.data;
@@ -129,10 +140,41 @@ export class EmrUpdateState {
 		this.getMedicalRecord(this.accessToken, this.index, this.patientIotaAddress)
 	);
 
-	setFormData = async ({ mainCategory, subCategory }: SetFormDataProps) => {
+	getPatientAdministrativeData = async (accessToken: string | null, patientIotaAddress: string) => {
+		const resInvokeGetPatientAdministrativeData = await tryCatchAsVal(async () => {
+			return (await invoke('get_administrative_data', {
+				accessToken,
+				patientIotaAddress
+			})) as SuccessResponse<InvokeGetPatientAdministrativeDataResponseData>;
+		});
+
+		console.log(resInvokeGetPatientAdministrativeData);
+
+		if (!resInvokeGetPatientAdministrativeData.success) {
+			toast.error(resInvokeGetPatientAdministrativeData.error);
+			throw new Error(resInvokeGetPatientAdministrativeData.error);
+		}
+
+		return resInvokeGetPatientAdministrativeData.data.data;
+	};
+
+	fetchPatientAdministrativeData = $derived(
+		this.getPatientAdministrativeData(this.accessToken, this.patientIotaAddress)
+	);
+
+	setFormData = async ({
+		anamnesis,
+		diagnose,
+		physicalCheck,
+		psychologicalCheck,
+		therapy
+	}: MedicalData) => {
 		this.updateMedicalRecordFormMeta.form.update((prev) => {
-			prev.mainCategory = mainCategory;
-			prev.subCategory = subCategory;
+			prev.anamnesis = anamnesis;
+			prev.diagnose = diagnose;
+			prev.physicalCheck = physicalCheck;
+			prev.psychologicalCheck = psychologicalCheck;
+			prev.therapy = therapy;
 			return prev;
 		});
 	};

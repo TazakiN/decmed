@@ -24,6 +24,81 @@ const nameSchema = {
 		.transform((val) => val.trim())
 };
 
+const birthPlaceSchema = {
+	birthPlace: z
+		.string({
+			required_error: 'Birth place is required.',
+			invalid_type_error: 'Birth place is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
+			message: 'Birth place must consist of alphanumeric characters only of length 2 - 50.'
+		})
+		.transform((val) => val.trim())
+};
+
+const dateOfBirthSchema = {
+	dateOfBirth: z
+		.string({
+			required_error: 'Date of birth place is required.',
+			invalid_type_error: 'Date of birth place is invalid.'
+		})
+		.trim()
+		.regex(/^\d{4}-\d{2}-\d{2}$/, {
+			message: 'Date of birth is invalid.'
+		})
+		.transform((val) => val.trim())
+};
+
+const genderSchema = {
+	gender: z.enum(['Male', 'Female'], { message: 'Invalid gender.' })
+};
+
+const religionSchema = {
+	religion: z
+		.string({
+			required_error: 'Religion is required.',
+			invalid_type_error: 'Religion is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
+			message: 'Religion must consist of alphanumeric characters only of length 2 - 50.'
+		})
+		.transform((val) => val.trim())
+};
+
+const educationSchema = {
+	education: z
+		.string({
+			required_error: 'Education is required.',
+			invalid_type_error: 'Education is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
+			message: 'Education must consist of alphanumeric characters only of length 2 - 50.'
+		})
+		.transform((val) => val.trim())
+};
+
+const occupationSchema = {
+	occupation: z
+		.string({
+			required_error: 'Occupation is required.',
+			invalid_type_error: 'Occupation is invalid.'
+		})
+		.trim()
+		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
+			message: 'Occupation must consist of alphanumeric characters only of length 2 - 50.'
+		})
+		.transform((val) => val.trim())
+};
+
+const maritalStatusSchema = {
+	maritalStatus: z.enum(['Single', 'Married', 'Widowed', 'Divorced'], {
+		message: 'Invalid marital status.'
+	})
+};
+
 const nikSchema = {
 	nik: z
 		.string({
@@ -79,7 +154,15 @@ const qrSchema = {
 		)
 };
 
-export const completeProfileSchema = z.object(nameSchema);
+export const completeProfileSchema = z
+	.object(nameSchema)
+	.extend(birthPlaceSchema)
+	.extend(dateOfBirthSchema)
+	.extend(genderSchema)
+	.extend(religionSchema)
+	.extend(educationSchema)
+	.extend(occupationSchema)
+	.extend(maritalStatusSchema);
 
 export const enterPinSchema = z.object(pinSchema);
 

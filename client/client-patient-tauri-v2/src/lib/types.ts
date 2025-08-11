@@ -34,17 +34,32 @@ export type InvokeProcessQrResponse = {
 	hospitalPersonnelName: string;
 };
 
+export type InvokeGetMedicalRecordResponse = {
+	createdAt: string;
+	medicalData: TauriMedicalData;
+};
+
 export type TauriAdministrativeData = {
 	id: string;
 	idHash: string;
 	iotaAddress: string;
 	prePublicKey: string;
-	name: string | undefined;
+	name: string | null;
+	birthPlace: string | null;
+	dateOfBirth: string | null;
+	gender: string | null;
+	religion: string | null;
+	education: string | null;
+	occupation: string | null;
+	maritalStatus: string | null;
 };
 
 export type TauriMedicalData = {
-	main_category: TauriMedicalDataMainCategory;
-	sub_category: TauriMedicalDataSubCategory;
+	anamnesis: string;
+	physical_check: string;
+	psychological_check: string;
+	diagnose: string;
+	therapy: string;
 };
 
 export type TauriMedicalDataMainCategory = 'Category1' | 'Category2';

@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use bip39::Mnemonic;
+use serde_json::{json, Value};
 use tauri::{async_runtime::Mutex, State};
 use umbral_pre::{decrypt_original, encrypt};
 
@@ -9,9 +10,8 @@ use crate::{
     current_fn,
     patient_error::PatientError,
     types::{
-        AdministrativeData, AppState, CommandGetProfileResponse, CommandUpdateProfileInput,
-        KeyNonce, PrivateAdministrativeData, PrivateAdministrativeMetadata, ResponseStatus,
-        SuccessResponse,
+        AdministrativeData, AppState, CommandUpdateProfileInput, KeyNonce,
+        PrivateAdministrativeData, PrivateAdministrativeMetadata, ResponseStatus, SuccessResponse,
     },
     utils::{
         aes_decrypt, aes_encrypt, argon_hash, generate_64_bytes_seed, generate_iota_keys_ed,
@@ -156,7 +156,7 @@ pub async fn is_session_pin_exist(
 #[tauri::command]
 pub async fn get_profile(
     state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<CommandGetProfileResponse>, PatientError> {
+) -> Result<SuccessResponse<Value>, PatientError> {
     let mut state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
@@ -211,14 +211,21 @@ pub async fn get_profile(
     let private_administrative_data: PrivateAdministrativeData =
         serde_json::from_slice(&private_administrative_data).context(current_fn!())?;
 
-    let data = CommandGetProfileResponse {
-        id: private_administrative_data.id.clone(),
-        id_hash: argon_hash(private_administrative_data.id.clone()).context(current_fn!())?,
-        iota_address: patient_iota_address.to_string(),
-        pre_public_key: serde_serialize_to_base64(&patient_pre_public_key)
+    let data = json!({
+        "id": keys_entry.id,
+        "idHash": argon_hash(private_administrative_data.id.clone()).context(current_fn!())?,
+        "iotaAddress": patient_iota_address.to_string(),
+        "prePublicKey": serde_serialize_to_base64(&patient_pre_public_key)
             .context(current_fn!())?,
-        name: private_administrative_data.name.clone(),
-    };
+        "name": private_administrative_data.name.clone(),
+        "birthPlace": private_administrative_data.birth_place,
+        "dateOfBirth": private_administrative_data.date_of_birth,
+        "gender": private_administrative_data.gender,
+        "religion": private_administrative_data.religion,
+        "education": private_administrative_data.education,
+        "occupation": private_administrative_data.occupation,
+        "maritalStatus": private_administrative_data.marital_status,
+    });
 
     state.administrative_data = Some(AdministrativeData {
         private: private_administrative_data,
@@ -270,11 +277,21 @@ pub async fn update_profile(
         // Construct private administrative data
         let mut private_administrative_data = state
             .administrative_data
-            .as_ref()
-            .ok_or(anyhow!("Administrative data not found").context(current_fn!()))?
-            .private
-            .clone();
+            .clone()
+            .unwrap_or(AdministrativeData {
+                private: PrivateAdministrativeData {
+                    ..Default::default()
+                },
+            })
+            .private;
         private_administrative_data.name = Some(data.name);
+        private_administrative_data.birth_place = Some(data.birth_place);
+        private_administrative_data.date_of_birth = Some(data.date_of_birth);
+        private_administrative_data.education = Some(data.education);
+        private_administrative_data.gender = Some(data.gender);
+        private_administrative_data.marital_status = Some(data.marital_status);
+        private_administrative_data.occupation = Some(data.occupation);
+        private_administrative_data.religion = Some(data.religion);
         let (
             enc_private_administrative_data,
             private_administrative_data_key,

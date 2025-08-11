@@ -44,16 +44,12 @@ use std::string::String;
 
 // Constants
 
-#[error]
-const EAccountAlreadyRegistered: vector<u8> = b"Account already registered";
-#[error]
-const EAddressAlreadyRegistered: vector<u8> = b"Address already registered";
-const EAccountNotFound: u64 = 2001;
-#[error]
-const EAddressNotFound: vector<u8> = b"Address not found";
-#[error]
-const EHospitalPersonnelNotFound: vector<u8> = b"Hospital personnel not found";
-const EInvalidMetadataLength: u64 = 2000;
+const EAccountAlreadyRegistered: u64 = 3000;
+const EAddressAlreadyRegistered: u64 = 3001;
+const EAccountNotFound: u64 = 3002;
+const EAddressNotFound: u64 = 3003;
+const EHospitalPersonnelNotFound: u64 = 3004;
+const EInvalidMetadataLength: u64 = 3005;
 
 // Enums
 
@@ -314,6 +310,24 @@ entry fun signup(
     patient_id_account_table.add(patient_id, patient_account);
 }
 
+#[test_only]
+public(package) fun signup_test(
+    address_id: &mut AddressId,
+    patient_id: String,
+    patient_id_account: &mut PatientIdAccount,
+    private_metadata: String,
+    ctx: &mut TxContext,
+)
+{
+    signup(
+        address_id,
+        patient_id,
+        patient_id_account,
+        private_metadata,
+        ctx
+    );
+}
+
 entry fun get_account_info(
     address_id: &AddressId,
     patient_id_account: &PatientIdAccount,
@@ -509,11 +523,11 @@ entry fun revoke_access(
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access();
 
     let hospital_personnel_read_access = hospital_personnel_access.borrow_mut().borrow_mut_read();
-    if (hospital_personnel_read_access.contains(&patient_id)) {
+    if (hospital_personnel_read_access.contains(&patient_id) && patient_access_log.borrow_access_type() == hospital_personnel_access_type_read()) {
         hospital_personnel_read_access.remove(&patient_id);
     };
     let hospital_personnel_update_access = hospital_personnel_access.borrow_mut().borrow_mut_update();
-    if (hospital_personnel_update_access.contains(&patient_id)) {
+    if (hospital_personnel_update_access.contains(&patient_id) && patient_access_log.borrow_access_type() == hospital_personnel_access_type_update()) {
         hospital_personnel_update_access.remove(&patient_id);
     };
 }

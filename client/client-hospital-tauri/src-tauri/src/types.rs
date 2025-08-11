@@ -152,18 +152,24 @@ pub struct CommandHospitalAdminAddActivationKeyResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandNewMedicalRecordPayload {
-    #[serde(rename = "mainCategory")]
-    pub main_category: MedicalDataMainCategory,
-    #[serde(rename = "subCategory")]
-    pub sub_category: MedicalDataSubCategory,
+    pub anamnesis: String,
+    #[serde(rename = "physicalCheck")]
+    pub physical_check: String,
+    #[serde(rename = "psychologicalCheck")]
+    pub psychological_check: String,
+    pub diagnose: String,
+    pub therapy: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandUpdateMedicalRecordPayload {
-    #[serde(rename = "mainCategory")]
-    pub main_category: MedicalDataMainCategory,
-    #[serde(rename = "subCategory")]
-    pub sub_category: MedicalDataSubCategory,
+    pub anamnesis: String,
+    #[serde(rename = "physicalCheck")]
+    pub physical_check: String,
+    #[serde(rename = "psychologicalCheck")]
+    pub psychological_check: String,
+    pub diagnose: String,
+    pub therapy: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -206,8 +212,11 @@ pub struct KeysEntry {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MedicalData {
-    pub main_category: MedicalDataMainCategory,
-    pub sub_category: MedicalDataSubCategory,
+    pub anamnesis: String,
+    pub physical_check: String,
+    pub psychological_check: String,
+    pub diagnose: String,
+    pub therapy: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -251,6 +260,13 @@ pub struct MoveHospitalPersonnelMetadata {
 pub struct PatientPrivateAdministrativeData {
     pub id: String,
     pub name: Option<String>,
+    pub birth_place: Option<String>,
+    pub date_of_birth: Option<String>,
+    pub gender: Option<String>,
+    pub religion: Option<String>,
+    pub education: Option<String>,
+    pub occupation: Option<String>,
+    pub marital_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -286,14 +302,19 @@ pub struct ProxyReencryptionGetPatientAdministrativeDataResponseData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionGetMedicalRecordResponseData {
-    pub c_frag: String,
-    pub enc_medical_data: String,
-    pub enc_medical_data_key_nonce: String,
-    pub enc_data_pre_secret_key_seed: String,
-    pub medical_data_capsule: String,
-    pub medical_data_created_at: String,
+    pub administrative_data_capsule: String,
+    pub c_frag_administrative: String,
+    pub c_frag_medical: String,
+    pub current_index: u64,
     pub data_pre_public_key: String,
     pub data_pre_secret_key_seed_capsule: String,
+    pub enc_administrative_data: String,
+    pub enc_administrative_data_key_nonce: String,
+    pub enc_data_pre_secret_key_seed: String,
+    pub enc_medical_data: String,
+    pub enc_medical_data_key_nonce: String,
+    pub medical_data_capsule: String,
+    pub medical_data_created_at: String,
     pub next_index: Option<u64>,
     pub patient_pre_public_key: String,
     pub prev_index: Option<u64>,
@@ -302,14 +323,18 @@ pub struct ProxyReencryptionGetMedicalRecordResponseData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionGetMedicalRecordUpdateResponseData {
-    pub c_frag: String,
-    pub enc_medical_data: String,
-    pub enc_medical_data_key_nonce: String,
-    pub enc_data_pre_secret_key_seed: String,
-    pub medical_data_capsule: String,
-    pub medical_data_created_at: String,
+    pub administrative_data_capsule: String,
+    pub c_frag_administrative: String,
+    pub c_frag_medical: String,
     pub data_pre_public_key: String,
     pub data_pre_secret_key_seed_capsule: String,
+    pub enc_administrative_data: String,
+    pub enc_administrative_data_key_nonce: String,
+    pub enc_data_pre_secret_key_seed: String,
+    pub enc_medical_data: String,
+    pub enc_medical_data_key_nonce: String,
+    pub medical_data_capsule: String,
+    pub medical_data_created_at: String,
     pub patient_pre_public_key: String,
     pub signer_pre_public_key: String,
 }

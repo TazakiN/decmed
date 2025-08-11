@@ -1,6 +1,8 @@
 module decmed::std_struct_patient_medical_metadata;
 
-use std::string::{Self, String};
+#[test_only]
+use std::string::Self;
+use std::string::String;
 
 public struct PatientMedicalMetadata has copy, drop, store {
     index: u64,

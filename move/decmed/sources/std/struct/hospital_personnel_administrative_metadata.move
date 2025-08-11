@@ -1,6 +1,8 @@
 module decmed::std_struct_hospital_personnel_administrative_metadata;
 
-use std::string::{Self, String};
+#[test_only]
+use std::string::Self;
+use std::string::String;
 
 public struct HospitalPersonnelAdministrativeMetadata has copy, drop, store {
     private_metadata: String,

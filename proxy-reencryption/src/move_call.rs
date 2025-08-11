@@ -296,7 +296,16 @@ impl MoveCall {
         index: u64,
         patient_address: &IotaAddress,
         sender: IotaAddress,
-    ) -> Result<(MovePatientMedicalMetadata, Option<u64>, Option<u64>), ProxyError> {
+    ) -> Result<
+        (
+            MovePatientMedicalMetadata,
+            MovePatientAdministrativeMetadata,
+            u64,
+            Option<u64>,
+            Option<u64>,
+        ),
+        ProxyError,
+    > {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
             "get_medical_record",
@@ -333,12 +342,22 @@ impl MoveCall {
 
         let medical_metadata: MovePatientMedicalMetadata =
             Utils::parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
-        let prev_index: Option<u64> =
+        let administrative_metadata: MovePatientAdministrativeMetadata =
             Utils::parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
+        let current_index: u64 =
+            Utils::parse_move_read_only_result(response.clone(), 2).context(current_fn!())?;
+        let prev_index: Option<u64> =
+            Utils::parse_move_read_only_result(response.clone(), 3).context(current_fn!())?;
         let next_index: Option<u64> =
-            Utils::parse_move_read_only_result(response, 2).context(current_fn!())?;
+            Utils::parse_move_read_only_result(response, 4).context(current_fn!())?;
 
-        Ok((medical_metadata, prev_index, next_index))
+        Ok((
+            medical_metadata,
+            administrative_metadata,
+            current_index,
+            prev_index,
+            next_index,
+        ))
     }
 
     pub async fn get_medical_record_update(
@@ -347,7 +366,13 @@ impl MoveCall {
         index: u64,
         patient_address: &IotaAddress,
         sender: IotaAddress,
-    ) -> Result<MovePatientMedicalMetadata, ProxyError> {
+    ) -> Result<
+        (
+            MovePatientMedicalMetadata,
+            MovePatientAdministrativeMetadata,
+        ),
+        ProxyError,
+    > {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
             "get_medical_record_update",
@@ -384,8 +409,10 @@ impl MoveCall {
 
         let medical_metadata: MovePatientMedicalMetadata =
             Utils::parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
+        let administrative_metadata: MovePatientAdministrativeMetadata =
+            Utils::parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
 
-        Ok(medical_metadata)
+        Ok((medical_metadata, administrative_metadata))
     }
 
     pub async fn is_patient_registered(

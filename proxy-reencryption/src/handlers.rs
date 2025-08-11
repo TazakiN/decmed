@@ -184,14 +184,19 @@ impl Handlers {
         Extension(current_user): Extension<CurrentUser>,
         Query(query): Query<HandlerGetAdministrativeDataQueryParams>,
     ) -> Result<Response, ProxyError> {
-        if current_user.role != AuthRole::AdministrativePersonnel {
+        if current_user.role != AuthRole::AdministrativePersonnel
+            && current_user.role != AuthRole::MedicalPersonnel
+        {
             return Err(ProxyError::Anyhow {
                 source: anyhow!("Illegal action. Invalid role"),
                 code: StatusCode::UNAUTHORIZED,
             });
         }
 
-        if current_user.purpose != ReencryptionPurposeType::Read {
+        if current_user.purpose != ReencryptionPurposeType::Read
+            && !(current_user.role == AuthRole::MedicalPersonnel
+                && current_user.purpose == ReencryptionPurposeType::Update)
+        {
             return Err(ProxyError::Anyhow {
                 source: anyhow!("Illegal action. Invalid purpose"),
                 code: StatusCode::BAD_REQUEST,
@@ -340,14 +345,19 @@ impl Handlers {
         };
 
         let (
+            enc_administrative_data,
             enc_medical_data,
             access_keys,
-            c_frag,
+            c_frag_administrative,
+            c_frag_medical,
+            current_index,
             prev_index,
             next_index,
             enc_medical_data_key_nonce,
             medical_data_capsule,
             medical_data_created_at,
+            enc_administrative_data_key_nonce,
+            administrative_data_capsule,
         ) = {
             let mut conn = state.redis_pool.get().context(current_fn!())?;
 
@@ -362,19 +372,24 @@ impl Handlers {
             let access_keys: AccessKeys =
                 Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
 
-            let (medical_metadata, prev_index, next_index) = state
-                .move_call
-                .get_medical_record(
-                    &hospital_personnel_iota_address,
-                    query.index.unwrap_or(0),
-                    &patient_iota_address,
-                    proxy_iota_address,
-                )
-                .await
-                .context(current_fn!())?;
+            let (medical_metadata, administrative_metadata, current_index, prev_index, next_index) =
+                state
+                    .move_call
+                    .get_medical_record(
+                        &hospital_personnel_iota_address,
+                        query.index.unwrap_or(0),
+                        &patient_iota_address,
+                        proxy_iota_address,
+                    )
+                    .await
+                    .context(current_fn!())?;
 
             let medical_metadata: MedicalMetadata =
                 Utils::serde_deserialize_from_base64(medical_metadata.metadata)
+                    .context(current_fn!())?;
+
+            let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
+                Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)
                     .context(current_fn!())?;
 
             let enc_medical_data = Utils::get_data_ipfs(medical_metadata.cid)
@@ -395,6 +410,9 @@ impl Handlers {
             let medical_metadata_key_nonce_capsule: Capsule =
                 Utils::serde_deserialize_from_base64(medical_metadata.capsule.clone())
                     .context(current_fn!())?;
+            let patient_private_adm_metadata_key_nonce_capsule: Capsule =
+                Utils::serde_deserialize_from_base64(patient_private_adm_metadata.capsule.clone())
+                    .context(current_fn!())?;
 
             let verified_kfrag = k_frag
                 .verify(
@@ -403,30 +421,47 @@ impl Handlers {
                     Some(&medical_record_pre_public_key),
                 )
                 .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
-            let verified_cfrag = reencrypt(&medical_metadata_key_nonce_capsule, verified_kfrag);
-            let c_frag = verified_cfrag.unverify();
+            let verified_cfrag_medical =
+                reencrypt(&medical_metadata_key_nonce_capsule, verified_kfrag.clone());
+            let c_frag_medical = verified_cfrag_medical.unverify();
+
+            let verified_cfrag_administrative = reencrypt(
+                &patient_private_adm_metadata_key_nonce_capsule,
+                verified_kfrag,
+            );
+            let c_frag_administrative = verified_cfrag_administrative.unverify();
 
             (
+                patient_private_adm_metadata.enc_data,
                 enc_medical_data,
                 access_keys,
-                c_frag,
+                c_frag_administrative,
+                c_frag_medical,
+                current_index,
                 prev_index,
                 next_index,
                 medical_metadata.enc_key_and_nonce,
                 medical_metadata.capsule,
                 medical_metadata.created_at,
+                patient_private_adm_metadata.enc_key_nonce,
+                patient_private_adm_metadata.capsule,
             )
         };
 
         let res_data = json!({
-            "c_frag": Utils::serde_serialize_to_base64(&c_frag).context(current_fn!())?,
-            "enc_medical_data": enc_medical_data,
-            "enc_medical_data_key_nonce": enc_medical_data_key_nonce,
-            "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
-            "medical_data_capsule": medical_data_capsule,
-            "medical_data_created_at": medical_data_created_at,
+            "administrative_data_capsule": administrative_data_capsule,
+            "c_frag_administrative": Utils::serde_serialize_to_base64(&c_frag_administrative).context(current_fn!())?,
+            "c_frag_medical": Utils::serde_serialize_to_base64(&c_frag_medical).context(current_fn!())?,
+            "current_index": current_index,
             "data_pre_public_key": access_keys.data_pre_public_key,
             "data_pre_secret_key_seed_capsule": access_keys.data_pre_secret_key_seed_capsule,
+            "enc_administrative_data": enc_administrative_data,
+            "enc_administrative_data_key_nonce": enc_administrative_data_key_nonce,
+            "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
+            "enc_medical_data": enc_medical_data,
+            "enc_medical_data_key_nonce": enc_medical_data_key_nonce,
+            "medical_data_capsule": medical_data_capsule,
+            "medical_data_created_at": medical_data_created_at,
             "next_index": next_index,
             "patient_pre_public_key": access_keys.patient_pre_public_key,
             "prev_index": prev_index,
@@ -473,12 +508,16 @@ impl Handlers {
         };
 
         let (
+            enc_administrative_data,
             enc_medical_data,
             access_keys,
-            c_frag,
+            c_frag_administrative,
+            c_frag_medical,
             enc_medical_data_key_nonce,
             medical_data_capsule,
             medical_data_created_at,
+            enc_administrative_data_key_nonce,
+            administrative_data_capsule,
         ) = {
             let mut conn = state.redis_pool.get().context(current_fn!())?;
 
@@ -493,7 +532,7 @@ impl Handlers {
             let access_keys: AccessKeys =
                 Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
 
-            let medical_metadata = state
+            let (medical_metadata, administrative_metadata) = state
                 .move_call
                 .get_medical_record_update(
                     &hospital_personnel_iota_address,
@@ -506,6 +545,10 @@ impl Handlers {
 
             let medical_metadata: MedicalMetadata =
                 Utils::serde_deserialize_from_base64(medical_metadata.metadata)
+                    .context(current_fn!())?;
+
+            let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
+                Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)
                     .context(current_fn!())?;
 
             let enc_medical_data = Utils::get_data_ipfs(medical_metadata.cid)
@@ -526,6 +569,9 @@ impl Handlers {
             let medical_metadata_key_nonce_capsule: Capsule =
                 Utils::serde_deserialize_from_base64(medical_metadata.capsule.clone())
                     .context(current_fn!())?;
+            let patient_private_adm_metadata_key_nonce_capsule: Capsule =
+                Utils::serde_deserialize_from_base64(patient_private_adm_metadata.capsule.clone())
+                    .context(current_fn!())?;
 
             let verified_kfrag = k_frag
                 .verify(
@@ -534,28 +580,43 @@ impl Handlers {
                     Some(&data_pre_public_key),
                 )
                 .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
-            let verified_cfrag = reencrypt(&medical_metadata_key_nonce_capsule, verified_kfrag);
-            let c_frag = verified_cfrag.unverify();
+            let verified_cfrag_medical =
+                reencrypt(&medical_metadata_key_nonce_capsule, verified_kfrag.clone());
+            let c_frag_medical = verified_cfrag_medical.unverify();
+
+            let verified_cfrag_administrative = reencrypt(
+                &patient_private_adm_metadata_key_nonce_capsule,
+                verified_kfrag,
+            );
+            let c_frag_administrative = verified_cfrag_administrative.unverify();
 
             (
+                patient_private_adm_metadata.enc_data,
                 enc_medical_data,
                 access_keys,
-                c_frag,
+                c_frag_administrative,
+                c_frag_medical,
                 medical_metadata.enc_key_and_nonce,
                 medical_metadata.capsule,
                 medical_metadata.created_at,
+                patient_private_adm_metadata.enc_key_nonce,
+                patient_private_adm_metadata.capsule,
             )
         };
 
         let res_data = json!({
-            "c_frag": Utils::serde_serialize_to_base64(&c_frag).context(current_fn!())?,
-            "enc_medical_data": enc_medical_data,
-            "enc_medical_data_key_nonce": enc_medical_data_key_nonce,
-            "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
-            "medical_data_capsule": medical_data_capsule,
-            "medical_data_created_at": medical_data_created_at,
+            "administrative_data_capsule": administrative_data_capsule,
+            "c_frag_administrative": Utils::serde_serialize_to_base64(&c_frag_administrative).context(current_fn!())?,
+            "c_frag_medical": Utils::serde_serialize_to_base64(&c_frag_medical).context(current_fn!())?,
             "data_pre_public_key": access_keys.data_pre_public_key,
             "data_pre_secret_key_seed_capsule": access_keys.data_pre_secret_key_seed_capsule,
+            "enc_administrative_data": enc_administrative_data,
+            "enc_administrative_data_key_nonce": enc_administrative_data_key_nonce,
+            "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
+            "enc_medical_data": enc_medical_data,
+            "enc_medical_data_key_nonce": enc_medical_data_key_nonce,
+            "medical_data_capsule": medical_data_capsule,
+            "medical_data_created_at": medical_data_created_at,
             "patient_pre_public_key": access_keys.patient_pre_public_key,
             "signer_pre_public_key": access_keys.signer_pre_public_key,
         });

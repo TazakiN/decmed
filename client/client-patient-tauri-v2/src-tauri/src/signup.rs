@@ -74,6 +74,7 @@ pub async fn signup(
         let private_administrative_data = PrivateAdministrativeData {
             id: id.clone(),
             name: None,
+            ..Default::default()
         };
         let (
             enc_private_administrative_data,

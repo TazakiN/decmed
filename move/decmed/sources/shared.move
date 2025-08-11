@@ -52,7 +52,8 @@ public(package) fun encode_hospital_personnel_id(
     string::utf8(hex::encode(blake2b256(hospital_personnel_id.as_bytes())))
 }
 
-fun init(ctx: &mut TxContext) {
+fun init(ctx: &mut TxContext)
+{
     transfer::transfer(GlobalAdminCap{
         id: object::new(ctx)
     }, ctx.sender());
@@ -64,4 +65,12 @@ public(package) fun encode_patient_id(
 ): String
 {
     string::utf8(hex::encode(blake2b256(patient_id.as_bytes())))
+}
+
+#[test_only]
+public(package) fun transfer_global_admin_cap(to: address, ctx: &mut TxContext)
+{
+    transfer::transfer(GlobalAdminCap{
+        id: object::new(ctx)
+    }, to);
 }

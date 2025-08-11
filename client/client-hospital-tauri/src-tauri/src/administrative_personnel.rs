@@ -79,13 +79,13 @@ pub async fn get_administrative_data(
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
         let (data_pre_secret_key, data_pre_public_key) =
             compute_pre_keys(&data_pre_secret_key_seed).context(current_fn!())?;
+        let signer_pre_public_key: PublicKey =
+            serde_deserialize_from_base64(res.data.signer_pre_public_key).context(current_fn!())?;
         let c_frag: CapsuleFrag =
             serde_deserialize_from_base64(res.data.c_frag).context(current_fn!())?;
         let administrative_data_capsule: Capsule =
             serde_deserialize_from_base64(res.data.patient_private_adm_data_capsule)
                 .context(current_fn!())?;
-        let signer_pre_public_key: PublicKey =
-            serde_deserialize_from_base64(res.data.signer_pre_public_key).context(current_fn!())?;
         let verified_cfrag = c_frag
             .verify(
                 &administrative_data_capsule,
@@ -125,8 +125,7 @@ pub async fn get_administrative_data(
     };
 
     let res_data = json!({
-        "id": administrative_data.id,
-        "name": administrative_data.name
+        "administrativeData": administrative_data
     });
 
     Ok(SuccessResponse {

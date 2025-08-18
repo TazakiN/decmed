@@ -16,7 +16,7 @@
 {:then profile}
 	<div class="p-3 rounded-md bg-zinc-100 border border-zinc-200">
 		<div class="grid grid-cols-[120px_1fr_20px] gap-2 max-w-full items-center">
-			<p>Id:</p>
+			<p>CID:</p>
 			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
 				{profile.id}
 			</p>

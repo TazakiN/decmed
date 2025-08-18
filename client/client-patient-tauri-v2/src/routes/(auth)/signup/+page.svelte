@@ -266,7 +266,7 @@
 							{/if}
 						{/if}
 						{#if currentStep === 3}
-							<p>Mnemonics</p>
+							<p>Seed Words</p>
 							<p>{mnemonic}</p>
 							<button class="border p-2" type="button" onclick={copyMnemonic}>copy</button>
 						{/if}

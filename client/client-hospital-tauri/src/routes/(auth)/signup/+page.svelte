@@ -125,7 +125,7 @@
 							{/if}
 						{/if}
 						{#if signUpState.currentStep === 3}
-							<p>Mnemonics</p>
+							<p>Seed Words</p>
 							<p>{signUpState.mnemonic}</p>
 							<button class="border p-2" type="button" onclick={signUpState.copyMnemonic}
 								>copy</button

@@ -1,0 +1,32 @@
+{
+	"info": {
+		"_postman_id": "iota-api-collection",
+		"name": "IOTA",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Faucet Funding",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n\t\"address\": \"YOUR_IOTA_ADDRESS_HERE\"\n}"
+				},
+				"url": {
+					"raw": "https://faucet.testnet.iota.io/api/enqueue",
+					"protocol": "https",
+					"host": ["faucet", "testnet", "iota", "io"],
+					"path": ["api", "enqueue"]
+				}
+			},
+			"response": []
+		}
+	]
+}

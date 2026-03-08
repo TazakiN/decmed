@@ -1,6 +1,6 @@
 pub const IOTA_URL: &str = "https://api.testnet.iota.cafe";
 pub const GAS_STATION_BASE_URL: &str = "http://103.107.4.68:9527/v1";
-pub const GAS_BUDGET: u64 = 10_000_000;
+pub const GAS_BUDGET: u64 = 50_000_000;
 pub const HASH_SALT: &str = "169224A2BE2B267684F93A9CE38080D359BD774741FD3AE738D09B657A1A8104";
 
 pub const DECMED_MODULE_HOSPITAL_PERSONNEL: &str = "hospital_personnel";

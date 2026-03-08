@@ -12,7 +12,7 @@ use crate::{
 pub async fn signout(
     state: State<'_, Mutex<AppState>>,
 ) -> Result<SuccessResponse<()>, HospitalError> {
-    let state = state.lock().await;
+    let mut state = state.lock().await;
 
     let mut keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
@@ -26,6 +26,12 @@ pub async fn signout(
         .keys_entry
         .set_secret(&keys_entry)
         .context(current_fn!())?;
+
+    // Clear in-memory auth state
+    state.auth_state.session_pin = None;
+    state.auth_state.is_signed_up = false;
+    state.auth_state.role = None;
+    state.administrative_data = None;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,

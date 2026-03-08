@@ -73,7 +73,7 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
     let auth_state = AuthState {
         is_signed_up: false,
         role: None,
-        session_pin: Some("123456".to_string()),
+        session_pin: None,
     };
     let move_call = MoveCall {
         decmed_package: decmed_package.clone(),

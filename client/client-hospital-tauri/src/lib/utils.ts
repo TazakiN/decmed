@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { invalidateAll } from '$app/navigation';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { TryCatchAsValReturn } from './types';
@@ -13,6 +14,7 @@ export async function copyToClipboard(str: string) {
 
 export async function reset() {
 	await invoke('reset');
+	await invalidateAll();
 }
 
 export async function tryCatchAsVal<T>(func: () => Promise<T>): Promise<TryCatchAsValReturn<T>> {

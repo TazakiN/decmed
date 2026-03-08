@@ -105,6 +105,9 @@ pub async fn signin(
         })
     }
 
+    // Set session_pin so that subsequent commands can decrypt keys
+    state.auth_state.session_pin = Some(pin);
+
     // drop SigninState form state
     state.signin_state.pin = None;
 

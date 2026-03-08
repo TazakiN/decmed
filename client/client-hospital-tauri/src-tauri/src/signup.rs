@@ -216,6 +216,9 @@ pub async fn signup(
         public: public_administrative_data,
     });
 
+    // Set session_pin so that subsequent commands (e.g. update_profile) can decrypt keys
+    state.auth_state.session_pin = Some(pin);
+
     // drop SignupState from state
     state.signup_state.seed_words = None;
     state.signup_state.pin = None;

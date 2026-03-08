@@ -79,11 +79,11 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         global_admin_cap_id: ObjectID::from_str(DECMED_GLOBAL_ADMIN_CAP_ID)?,
     };
     let new_keys_entry = KeysEntry {
-        admin_secret_key: Some(String::from(
-            "iotaprivkey1qpfc5nqsvs64p40347h0vcdxz3pgfn72uznw4pfvkak59fhpevxs73z6kwn",
-        )),
         admin_address: Some(String::from(
-            "0x52a65ae806223e49aaff1cf7f670fee87c1767de1d200a661c1fee44a61fc37f",
+            "0x20d4b4309fab8b695bf6e2383e529b96f7eb60cb264abb358f40425c59836648",
+        )),
+        admin_secret_key: Some(String::from(
+            "iotaprivkey1qq4e64j84c9hatlxywe32yftc27hhpjpgh2u3yu4l69q4me98g76jxtsgry",
         )),
         activation_key: None,
         id: None,

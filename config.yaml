@@ -1,0 +1,20 @@
+cat > config.yaml << 'EOF'
+---
+signer-config:
+  local:
+    keypair: ACudVkeuC36v5iOzFRErwr17hkFF1ciTlf6KCu8lOj2p 
+rpc-host-ip: 0.0.0.0
+rpc-port: 9527
+metrics-port: 9184
+storage-config:
+  redis:
+    redis_url: "redis://redis:6379"
+fullnode-url: "https://api.testnet.iota.cafe"
+coin-init-config:
+  target-init-balance: 100000000
+  refresh-interval-sec: 86400
+daily-gas-usage-cap: 1500000000000
+max-gas-budget: 2000000000
+access-controller:
+  access-policy: disabled
+EOF

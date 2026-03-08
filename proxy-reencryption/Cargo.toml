@@ -13,12 +13,12 @@ serde_json = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 bip39 = { version = "2", features = ["rand"] }
-iota-sdk = { git = "https://github.com/iotaledger/iota", package = "iota-sdk" }
-iota-keys = { git = "https://github.com/iotaledger/iota", package = "iota-keys" }
-iota-config = { git = "https://github.com/iotaledger/iota", package = "iota-config" }
-iota-types = { git = "https://github.com/iotaledger/iota", package = "iota-types" }
-iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", package = "iota-json-rpc-types" }
-shared_crypto = { git = "https://github.com/iotaledger/iota", package = "shared-crypto" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "iota-sdk" }
+iota-keys = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "iota-keys" }
+iota-config = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "iota-config" }
+iota-types = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "iota-types" }
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "iota-json-rpc-types" }
+shared_crypto = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "shared-crypto" }
 dotenv = "0.15"
 bcs = "0.1.4"
 reqwest = { version = "0.12", default-features = false, features = [
@@ -42,7 +42,7 @@ jwt-simple = "0.12"
 dotenvy = "0.15.7"
 redis = { version = "0.32", features = ["r2d2", "json"] }
 r2d2 = "0.8"
-move-core-types = { git = "https://github.com/iotaledger/iota", package = "move-core-types" }
+move-core-types = { git = "https://github.com/iotaledger/iota", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05", package = "move-core-types" }
 strum = "0.27"
 strum_macros = "0.27"
 anyhow = "1.0"

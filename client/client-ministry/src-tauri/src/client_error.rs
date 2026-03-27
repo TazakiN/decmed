@@ -11,6 +11,8 @@ impl serde::Serialize for ClientError {
     where
         S: serde::ser::Serializer,
     {
-        serializer.serialize_str(&format!("{:?}", self))
+        match self {
+            ClientError::Anyhow(e) => serializer.serialize_str(&e.root_cause().to_string()),
+        }
     }
 }

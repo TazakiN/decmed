@@ -371,6 +371,54 @@ pub fn _decode_hospital_personnel_id(id: String) -> Result<(String, String), Hos
     Ok((id[0].to_string(), id[1].to_string()))
 }
 
+fn map_abort_code_to_message(raw: &str) -> String {
+    // Extract abort code from status string like "... Abort Code: 2003 ..."
+    if let Some(pos) = raw.find("Abort Code: ") {
+        let after = &raw[pos + 12..];
+        if let Some(code_str) = after.split(|c: char| !c.is_ascii_digit()).next() {
+            if let Ok(code) = code_str.parse::<u64>() {
+                let friendly = match code {
+                    // Admin errors (1xxx)
+                    1000 => "Account already registered",
+                    1001 => "Account not found",
+                    1002 => "Hospital already registered",
+                    1003 => "Hospital not found",
+                    // Hospital Personnel errors (2xxx)
+                    2000 => "Account already registered",
+                    2001 => "Account not activated",
+                    2002 => "Account not found. Verify that the CID is correct",
+                    2003 => "Activation key already used. Please create a new activation key",
+                    2004 => "Address already registered",
+                    2005 => "Access expired",
+                    2006 => "Invalid role for this action",
+                    2007 => "No update access",
+                    2008 => "Invalid activation key",
+                    2009 => "Invalid hospital personnel role",
+                    2010 => "Patient not found",
+                    // Patient errors (3xxx)
+                    3000 => "Patient account already registered",
+                    3001 => "Patient address already registered",
+                    3002 => "Patient account not found",
+                    3003 => "Patient address not found",
+                    3004 => "Hospital personnel not found",
+                    3005 => "Invalid metadata length",
+                    // Proxy errors (4xxx)
+                    4000 => "Access expired",
+                    4001 => "Access not found",
+                    4002 => "Account not found",
+                    4003 => "Address not found",
+                    4004 => "Invalid access type",
+                    4005 => "Medical record creation limit reached",
+                    4006 => "Medical record not found",
+                    _ => return format!("Move abort code {}: {}", code, raw),
+                };
+                return format!("{} (code {})", friendly, code);
+            }
+        }
+    }
+    raw.to_string()
+}
+
 pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), HospitalError> {
     if response.error.is_some() {
         return Err(HospitalError::Anyhow(
@@ -379,8 +427,9 @@ pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), Hospit
     }
 
     if response.effects.is_some() && response.effects.as_ref().unwrap().status().is_err() {
+        let raw = response.effects.unwrap().status().to_string();
         return Err(HospitalError::Anyhow(
-            anyhow!(response.effects.unwrap().status().to_string()).context(current_fn!()),
+            anyhow!(map_abort_code_to_message(&raw)).context(current_fn!()),
         ));
     }
 

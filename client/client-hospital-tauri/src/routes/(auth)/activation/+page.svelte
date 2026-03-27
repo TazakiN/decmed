@@ -5,6 +5,7 @@
 	import { activationSchema } from '$lib/schema';
 	import { cn, tryCatchAsVal } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
+	import { invalidateAll } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import type { InvokeGlobalAdminAddActivationKeyData, SuccessResponse } from '$lib/types.js';
 
@@ -34,6 +35,8 @@
 					cancel();
 					return;
 				}
+
+				await invalidateAll();
 			}
 		}
 	});

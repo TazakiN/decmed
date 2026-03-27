@@ -17,7 +17,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n\t\"address\": \"YOUR_IOTA_ADDRESS_HERE\"\n}"
+					"raw": "{\n\t\"address\": \"0x20d4b4309fab8b695bf6e2383e529b96f7eb60cb264abb358f40425c59836648\"\n}"
 				},
 				"url": {
 					"raw": "https://faucet.testnet.iota.io/api/enqueue",

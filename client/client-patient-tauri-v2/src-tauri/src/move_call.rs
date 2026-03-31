@@ -96,7 +96,7 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 5, 10)
+        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
             .await
             .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)

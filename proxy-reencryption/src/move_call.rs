@@ -13,7 +13,7 @@ use iota_types::{
 use move_core_types::account_address::AccountAddress;
 
 use crate::{
-    constants::{DECMED_MODULE_SHARED, DECMED_PACKAGE_ID, GAS_BUDGET},
+    constants::{DECMED_MODULE_SHARED, DECMED_ORIGINAL_PACKAGE_ID, DECMED_PACKAGE_ID, GAS_BUDGET},
     current_fn,
     proxy_error::{ProxyError, ResultExt},
     types::{
@@ -163,7 +163,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -223,7 +223,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -264,7 +264,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -323,7 +323,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -390,7 +390,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -433,7 +433,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await
@@ -478,7 +478,7 @@ impl MoveCall {
                 self.construct_proxy_cap(
                     &iota_client,
                     Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    AccountAddress::from_str(DECMED_ORIGINAL_PACKAGE_ID).context(current_fn!())?,
                     sender,
                 )
                 .await

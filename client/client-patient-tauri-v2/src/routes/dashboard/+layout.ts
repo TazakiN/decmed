@@ -1,5 +1,6 @@
 import type { LayoutLoad } from './$types';
 import { redirect } from '@sveltejs/kit';
+import { invoke } from '@tauri-apps/api/core';
 
 export const load: LayoutLoad = async ({ parent, url }) => {
 	const { redirect_to } = await parent();
@@ -7,4 +8,8 @@ export const load: LayoutLoad = async ({ parent, url }) => {
 	if (redirect_to != null && redirect_to != url.pathname) {
 		return redirect(301, redirect_to);
 	}
+
+	try {
+		await invoke('get_profile');
+	} catch (_) {}
 };

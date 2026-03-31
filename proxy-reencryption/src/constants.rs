@@ -16,8 +16,10 @@ pub const MEDICAL_KEYS_UPDATE_DUR: u64 = 2 * 60 * 60;
 pub const DECMED_MODULE_PROXY: &str = "proxy";
 pub const DECMED_MODULE_SHARED: &str = "shared";
 
-pub const DECMED_PACKAGE_ID: &str =
+pub const DECMED_ORIGINAL_PACKAGE_ID: &str =
     "0x2a4e348ee00602139684f1fc594f46051e70dc1817da46e9594818221f41bdb3";
+pub const DECMED_PACKAGE_ID: &str =
+    "0xe4120d2ba0b5fd054f071a710d47d11fca5a27938cbd14ab81e5162e89cb878d";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

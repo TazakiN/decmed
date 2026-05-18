@@ -8,6 +8,9 @@ mod tes_error;
 mod types;
 mod utils;
 
+#[cfg(test)]
+mod tests;
+
 use std::{env, error::Error, str::FromStr, sync::Arc};
 
 use axum::{
@@ -28,11 +31,12 @@ use iota_types::{base_types::ObjectID, Identifier};
 use move_call::MoveCall;
 use tower::ServiceBuilder;
 use types::{AppState, DecmedPackage};
+use utils::Utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Load envs from .env file
-    dotenvy::dotenv()?;
+    dotenvy::dotenv().ok();
 
     // Envs
     let redis_connection_url = env::var("REDIS_CONNECTION_URL_DEV")?;
@@ -41,8 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let global_admin_iota_key_pair = env::var("GLOBAL_ADMIN_IOTA_KEY_PAIR")?;
     let proxy_iota_address = env::var("PROXY_IOTA_ADDRESS")?;
     let proxy_iota_key_pair = env::var("PROXY_IOTA_KEY_PAIR")?;
-    let jwt_ecdsa_key_pair = env::var("JWT_ECDSA_KEY_PAIR")?;
-    let jwt_ecdsa_pub_key = env::var("JWT_ECDSA_PUB_KEY")?;
+    let macaroon_root_key = Utils::parse_macaroon_root_key(&env::var("MACAROON_ROOT_KEY")?)?;
 
     // Redis pool
     let redis_client = redis::Client::open(redis_connection_url.as_str())?;
@@ -72,8 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let shared_state = Arc::new(AppState {
         global_admin_iota_address,
         global_admin_iota_key_pair,
-        jwt_ecdsa_key_pair,
-        jwt_ecdsa_pub_key,
+        macaroon_root_key,
         move_call,
         proxy_iota_address,
         proxy_iota_key_pair,
@@ -97,7 +99,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // .../gen/...
     let gen_routes = Router::new()
-        .route("/jwt", get(Handlers::generate_jwt_handler))
+        .route(
+            "/macaroon-key",
+            get(Handlers::generate_macaroon_key_handler),
+        )
         .route("/sig", get(Handlers::generate_signature))
         .route(
             "/proxy-address",

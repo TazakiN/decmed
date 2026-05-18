@@ -45,23 +45,11 @@ pub struct AccessKeys {
 pub struct AppState {
     pub global_admin_iota_address: String,
     pub global_admin_iota_key_pair: String,
-    pub jwt_ecdsa_key_pair: String,
-    pub jwt_ecdsa_pub_key: String,
+    pub macaroon_root_key: Vec<u8>,
     pub move_call: MoveCall,
     pub proxy_iota_address: String,
     pub proxy_iota_key_pair: String,
     pub redis_pool: Pool<Client>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AuthenticateHandlerPayload {
-    pub signature: String,
-    pub iota_address: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AuthenticateHandlerResponse {
-    pub access_token: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -116,9 +104,8 @@ pub struct GenerateAndRegisterProxyAddress {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GenerateJwtHandlerResponse {
-    pub public_key: String,
-    pub secret_key: String,
+pub struct GenerateMacaroonKeyHandlerResponse {
+    pub macaroon_root_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -130,12 +117,6 @@ pub struct GetNonceHandlerPayload {
 pub struct GenerateSignatureHandlerPayload {
     pub iota_keypair: String,
     pub nonce: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct JwtClaims {
-    pub role: AuthRole,
-    pub purpose: ReencryptionPurposeType,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

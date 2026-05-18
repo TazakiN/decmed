@@ -29,7 +29,6 @@ use iota_types::{
     },
     Identifier, TypeTag,
 };
-use jwt_simple::prelude::ES256KeyPair;
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use rand::Rng;
 use reqwest::{Client, IntoUrl};
@@ -108,12 +107,6 @@ impl Utils {
         Ok(CallArg::Object(cap_object_arg))
     }
 
-    pub fn construct_es256_key_pair_from_pem(
-        key_pair_pem: &str,
-    ) -> Result<ES256KeyPair, ProxyError> {
-        Ok(ES256KeyPair::from_pem(key_pair_pem).context(current_fn!())?)
-    }
-
     pub fn construct_identifier_from_str(identifier: &str) -> Result<Identifier, ProxyError> {
         Ok(Identifier::from_str(identifier).context(current_fn!())?)
     }
@@ -171,13 +164,6 @@ impl Utils {
         tx_data.gas_data_mut().owner = sponsor_address;
 
         tx_data
-    }
-
-    pub fn debug_print<T>(func_name: &str, data: T)
-    where
-        T: Debug,
-    {
-        println!("{}: {:#?}", func_name, data);
     }
 
     pub fn decode_authorization_header(bearer_token: Option<&str>) -> Result<String, ProxyError> {
@@ -294,6 +280,27 @@ impl Utils {
         random_seed
     }
 
+    pub fn generate_macaroon_root_key() -> String {
+        hex::encode(Utils::generate_64_bytes_seed())
+    }
+
+    pub fn parse_macaroon_root_key(root_key: &str) -> Result<Vec<u8>, ProxyError> {
+        let root_key = root_key.trim();
+        let key_bytes = hex::decode(root_key)
+            .map_err(|_| anyhow!("MACAROON_ROOT_KEY must be a 128-character hex string"))
+            .context(current_fn!())?;
+
+        if key_bytes.len() != 64 {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("MACAROON_ROOT_KEY must decode to exactly 64 bytes")
+                    .context(current_fn!()),
+                code: StatusCode::INTERNAL_SERVER_ERROR,
+            });
+        }
+
+        Ok(key_bytes)
+    }
+
     pub fn generate_iota_keys_ed(seed: &[u8]) -> Result<(IotaAddress, IotaKeyPair), ProxyError> {
         Ok(derive_key_pair_from_path(
             &seed,
@@ -301,18 +308,6 @@ impl Utils {
             &SignatureScheme::ED25519,
         )
         .context(current_fn!())?)
-    }
-
-    /**
-     * Return: `(public_key, secret_key)`
-     */
-    pub fn generate_jwt() -> Result<(String, String), ProxyError> {
-        let keypair = ES256KeyPair::generate();
-
-        let secret_key = keypair.to_pem().context(current_fn!())?;
-        let public_key = keypair.public_key().to_pem().context(current_fn!())?;
-
-        Ok((public_key, secret_key))
     }
 
     pub fn generate_mnemonic(size: usize) -> Result<Mnemonic, ProxyError> {

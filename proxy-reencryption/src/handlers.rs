@@ -10,8 +10,7 @@ use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{
     EncodeDecodeBase64, IotaKeyPair, IotaSignature, Signature, SignatureScheme,
 };
-use jwt_simple::claims::Claims;
-use jwt_simple::prelude::{Duration, ECDSAP256KeyPairLike};
+
 use redis::{Commands, SetExpiry, SetOptions};
 use serde_json::json;
 use shared_crypto::intent::{Intent, IntentMessage};
@@ -24,13 +23,12 @@ use crate::current_fn;
 use crate::proxy_error::{ProxyError, ResultExt};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
-    GenerateSignatureHandlerPayload, GetNonceHandlerPayload, HandlerCreateMedicalRecordPayload,
-    HandlerGetAdministrativeDataQueryParams, HandlerGetMedicalRecordQueryParams,
-    HandlerGetMedicalRecordUpdateQueryParams, HandlerUpdateMedicalRecordPayload, JwtClaims,
-    MedicalMetadata, MoveHospitalPersonnelRole, PatientPrivateAdministrativeMetadata,
-    ReencryptionPurposeType,
+    GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
+    HandlerCreateMedicalRecordPayload, HandlerGetAdministrativeDataQueryParams,
+    HandlerGetMedicalRecordQueryParams, HandlerGetMedicalRecordUpdateQueryParams,
+    HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, MedicalMetadata,
+    MoveHospitalPersonnelRole, PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
 };
-use crate::types::{GenerateJwtHandlerResponse, HandlerStoreKeysPayload};
 use crate::utils::Utils;
 
 pub struct Handlers {}
@@ -148,12 +146,9 @@ impl Handlers {
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
     }
 
-    pub async fn generate_jwt_handler() -> Result<Response, ProxyError> {
-        let (public_key, secret_key) = Utils::generate_jwt().context(current_fn!())?;
-
-        let res_data = GenerateJwtHandlerResponse {
-            public_key,
-            secret_key,
+    pub async fn generate_macaroon_key_handler() -> Result<Response, ProxyError> {
+        let res_data = GenerateMacaroonKeyHandlerResponse {
+            macaroon_root_key: Utils::generate_macaroon_root_key(),
         };
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
@@ -727,34 +722,72 @@ impl Handlers {
         };
 
         // Create access token for hospital personnel
-        let es256_keypair = Utils::construct_es256_key_pair_from_pem(&state.jwt_ecdsa_key_pair)
-            .context(current_fn!())?;
+        let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
 
-        let read_claims = JwtClaims {
-            role: hospital_personnel_role.clone(),
-            purpose: ReencryptionPurposeType::Read,
+        let role_str = match hospital_personnel_role {
+            AuthRole::AdministrativePersonnel => "AdministrativePersonnel",
+            AuthRole::MedicalPersonnel => "MedicalPersonnel",
+            AuthRole::Patient => "Patient",
         };
-        let read_claims =
-            Claims::with_custom_claims(read_claims, Duration::from_secs(read_keys_duration))
-                .with_subject(hospital_personnel_iota_address);
 
-        let hospital_personnel_access_token_update = if update_keys_duration.is_some() {
-            let update_claims = JwtClaims {
-                role: hospital_personnel_role,
-                purpose: ReencryptionPurposeType::Update,
+        let read_exp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + read_keys_duration;
+
+        let mut read_macaroon = macaroon::Macaroon::create(
+            Some("proxy-reencryption".into()),
+            &root_key,
+            hospital_personnel_iota_address.to_string().into(),
+        )
+        .map_err(|_| anyhow!("Failed to create macaroon"))
+        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+        read_macaroon.add_first_party_caveat("purpose = Read".into());
+        read_macaroon.add_first_party_caveat(
+            format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
+        );
+        read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
+
+        let hospital_personnel_access_token_read = read_macaroon
+            .serialize(macaroon::Format::V2)
+            .map_err(|_| anyhow!("Failed to serialize macaroon"))
+            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let hospital_personnel_access_token_update =
+            if let Some(update_keys_duration) = update_keys_duration {
+                let update_exp = std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + update_keys_duration;
+
+                let mut update_macaroon = macaroon::Macaroon::create(
+                    Some("proxy-reencryption".into()),
+                    &root_key,
+                    hospital_personnel_iota_address.to_string().into(),
+                )
+                .map_err(|_| anyhow!("Failed to create macaroon"))
+                .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+                update_macaroon.add_first_party_caveat("purpose = Update".into());
+                update_macaroon.add_first_party_caveat(
+                    format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
+                );
+                update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
+
+                Some(
+                    update_macaroon
+                        .serialize(macaroon::Format::V2)
+                        .map_err(|_| anyhow!("Failed to serialize macaroon"))
+                        .code(StatusCode::INTERNAL_SERVER_ERROR)?,
+                )
+            } else {
+                None
             };
-            let update_claims = Claims::with_custom_claims(
-                update_claims,
-                Duration::from_secs(update_keys_duration.unwrap()),
-            )
-            .with_subject(hospital_personnel_iota_address);
-            Some(es256_keypair.sign(update_claims).context(current_fn!())?)
-        } else {
-            None
-        };
-
-        let hospital_personnel_access_token_read =
-            es256_keypair.sign(read_claims).context(current_fn!())?;
 
         let access_keys = AccessKeys {
             enc_data_pre_secret_key_seed: payload.enc_data_pre_secret_key_seed,

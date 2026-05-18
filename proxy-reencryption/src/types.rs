@@ -138,6 +138,12 @@ pub struct HandlerCreateMedicalRecordPayload {
     pub patient_iota_address: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerCreateMedicalRecordSegmentPayload {
+    pub encrypted_segment: String,
+    pub patient_iota_address: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HandlerGetAdministrativeDataQueryParams {
     pub patient_iota_address: String,

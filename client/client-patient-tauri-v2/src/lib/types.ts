@@ -62,9 +62,83 @@ export type TauriMedicalData = {
 	therapy: string;
 };
 
-export type TauriMedicalDataMainCategory = 'Category1' | 'Category2';
+export type DatasetCategory =
+	| 'ADMINISTRATIVE'
+	| 'RAWAT_JALAN'
+	| 'RAWAT_INAP'
+	| 'LABORATORIUM'
+	| 'APOTEK';
 
-export type TauriMedicalDataSubCategory = 'SubCategory1' | 'SubCategory2';
+export type FunctionCategory =
+	| 'ADMINISTRATIVE_GENERAL'
+	| 'ANAMNESIS'
+	| 'PEMERIKSAAN_FISIK'
+	| 'PEMERIKSAAN_PSIKOLOGIS'
+	| 'RIWAYAT_PENGGUNAAN_OBAT'
+	| 'RENCANA_RAWAT'
+	| 'PERENCANAAN_PEMULANGAN'
+	| 'INSTRUKSI_MEDIK_DAN_KEPERAWATAN'
+	| 'PEMERIKSAAN_PENUNJANG'
+	| 'DIAGNOSIS'
+	| 'INFORMED_CONSENT'
+	| 'TERAPI'
+	| 'PERMINTAAN_PEMERIKSAAN'
+	| 'SPESIMEN_KLINIS'
+	| 'PENGOLAHAN_SPESIMEN'
+	| 'HASIL_PEMERIKSAAN'
+	| 'VALIDASI_HASIL'
+	| 'DISTRIBUSI_HASIL'
+	| 'DATA_RESEP_DAN_OBAT'
+	| 'RIWAYAT_ALERGI'
+	| 'ASAL_RESEP'
+	| 'DOKTER_PENULIS_RESEP'
+	| 'STATUS_DAN_PENGKAJIAN_RESEP'
+	| 'STATUS_RESEP'
+	| 'WAKTU_PENYIAPAN_OBAT'
+	| 'WAKTU_PENYERAHAN_OBAT'
+	| 'PETUGAS_DISPENSING'
+	| 'ETIKET';
+
+export type RmeSegmentAttachment = {
+	cid: string;
+	file_name: string;
+	mime_type: string;
+};
+
+export type RmeSegmentData = {
+	segment_id: string;
+	related_rme_id: string;
+	dataset_category: DatasetCategory;
+	function_category: FunctionCategory;
+	patient_ref: string;
+	encounter_id: string;
+	service_date: string;
+	author_address: string;
+	payload: Record<string, unknown>;
+	payload_hash: string;
+	attachments?: RmeSegmentAttachment[];
+};
+
+export type RmeSegmentMetadata = {
+	segment_id: string;
+	related_rme_id: string;
+	patient_address: string;
+	fasyankes_id: string;
+	dataset_category: DatasetCategory;
+	function_category: FunctionCategory;
+	ipfs_cid: string;
+	integrity_hash: string;
+	capsule: string;
+	enc_key_and_nonce: string;
+	encryption_algo: 'AES-256-GCM';
+	created_at: string;
+	author_address: string;
+	updated_at: string | null;
+};
+
+export type TauriMedicalDataMainCategory = DatasetCategory;
+
+export type TauriMedicalDataSubCategory = FunctionCategory;
 
 export type NavLink = {
 	label: string;

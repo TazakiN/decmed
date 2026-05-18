@@ -88,6 +88,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/medical-record", post(Handlers::create_medical_record))
         .route("/medical-record", put(Handlers::update_medical_record))
         .route(
+            "/medical-record-segment",
+            post(Handlers::create_medical_record_segment),
+        )
+        .route(
             "/medical-record-update",
             get(Handlers::get_medical_record_update),
         )

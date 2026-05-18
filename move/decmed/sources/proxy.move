@@ -94,6 +94,54 @@ entry fun create_medical_record(
     update_access.set_medical_metadata_index(option::some(index));
 }
 
+entry fun create_medical_record_segment(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    metadata: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    _: &ProxyCap,
+)
+{
+    let address_id_table = address_id.borrow_table();
+
+    let patient_id = address_id_table.borrow(patient_address);
+    let hospital_personnel_id = address_id_table.borrow(hospital_personnel_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(*hospital_personnel_id);
+    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
+    let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+
+    assert!(hospital_personnel_update_access.contains(patient_id), EAccessNotFound);
+    let update_access = hospital_personnel_update_access.get(patient_id);
+    let update_access_types = update_access.borrow_access_data_types();
+
+    assert!(update_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
+
+    if (update_access.borrow_exp() < clock.timestamp_ms()) {
+        hospital_personnel_update_access.remove(patient_id);
+        assert!(false, EAccessExpired);
+    };
+
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_account = patient_id_account_table.borrow_mut(*patient_id);
+    let patient_medical_metadata = patient_account.borrow_mut_medical_metadata();
+
+    let index = patient_medical_metadata.length();
+    let medical_metadata = patient_medical_metadata_new(
+        index,
+        metadata,
+    );
+
+    patient_medical_metadata.push_back(medical_metadata);
+
+    let update_access = hospital_personnel_update_access.get_mut(patient_id);
+    update_access.set_medical_metadata_index(option::some(index));
+}
+
 #[test_only]
 public(package) fun create_medical_record_test(
     address_id: &AddressId,
@@ -107,6 +155,30 @@ public(package) fun create_medical_record_test(
 )
 {
     create_medical_record(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        metadata,
+        patient_address,
+        patient_id_account,
+        proxy_cap,
+    );
+}
+
+#[test_only]
+public(package) fun create_medical_record_segment_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    metadata: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    proxy_cap: &ProxyCap,
+)
+{
+    create_medical_record_segment(
         address_id,
         clock,
         hospital_personnel_address,

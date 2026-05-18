@@ -35,22 +35,22 @@ export class EmrUpdateState {
 	updateMedicalRecordFormMeta: SuperForm<Infer<UpdateMedicalRecordSchema>>;
 	medicalDataMainCategory = [
 		{
-			value: 'Category1',
-			label: 'Category 1'
+			value: 'RAWAT_JALAN',
+			label: 'Rawat Jalan'
 		},
 		{
-			value: 'Category2',
-			label: 'Category 2'
+			value: 'RAWAT_INAP',
+			label: 'Rawat Inap'
 		}
 	];
 	medicalDataSubCategory = [
 		{
-			value: 'SubCategory1',
-			label: 'Sub Category 1'
+			value: 'ANAMNESIS',
+			label: 'Anamnesis'
 		},
 		{
-			value: 'SubCategory2',
-			label: 'SubCategory 2'
+			value: 'DIAGNOSIS',
+			label: 'Diagnosis'
 		}
 	];
 

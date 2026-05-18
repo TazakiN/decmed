@@ -55,3 +55,4 @@ strum_macros = "0.27"
 anyhow = "1.0"
 thiserror = "2.0"
 tauri-plugin-http = { version = "2", features = ["json", "multipart"] }
+decmed-rme-segment = { path = "../../../crates/decmed-rme-segment" }

@@ -6,6 +6,7 @@ mod hospital_error;
 mod macros;
 mod medical_personnel;
 mod move_call;
+mod rme_segment;
 mod shared_cmds;
 mod signin;
 mod signout;
@@ -132,6 +133,7 @@ pub fn run() {
             shared_cmds::auth_status,
             admin::get_hospital_personnels,
             medical_personnel::new_medical_record,
+            rme_segment::new_medical_record_segment,
             medical_personnel::get_medical_record,
             medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,

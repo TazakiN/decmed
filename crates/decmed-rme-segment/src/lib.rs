@@ -1,0 +1,261 @@
+mod category;
+mod crypto;
+mod error;
+mod types;
+mod validation;
+
+// Re-export everything at the crate root to preserve the original public API.
+pub use category::{
+    DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
+};
+pub use crypto::{
+    canonical_json, ciphertext_integrity_hash_from_base64, payload_hash, sha256_hex,
+    EncryptionAlgorithm,
+};
+pub use error::SegmentValidationError;
+pub use types::{
+    ClientEncryptedRmeSegment, CreateRmeSegmentRequest, CreateRmeSegmentResponse, RmeSegmentData,
+    RmeSegmentMetadata, SegmentAttachment,
+};
+pub use validation::{
+    assert_no_plaintext_medical_fields, assert_segment_pair_consistent,
+    assert_valid_segment_category, get_allowed_function_categories, is_valid_segment_category,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn sample_request(payload: serde_json::Value) -> CreateRmeSegmentRequest {
+        CreateRmeSegmentRequest {
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            patient_ref: "patient-001".to_string(),
+            fasyankes_id: "rs-001".to_string(),
+            encounter_id: "enc-rawat-jalan-001".to_string(),
+            service_date: "2026-05-18".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            payload,
+            attachments: vec![],
+        }
+    }
+
+    fn sample_metadata(ciphertext: &[u8]) -> RmeSegmentMetadata {
+        RmeSegmentMetadata {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            fasyankes_id: "rs-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            ipfs_cid: "bafy...".to_string(),
+            integrity_hash: sha256_hex(ciphertext),
+            capsule: "pre-capsule-value".to_string(),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            encryption_algo: EncryptionAlgorithm::Aes256Gcm,
+            created_at: "2026-05-18T10:30:00.000Z".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn dataset_category_contains_required_values() {
+        assert_eq!(
+            DatasetCategory::all(),
+            &[
+                DatasetCategory::ADMINISTRATIVE,
+                DatasetCategory::RAWAT_JALAN,
+                DatasetCategory::RAWAT_INAP,
+                DatasetCategory::LABORATORIUM,
+                DatasetCategory::APOTEK,
+            ]
+        );
+
+        let serialized = serde_json::to_value(DatasetCategory::RAWAT_JALAN).unwrap();
+        assert_eq!(serialized, json!("RAWAT_JALAN"));
+    }
+
+    #[test]
+    fn function_category_contains_required_values() {
+        assert_eq!(FunctionCategory::all().len(), 28);
+        assert!(FunctionCategory::all().contains(&FunctionCategory::ETIKET));
+        assert!(FunctionCategory::all().contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
+
+        let serialized = serde_json::to_value(FunctionCategory::HASIL_PEMERIKSAAN).unwrap();
+        assert_eq!(serialized, json!("HASIL_PEMERIKSAAN"));
+    }
+
+    #[test]
+    fn valid_combinations_are_accepted() {
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::HASIL_PEMERIKSAAN,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::DATA_RESEP_DAN_OBAT,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::ADMINISTRATIVE,
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+        ));
+    }
+
+    #[test]
+    fn invalid_combinations_are_rejected() {
+        assert!(assert_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::ANAMNESIS,
+        )
+        .is_err());
+        assert!(assert_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::DATA_RESEP_DAN_OBAT,
+        )
+        .is_err());
+        assert!(assert_valid_segment_category(
+            DatasetCategory::ADMINISTRATIVE,
+            FunctionCategory::HASIL_PEMERIKSAAN,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn allowed_functions_are_exposed_by_dataset() {
+        assert_eq!(
+            get_allowed_function_categories(DatasetCategory::ADMINISTRATIVE),
+            vec![FunctionCategory::ADMINISTRATIVE_GENERAL]
+        );
+        assert!(get_allowed_function_categories(DatasetCategory::RAWAT_INAP)
+            .contains(&FunctionCategory::PERENCANAAN_PEMULANGAN));
+    }
+
+    #[test]
+    fn on_chain_metadata_does_not_contain_payload() {
+        let metadata = sample_metadata(b"encrypted segment");
+        metadata.validate().unwrap();
+
+        let value = serde_json::to_value(metadata).unwrap();
+        assert!(value.get("payload").is_none());
+        assert!(value.get("patient_ref").is_none());
+        assert!(assert_no_plaintext_medical_fields(&value).is_ok());
+    }
+
+    #[test]
+    fn off_chain_segment_contains_payload_and_payload_hash() {
+        let payload = json!({
+            "riwayat_penyakit_sekarang": "Demam",
+            "keluhan_utama": "Batuk"
+        });
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let segment = RmeSegmentData::new(segment_id, sample_request(payload.clone())).unwrap();
+
+        assert_eq!(segment.payload, payload);
+        assert_eq!(segment.payload_hash, payload_hash(&payload));
+        segment.validate().unwrap();
+    }
+
+    #[test]
+    fn segment_identity_is_consistent_between_off_chain_and_on_chain() {
+        let payload = json!({
+            "keluhan_utama": "Demam dan batuk sejak 3 hari"
+        });
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let off_chain = RmeSegmentData::new(segment_id, sample_request(payload)).unwrap();
+        let on_chain = sample_metadata(b"encrypted segment");
+
+        assert_segment_pair_consistent(&off_chain, &on_chain).unwrap();
+    }
+
+    #[test]
+    fn serializer_outputs_snake_case_json_keys() {
+        let metadata = sample_metadata(b"encrypted segment");
+        let value = serde_json::to_value(metadata).unwrap();
+
+        assert!(value.get("segment_id").is_some());
+        assert!(value.get("related_rme_id").is_some());
+        assert!(value.get("dataset_category").is_some());
+        assert!(value.get("function_category").is_some());
+        assert!(value.get("ipfs_cid").is_some());
+        assert!(value.get("enc_key_and_nonce").is_some());
+        assert!(value.get("created_at").is_some());
+        assert!(value.get("segmentId").is_none());
+        assert!(value.get("datasetCategory").is_none());
+    }
+
+    #[test]
+    fn integrity_hash_is_calculated_from_encrypted_segment() {
+        let ciphertext = b"ciphertext bytes";
+        let plaintext = b"plaintext medical data";
+        let enc_data = STANDARD.encode(ciphertext);
+
+        assert_eq!(
+            ciphertext_integrity_hash_from_base64(&enc_data).unwrap(),
+            sha256_hex(ciphertext)
+        );
+        assert_ne!(sha256_hex(ciphertext), sha256_hex(plaintext));
+    }
+
+    #[test]
+    fn payload_hash_is_calculated_from_canonical_json_payload() {
+        let left = json!({
+            "b": 2,
+            "a": {
+                "d": true,
+                "c": "x"
+            }
+        });
+        let right = json!({
+            "a": {
+                "c": "x",
+                "d": true
+            },
+            "b": 2
+        });
+
+        assert_eq!(canonical_json(&left), r#"{"a":{"c":"x","d":true},"b":2}"#);
+        assert_eq!(payload_hash(&left), payload_hash(&right));
+    }
+
+    #[test]
+    fn client_encrypted_segment_validates_integrity_and_builds_metadata() {
+        let ciphertext = b"encrypted segment";
+        let client_segment = ClientEncryptedRmeSegment {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            fasyankes_id: "rs-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            integrity_hash: sha256_hex(ciphertext),
+            capsule: "pre-capsule-value".to_string(),
+            enc_data: STANDARD.encode(ciphertext),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            encryption_algo: EncryptionAlgorithm::Aes256Gcm,
+            author_address: "iota:doctor-address".to_string(),
+        };
+
+        client_segment.validate().unwrap();
+        let metadata = client_segment.into_metadata(
+            "bafy...".to_string(),
+            "2026-05-18T10:30:00.000Z".to_string(),
+        );
+
+        assert_eq!(metadata.ipfs_cid, "bafy...");
+        assert_eq!(metadata.encryption_algo.as_str(), "AES-256-GCM");
+        assert!(serde_json::to_value(metadata)
+            .unwrap()
+            .get("enc_data")
+            .is_none());
+    }
+}

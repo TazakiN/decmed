@@ -1,6 +1,107 @@
 import { z } from 'zod';
 import { ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from './constants';
 
+export const datasetCategories = [
+	'ADMINISTRATIVE',
+	'RAWAT_JALAN',
+	'RAWAT_INAP',
+	'LABORATORIUM',
+	'APOTEK'
+] as const;
+
+export const functionCategories = [
+	'ADMINISTRATIVE_GENERAL',
+	'ANAMNESIS',
+	'PEMERIKSAAN_FISIK',
+	'PEMERIKSAAN_PSIKOLOGIS',
+	'RIWAYAT_PENGGUNAAN_OBAT',
+	'RENCANA_RAWAT',
+	'PERENCANAAN_PEMULANGAN',
+	'INSTRUKSI_MEDIK_DAN_KEPERAWATAN',
+	'PEMERIKSAAN_PENUNJANG',
+	'DIAGNOSIS',
+	'INFORMED_CONSENT',
+	'TERAPI',
+	'PERMINTAAN_PEMERIKSAAN',
+	'SPESIMEN_KLINIS',
+	'PENGOLAHAN_SPESIMEN',
+	'HASIL_PEMERIKSAAN',
+	'VALIDASI_HASIL',
+	'DISTRIBUSI_HASIL',
+	'DATA_RESEP_DAN_OBAT',
+	'RIWAYAT_ALERGI',
+	'ASAL_RESEP',
+	'DOKTER_PENULIS_RESEP',
+	'STATUS_DAN_PENGKAJIAN_RESEP',
+	'STATUS_RESEP',
+	'WAKTU_PENYIAPAN_OBAT',
+	'WAKTU_PENYERAHAN_OBAT',
+	'PETUGAS_DISPENSING',
+	'ETIKET'
+] as const;
+
+export const allowedSegmentFunctionCategories = {
+	ADMINISTRATIVE: ['ADMINISTRATIVE_GENERAL'],
+	RAWAT_JALAN: [
+		'ANAMNESIS',
+		'PEMERIKSAAN_FISIK',
+		'PEMERIKSAAN_PSIKOLOGIS',
+		'RIWAYAT_PENGGUNAAN_OBAT',
+		'RENCANA_RAWAT',
+		'PEMERIKSAAN_PENUNJANG',
+		'DIAGNOSIS',
+		'INFORMED_CONSENT',
+		'TERAPI',
+		'PERMINTAAN_PEMERIKSAAN'
+	],
+	RAWAT_INAP: [
+		'ANAMNESIS',
+		'PEMERIKSAAN_FISIK',
+		'PEMERIKSAAN_PSIKOLOGIS',
+		'RIWAYAT_PENGGUNAAN_OBAT',
+		'RENCANA_RAWAT',
+		'PERENCANAAN_PEMULANGAN',
+		'INSTRUKSI_MEDIK_DAN_KEPERAWATAN',
+		'PEMERIKSAAN_PENUNJANG',
+		'DIAGNOSIS',
+		'INFORMED_CONSENT',
+		'TERAPI',
+		'PERMINTAAN_PEMERIKSAAN'
+	],
+	LABORATORIUM: [
+		'PERMINTAAN_PEMERIKSAAN',
+		'SPESIMEN_KLINIS',
+		'PENGOLAHAN_SPESIMEN',
+		'HASIL_PEMERIKSAAN',
+		'VALIDASI_HASIL',
+		'DISTRIBUSI_HASIL'
+	],
+	APOTEK: [
+		'DATA_RESEP_DAN_OBAT',
+		'RIWAYAT_ALERGI',
+		'ASAL_RESEP',
+		'DOKTER_PENULIS_RESEP',
+		'STATUS_DAN_PENGKAJIAN_RESEP',
+		'STATUS_RESEP',
+		'WAKTU_PENYIAPAN_OBAT',
+		'WAKTU_PENYERAHAN_OBAT',
+		'PETUGAS_DISPENSING',
+		'ETIKET'
+	]
+} as const satisfies Record<(typeof datasetCategories)[number], readonly (typeof functionCategories)[number][]>;
+
+export const datasetCategorySchema = z.enum(datasetCategories);
+export const functionCategorySchema = z.enum(functionCategories);
+
+export function isValidSegmentCategory(
+	datasetCategory: (typeof datasetCategories)[number],
+	functionCategory: (typeof functionCategories)[number]
+) {
+	return (allowedSegmentFunctionCategories[datasetCategory] as readonly string[]).includes(
+		functionCategory
+	);
+}
+
 const pinSchema = {
 	pin: z
 		.string({
@@ -25,11 +126,11 @@ const nameSchema = {
 };
 
 export const medicalDataMainCategory = {
-	mainCategory: z.enum(['Category1', 'Category2'])
+	mainCategory: datasetCategorySchema
 };
 
 export const medicalDataSubCategory = {
-	subCategory: z.enum(['SubCategory1', 'SubCategory2'])
+	subCategory: functionCategorySchema
 };
 
 const anamnesisSchema = {
@@ -194,6 +295,39 @@ export const addPersonnelSchemaStep1 = z.object({
 export const addPersonnelSchemaStep2 = addPersonnelSchemaStep1.extend(pinSchema);
 export const completeProfileAdminSchema = z.object(nameSchema);
 export const completeProfilePersonnelSchema = z.object(nameSchema);
+export const createRmeSegmentSchema = z
+	.object({
+		related_rme_id: z.string().trim().min(1),
+		patient_address: z.string().trim().min(1),
+		patient_ref: z.string().trim().min(1),
+		fasyankes_id: z.string().trim().min(1),
+		encounter_id: z.string().trim().min(1),
+		service_date: z.string().trim().min(1),
+		author_address: z.string().trim().min(1),
+		dataset_category: datasetCategorySchema,
+		function_category: functionCategorySchema,
+		payload: z.record(z.unknown()).refine((payload) => Object.keys(payload).length > 0, {
+			message: 'Payload is required.'
+		}),
+		attachments: z
+			.array(
+				z.object({
+					cid: z.string().trim().min(1),
+					file_name: z.string().trim().min(1),
+					mime_type: z.string().trim().min(1)
+				})
+			)
+			.default([])
+	})
+	.superRefine((value, ctx) => {
+		if (!isValidSegmentCategory(value.dataset_category, value.function_category)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['function_category'],
+				message: 'Invalid dataset_category and function_category combination.'
+			});
+		}
+	});
 export const createMedicalRecordSchema = z
 	.object(anamnesisSchema)
 	.extend(physicalCheckSchema)

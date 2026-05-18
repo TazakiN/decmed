@@ -6,13 +6,14 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json};
+use decmed_rme_segment::{ClientEncryptedRmeSegment, CreateRmeSegmentResponse, RmeSegmentMetadata};
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{
     EncodeDecodeBase64, IotaKeyPair, IotaSignature, Signature, SignatureScheme,
 };
 
 use redis::{Commands, SetExpiry, SetOptions};
-use serde_json::json;
+use serde_json::{json, Value};
 use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
 
@@ -24,14 +25,55 @@ use crate::proxy_error::{ProxyError, ResultExt};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
-    HandlerCreateMedicalRecordPayload, HandlerGetAdministrativeDataQueryParams,
-    HandlerGetMedicalRecordQueryParams, HandlerGetMedicalRecordUpdateQueryParams,
-    HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, MedicalMetadata,
-    MoveHospitalPersonnelRole, PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
+    HandlerCreateMedicalRecordPayload, HandlerCreateMedicalRecordSegmentPayload,
+    HandlerGetAdministrativeDataQueryParams, HandlerGetMedicalRecordQueryParams,
+    HandlerGetMedicalRecordUpdateQueryParams, HandlerStoreKeysPayload,
+    HandlerUpdateMedicalRecordPayload, MedicalMetadata, MoveHospitalPersonnelRole,
+    PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
 };
 use crate::utils::Utils;
 
 pub struct Handlers {}
+
+#[derive(Debug)]
+struct StoredMedicalMetadata {
+    capsule: String,
+    cid: String,
+    created_at: String,
+    enc_key_and_nonce: String,
+}
+
+fn deserialize_stored_medical_metadata(
+    metadata: String,
+) -> Result<StoredMedicalMetadata, ProxyError> {
+    let metadata_value: Value = Utils::serde_deserialize_from_base64(metadata)
+        .map_err(|_| anyhow!("Invalid stored medical metadata"))
+        .code(StatusCode::BAD_REQUEST)?;
+
+    if let Ok(metadata) = serde_json::from_value::<MedicalMetadata>(metadata_value.clone()) {
+        return Ok(StoredMedicalMetadata {
+            capsule: metadata.capsule,
+            cid: metadata.cid,
+            created_at: metadata.created_at,
+            enc_key_and_nonce: metadata.enc_key_and_nonce,
+        });
+    }
+
+    let segment_metadata: RmeSegmentMetadata = serde_json::from_value(metadata_value)
+        .map_err(|_| anyhow!("Invalid stored RME segment metadata"))
+        .code(StatusCode::BAD_REQUEST)?;
+    segment_metadata
+        .validate()
+        .map_err(|e| anyhow!(e.to_string()))
+        .code(StatusCode::BAD_REQUEST)?;
+
+    Ok(StoredMedicalMetadata {
+        capsule: segment_metadata.capsule,
+        cid: segment_metadata.ipfs_cid,
+        created_at: segment_metadata.created_at,
+        enc_key_and_nonce: segment_metadata.enc_key_and_nonce,
+    })
+}
 
 impl Handlers {
     pub async fn create_medical_record(
@@ -109,6 +151,105 @@ impl Handlers {
             .context(current_fn!())?;
 
         Ok(Utils::build_success_response((), StatusCode::OK))
+    }
+
+    pub async fn create_medical_record_segment(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        Json(payload): Json<HandlerCreateMedicalRecordSegmentPayload>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.role != AuthRole::MedicalPersonnel {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid role"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+
+        if current_user.purpose != ReencryptionPurposeType::Update {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid purpose"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        let (
+            encrypted_segment,
+            hospital_personnel_iota_address,
+            proxy_iota_address,
+            proxy_iota_key_pair,
+            patient_iota_address,
+        ) = {
+            let patient_iota_address = IotaAddress::from_str(&payload.patient_iota_address)
+                .map_err(|_| anyhow!("Invalid patient IOTA address"))
+                .code(StatusCode::BAD_REQUEST)?;
+            let encrypted_segment: ClientEncryptedRmeSegment =
+                Utils::serde_deserialize_from_base64(payload.encrypted_segment)
+                    .map_err(|_| anyhow!("Invalid encrypted segment metadata"))
+                    .code(StatusCode::BAD_REQUEST)?;
+            encrypted_segment
+                .validate()
+                .map_err(|e| anyhow!(e.to_string()))
+                .code(StatusCode::BAD_REQUEST)?;
+
+            if encrypted_segment.patient_address != patient_iota_address.to_string() {
+                return Err(ProxyError::Anyhow {
+                    source: anyhow!(
+                        "Segment patient_address does not match request patient_iota_address"
+                    ),
+                    code: StatusCode::BAD_REQUEST,
+                });
+            }
+
+            let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
+                .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))?;
+
+            if encrypted_segment.author_address != hospital_personnel_iota_address.to_string() {
+                return Err(ProxyError::Anyhow {
+                    source: anyhow!("Segment author_address does not match authenticated subject"),
+                    code: StatusCode::BAD_REQUEST,
+                });
+            }
+
+            let proxy_iota_address =
+                IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+            let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context(current_fn!())?;
+
+            (
+                encrypted_segment,
+                hospital_personnel_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+                patient_iota_address,
+            )
+        };
+
+        let cid = Utils::add_and_pin_to_ipfs(encrypted_segment.enc_data.clone())
+            .await
+            .context(current_fn!())?;
+        let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
+        let segment_metadata = encrypted_segment.into_metadata(cid, created_at);
+        segment_metadata
+            .validate()
+            .map_err(|e| anyhow!(e.to_string()))
+            .code(StatusCode::BAD_REQUEST)?;
+
+        let response_data = CreateRmeSegmentResponse::from(&segment_metadata);
+
+        let _ = state
+            .move_call
+            .create_medical_record_segment(
+                &hospital_personnel_iota_address,
+                Utils::serde_serialize_to_base64(&segment_metadata).context(current_fn!())?,
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await
+            .context(current_fn!())?;
+
+        Ok(Utils::build_success_response(response_data, StatusCode::OK))
     }
 
     /**
@@ -379,9 +520,7 @@ impl Handlers {
                     .await
                     .context(current_fn!())?;
 
-            let medical_metadata: MedicalMetadata =
-                Utils::serde_deserialize_from_base64(medical_metadata.metadata)
-                    .context(current_fn!())?;
+            let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 
             let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
                 Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)
@@ -538,9 +677,7 @@ impl Handlers {
                 .await
                 .context(current_fn!())?;
 
-            let medical_metadata: MedicalMetadata =
-                Utils::serde_deserialize_from_base64(medical_metadata.metadata)
-                    .context(current_fn!())?;
+            let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 
             let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
                 Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)

@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::move_call::MoveCall;
+pub use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
 // Enum
 
@@ -18,17 +19,8 @@ pub enum HospitalPersonnelRole {
     MedicalPersonnel,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum MedicalDataMainCategory {
-    Category1,
-    Category2,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum MedicalDataSubCategory {
-    SubCategory1,
-    SubCategory2,
-}
+pub type MedicalDataMainCategory = DatasetCategory;
+pub type MedicalDataSubCategory = FunctionCategory;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MoveHospitalPersonnelAccessDataType {

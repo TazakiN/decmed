@@ -1665,6 +1665,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "decmed-macaroon-auth"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "decmed-rme-segment",
+ "macaroon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "decmed-rme-segment"
 version = "0.1.0"
 dependencies = [
@@ -5816,6 +5828,7 @@ dependencies = [
  "bip32",
  "bip39",
  "chrono",
+ "decmed-macaroon-auth",
  "decmed-rme-segment",
  "dotenv",
  "dotenvy",

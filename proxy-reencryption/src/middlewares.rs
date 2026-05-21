@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    macaroon_auth::map_caveat_error,
     proxy_error::{ProxyError, ResultExt},
     types::{AppState, AuthRole, CurrentUser, ReencryptionPurposeType},
     utils::Utils,
@@ -12,6 +13,12 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use decmed_macaroon_auth::{
+    verify_macaroon_signature, DelegationChain, EffectiveCapability, ParsedCaveats,
+    VerifiedDecmedToken,
+};
+
+pub const WALLET_SIGNATURE_HEADER: &str = "x-decmed-wallet-signature";
 
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
@@ -31,6 +38,39 @@ pub async fn auth_middleware(
 
     let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
 
+    let parsed = ParsedCaveats::from_macaroon(&mac).map_err(map_caveat_error)?;
+
+    if parsed.is_decmed_token() {
+        verify_macaroon_signature(&mac, &root_key).map_err(map_caveat_error)?;
+
+        let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
+        let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
+
+        let (role, purpose) = legacy_role_purpose_from_parsed(&parsed)?;
+
+        let verified = VerifiedDecmedToken {
+            parsed,
+            effective,
+            delegation: delegation.clone(),
+            token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
+            is_legacy: false,
+            legacy_subject: None,
+            legacy_role: None,
+            legacy_purpose: None,
+        };
+
+        let current_user = CurrentUser {
+            iota_address: delegation.active_subject,
+            purpose,
+            role,
+            decmed_token: Some(verified),
+            bearer_token: bearer_token.clone(),
+        };
+        request.extensions_mut().insert(current_user);
+        return Ok(next.run(request).await);
+    }
+
+    // Legacy coarse-grained macaroon flow
     let mut subject = String::new();
     let mut role_str = String::new();
     let mut purpose_str = String::new();
@@ -108,10 +148,60 @@ pub async fn auth_middleware(
         iota_address: subject,
         purpose,
         role,
+        decmed_token: None,
+        bearer_token: bearer_token.clone(),
     };
     request.extensions_mut().insert(current_user);
 
-    let response = next.run(request).await;
+    Ok(next.run(request).await)
+}
 
-    Ok(response)
+fn legacy_role_purpose_from_parsed(
+    parsed: &ParsedCaveats,
+) -> Result<(AuthRole, ReencryptionPurposeType), ProxyError> {
+    use decmed_macaroon_auth::{CaveatKey, CaveatValue};
+
+    let role_caveats = parsed.all(CaveatKey::Role);
+    let purpose_caveats = parsed.all(CaveatKey::Purpose);
+    let role_entry = role_caveats.first();
+    let purpose_entry = purpose_caveats.first();
+
+    let role_str = role_entry
+        .and_then(|c| match &c.value {
+            CaveatValue::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .unwrap_or("MedicalPersonnel");
+
+    let purpose_str = purpose_entry
+        .and_then(|c| match &c.value {
+            CaveatValue::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .unwrap_or("Read");
+
+    let role = match role_str {
+        "AdministrativePersonnel" => AuthRole::AdministrativePersonnel,
+        "MedicalPersonnel" => AuthRole::MedicalPersonnel,
+        "Patient" => AuthRole::Patient,
+        _ => {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Invalid role in token"),
+                code: StatusCode::UNAUTHORIZED,
+            })
+        }
+    };
+
+    let purpose = match purpose_str {
+        "Read" => ReencryptionPurposeType::Read,
+        "Update" => ReencryptionPurposeType::Update,
+        _ => {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Invalid purpose in token"),
+                code: StatusCode::UNAUTHORIZED,
+            })
+        }
+    };
+
+    Ok((role, purpose))
 }

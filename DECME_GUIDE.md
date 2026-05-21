@@ -93,3 +93,18 @@ pnpm tauri dev
 cd client/client-hospital-tauri/src-tauri
 cargo tauri dev
 ```
+
+---
+
+## 5. Macaroon caveats (RME fine-grained access)
+
+See `crates/decmed-macaroon-auth/README.md` for caveat format, effective access (intersection), and delegation rules.
+
+| Step | Mechanism |
+|------|-----------|
+| Initial token | `POST /api/v1/keys` with `related_rme_id` — PRE signs with `MACAROON_ROOT_KEY` |
+| Delegation | Hospital Tauri `delegate_macaroon` — append-only caveats, no root key |
+| PRE access | Bearer macaroon; segment routes also use `x-decmed-wallet-signature` when `proof_required = wallet_signature` |
+| Active actor | `delegated_to` terakhir, atau `root_subject` — **bukan** `holder_address` |
+
+Tests: `cd crates/decmed-macaroon-auth && cargo test`

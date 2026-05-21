@@ -12,12 +12,20 @@ pub enum ProxyError {
         source: anyhow::Error,
         code: StatusCode,
     },
+    #[error("{error}")]
+    Caveat {
+        code: u16,
+        error: String,
+    },
 }
 
 impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
         let (error_message, code) = match self {
             ProxyError::Anyhow { source, code } => (format!("{:?}", source), code),
+            ProxyError::Caveat { code, error } => {
+                (error.clone(), StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST))
+            }
         };
 
         let error_response = json!({

@@ -50,3 +50,4 @@ base64 = "0.22"
 chrono = "0.4"
 macaroon = { path = "../../macaroon-decmed" }
 decmed-rme-segment = { path = "../crates/decmed-rme-segment" }
+decmed-macaroon-auth = { path = "../crates/decmed-macaroon-auth" }

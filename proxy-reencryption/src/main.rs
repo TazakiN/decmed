@@ -1,6 +1,7 @@
 mod constants;
 mod handlers;
 mod macros;
+mod macaroon_auth;
 mod middlewares;
 mod move_call;
 mod proxy_error;

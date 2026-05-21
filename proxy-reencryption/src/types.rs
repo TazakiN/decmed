@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::move_call::MoveCall;
+use decmed_macaroon_auth::VerifiedDecmedToken;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthRole {
@@ -64,6 +65,10 @@ pub struct CurrentUser {
     pub iota_address: String,
     pub purpose: ReencryptionPurposeType,
     pub role: AuthRole,
+    #[serde(skip)]
+    pub decmed_token: Option<VerifiedDecmedToken>,
+    #[serde(skip)]
+    pub bearer_token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -174,6 +179,8 @@ pub struct HandlerStoreKeysPayload {
     pub patient_pre_public_key: String,
     pub signature: String,
     pub signer_pre_public_key: String,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

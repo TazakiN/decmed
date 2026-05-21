@@ -1,0 +1,13 @@
+[package]
+name = "decmed-macaroon-auth"
+version = "0.1.0"
+edition = "2021"
+description = "DecMed Macaroon caveat parsing, verification, and local attenuation"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+decmed-rme-segment = { path = "../decmed-rme-segment" }
+macaroon = { path = "../../../macaroon-decmed" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"

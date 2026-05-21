@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::{Extension, Json};
 use decmed_rme_segment::{ClientEncryptedRmeSegment, CreateRmeSegmentResponse, RmeSegmentMetadata};
@@ -21,7 +21,11 @@ use crate::constants::{
     ADMINISTRATIVE_KEYS_READ_DUR, MEDICAL_KEYS_READ_DUR, MEDICAL_KEYS_UPDATE_DUR, NONCE_EXP_DUR,
 };
 use crate::current_fn;
+use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
+use decmed_macaroon_auth::{verify_decmed_token, SegmentAccessContext, TokenVerificationContext};
+use crate::middlewares::WALLET_SIGNATURE_HEADER;
 use crate::proxy_error::{ProxyError, ResultExt};
+use decmed_macaroon_auth::{issue_initial_token, AccessMode, InitialDoctorTokenParams};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
@@ -156,6 +160,7 @@ impl Handlers {
     pub async fn create_medical_record_segment(
         State(state): State<Arc<AppState>>,
         Extension(current_user): Extension<CurrentUser>,
+        headers: HeaderMap,
         Json(payload): Json<HandlerCreateMedicalRecordSegmentPayload>,
     ) -> Result<Response, ProxyError> {
         if current_user.role != AuthRole::MedicalPersonnel {
@@ -225,10 +230,49 @@ impl Handlers {
             )
         };
 
+        let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
+        let segment_metadata_preview = encrypted_segment.clone().into_metadata(
+            String::new(),
+            created_at.clone(),
+        );
+        if current_user.decmed_token.is_some() {
+            let wallet_sig = headers
+                .get(WALLET_SIGNATURE_HEADER)
+                .and_then(|v| v.to_str().ok());
+            let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
+                .map_err(|_| {
+                    ProxyError::Anyhow {
+                        source: anyhow!("Invalid access token"),
+                        code: StatusCode::UNAUTHORIZED,
+                    }
+                })?;
+            let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+            let segment = SegmentAccessContext {
+                segment_id: segment_metadata_preview.segment_id.clone(),
+                patient_address: segment_metadata_preview.patient_address.clone(),
+                related_rme_id: segment_metadata_preview.related_rme_id.clone(),
+                dataset_category: segment_metadata_preview.dataset_category,
+                function_category: segment_metadata_preview.function_category,
+            };
+            let verifier: Option<&dyn decmed_macaroon_auth::WalletSignatureVerifier> =
+                Some(&IotaWalletVerifier);
+            verify_decmed_token(
+                &mac,
+                &root_key,
+                &TokenVerificationContext {
+                    operation: AccessMode::Write,
+                    segment,
+                    wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
+                    now: chrono::Utc::now(),
+                },
+                verifier,
+            )
+            .map_err(map_caveat_error)?;
+        }
+
         let cid = Utils::add_and_pin_to_ipfs(encrypted_segment.enc_data.clone())
             .await
             .context(current_fn!())?;
-        let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
         let segment_metadata = encrypted_segment.into_metadata(cid, created_at);
         segment_metadata
             .validate()
@@ -447,6 +491,7 @@ impl Handlers {
     pub async fn get_medical_record(
         State(state): State<Arc<AppState>>,
         Extension(current_user): Extension<CurrentUser>,
+        headers: HeaderMap,
         Query(query): Query<HandlerGetMedicalRecordQueryParams>,
     ) -> Result<Response, ProxyError> {
         if current_user.role != AuthRole::MedicalPersonnel {
@@ -519,6 +564,45 @@ impl Handlers {
                     )
                     .await
                     .context(current_fn!())?;
+
+            if current_user.decmed_token.is_some() {
+                if let Ok(segment_meta) = Utils::serde_deserialize_from_base64::<RmeSegmentMetadata>(
+                    medical_metadata.metadata.clone(),
+                ) {
+                    let wallet_sig = headers
+                        .get(WALLET_SIGNATURE_HEADER)
+                        .and_then(|v| v.to_str().ok());
+                    let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
+                        .map_err(|_| {
+                            ProxyError::Anyhow {
+                                source: anyhow!("Invalid access token"),
+                                code: StatusCode::UNAUTHORIZED,
+                            }
+                        })?;
+                    let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+                    let segment = SegmentAccessContext {
+                        segment_id: segment_meta.segment_id.clone(),
+                        patient_address: segment_meta.patient_address.clone(),
+                        related_rme_id: segment_meta.related_rme_id.clone(),
+                        dataset_category: segment_meta.dataset_category,
+                        function_category: segment_meta.function_category,
+                    };
+                    let verifier: Option<&dyn decmed_macaroon_auth::WalletSignatureVerifier> =
+                        Some(&IotaWalletVerifier);
+                    verify_decmed_token(
+                        &mac,
+                        &root_key,
+                        &TokenVerificationContext {
+                            operation: AccessMode::Read,
+                            segment,
+                            wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
+                            now: chrono::Utc::now(),
+                        },
+                        verifier,
+                    )
+                    .map_err(map_caveat_error)?;
+                }
+            }
 
             let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 
@@ -867,41 +951,57 @@ impl Handlers {
             AuthRole::Patient => "Patient",
         };
 
-        let read_exp = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + read_keys_duration;
+        let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
+            if let Some(related_rme_id) = payload.related_rme_id.clone() {
+                if hospital_personnel_role != AuthRole::MedicalPersonnel {
+                    return Err(ProxyError::Anyhow {
+                        source: anyhow!("DecMed caveat tokens require medical personnel"),
+                        code: StatusCode::BAD_REQUEST,
+                    });
+                }
+                let expires_before = chrono::Utc::now() + chrono::Duration::seconds(read_keys_duration as i64);
+                let mut read_params = InitialDoctorTokenParams::example_doctor_token(
+                    &patient_iota_address.to_string(),
+                    &related_rme_id,
+                    &hospital_personnel_iota_address.to_string(),
+                );
+                read_params.expires_before = expires_before;
+                read_params.purpose = Some("Read".into());
+                read_params.role = Some(role_str.to_string());
+                read_params.require_wallet_proof = true;
 
-        let mut read_macaroon = macaroon::Macaroon::create(
-            Some("proxy-reencryption".into()),
-            &root_key,
-            hospital_personnel_iota_address.to_string().into(),
-        )
-        .map_err(|_| anyhow!("Failed to create macaroon"))
-        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+                let read_token = issue_initial_token(&root_key, &read_params)
+                    .map_err(|e| ProxyError::Caveat {
+                        code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                        error: e.to_string(),
+                    })?;
 
-        read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-        read_macaroon.add_first_party_caveat("purpose = Read".into());
-        read_macaroon.add_first_party_caveat(
-            format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
-        );
-        read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
-
-        let hospital_personnel_access_token_read = read_macaroon
-            .serialize(macaroon::Format::V2)
-            .map_err(|_| anyhow!("Failed to serialize macaroon"))
-            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        let hospital_personnel_access_token_update =
-            if let Some(update_keys_duration) = update_keys_duration {
-                let update_exp = std::time::SystemTime::now()
+                let update_token = if update_keys_duration.is_some() {
+                    let update_expires =
+                        chrono::Utc::now() + chrono::Duration::seconds(update_keys_duration.unwrap() as i64);
+                    let mut update_params = read_params.clone();
+                    update_params.expires_before = update_expires;
+                    update_params.purpose = Some("Update".into());
+                    Some(
+                        issue_initial_token(&root_key, &update_params).map_err(|e| {
+                            ProxyError::Caveat {
+                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                error: e.to_string(),
+                            }
+                        })?,
+                    )
+                } else {
+                    None
+                };
+                (read_token, update_token)
+            } else {
+                let read_exp = std::time::SystemTime::now()
                     .duration_since(std::time::SystemTime::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()
-                    + update_keys_duration;
+                    + read_keys_duration;
 
-                let mut update_macaroon = macaroon::Macaroon::create(
+                let mut read_macaroon = macaroon::Macaroon::create(
                     Some("proxy-reencryption".into()),
                     &root_key,
                     hospital_personnel_iota_address.to_string().into(),
@@ -909,21 +1009,50 @@ impl Handlers {
                 .map_err(|_| anyhow!("Failed to create macaroon"))
                 .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-                update_macaroon.add_first_party_caveat("purpose = Update".into());
-                update_macaroon.add_first_party_caveat(
+                read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+                read_macaroon.add_first_party_caveat("purpose = Read".into());
+                read_macaroon.add_first_party_caveat(
                     format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
                 );
-                update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
+                read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
 
-                Some(
-                    update_macaroon
-                        .serialize(macaroon::Format::V2)
-                        .map_err(|_| anyhow!("Failed to serialize macaroon"))
-                        .code(StatusCode::INTERNAL_SERVER_ERROR)?,
-                )
-            } else {
-                None
+                let read_token = read_macaroon
+                    .serialize(macaroon::Format::V2)
+                    .map_err(|_| anyhow!("Failed to serialize macaroon"))
+                    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                let update_token = if let Some(update_keys_duration) = update_keys_duration {
+                    let update_exp = std::time::SystemTime::now()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        + update_keys_duration;
+
+                    let mut update_macaroon = macaroon::Macaroon::create(
+                        Some("proxy-reencryption".into()),
+                        &root_key,
+                        hospital_personnel_iota_address.to_string().into(),
+                    )
+                    .map_err(|_| anyhow!("Failed to create macaroon"))
+                    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                    update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+                    update_macaroon.add_first_party_caveat("purpose = Update".into());
+                    update_macaroon.add_first_party_caveat(
+                        format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
+                    );
+                    update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
+
+                    Some(
+                        update_macaroon
+                            .serialize(macaroon::Format::V2)
+                            .map_err(|_| anyhow!("Failed to serialize macaroon"))
+                            .code(StatusCode::INTERNAL_SERVER_ERROR)?,
+                    )
+                } else {
+                    None
+                };
+                (read_token, update_token)
             };
 
         let access_keys = AccessKeys {

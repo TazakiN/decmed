@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DatasetCategory {
     ADMINISTRATIVE,
     RAWAT_JALAN,
@@ -25,7 +25,7 @@ impl DatasetCategory {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FunctionCategory {
     ADMINISTRATIVE_GENERAL,
     ANAMNESIS,

@@ -4,6 +4,7 @@ mod administrative_personnel;
 mod constants;
 mod hospital_error;
 mod macros;
+mod macaroon_delegation;
 mod medical_personnel;
 mod move_call;
 mod rme_segment;
@@ -134,6 +135,7 @@ pub fn run() {
             admin::get_hospital_personnels,
             medical_personnel::new_medical_record,
             rme_segment::new_medical_record_segment,
+            macaroon_delegation::delegate_macaroon,
             medical_personnel::get_medical_record,
             medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,

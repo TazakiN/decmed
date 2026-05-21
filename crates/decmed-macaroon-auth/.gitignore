@@ -1,0 +1,12 @@
+# Rust build output
+/target/
+
+# Lockfile from standalone `cargo test` in this crate; resolution is owned by consumers (e.g. proxy-reencryption)
+/Cargo.lock
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

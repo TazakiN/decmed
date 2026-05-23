@@ -69,7 +69,6 @@ mod tests {
         assert_eq!(
             DatasetCategory::all(),
             &[
-                DatasetCategory::ADMINISTRATIVE,
                 DatasetCategory::RAWAT_JALAN,
                 DatasetCategory::RAWAT_INAP,
                 DatasetCategory::LABORATORIUM,
@@ -83,12 +82,12 @@ mod tests {
 
     #[test]
     fn function_category_contains_required_values() {
-        assert_eq!(FunctionCategory::all().len(), 28);
-        assert!(FunctionCategory::all().contains(&FunctionCategory::ETIKET));
+        assert_eq!(FunctionCategory::all().len(), 15);
         assert!(FunctionCategory::all().contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
+        assert!(FunctionCategory::all().contains(&FunctionCategory::DISPENSING));
 
-        let serialized = serde_json::to_value(FunctionCategory::HASIL_PEMERIKSAAN).unwrap();
-        assert_eq!(serialized, json!("HASIL_PEMERIKSAAN"));
+        let serialized = serde_json::to_value(FunctionCategory::LABORATORIUM).unwrap();
+        assert_eq!(serialized, json!("LABORATORIUM"));
     }
 
     #[test]
@@ -98,15 +97,31 @@ mod tests {
             FunctionCategory::ANAMNESIS,
         ));
         assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN,
+        ));
+        assert!(is_valid_segment_category(
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::HASIL_PEMERIKSAAN,
+            FunctionCategory::LABORATORIUM,
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::APOTEK,
-            FunctionCategory::DATA_RESEP_DAN_OBAT,
+            FunctionCategory::PERESEPAN,
         ));
         assert!(is_valid_segment_category(
-            DatasetCategory::ADMINISTRATIVE,
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_INAP,
             FunctionCategory::ADMINISTRATIVE_GENERAL,
         ));
     }
@@ -120,22 +135,33 @@ mod tests {
         .is_err());
         assert!(assert_valid_segment_category(
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::DATA_RESEP_DAN_OBAT,
+            FunctionCategory::PERESEPAN,
         )
         .is_err());
         assert!(assert_valid_segment_category(
-            DatasetCategory::ADMINISTRATIVE,
-            FunctionCategory::HASIL_PEMERIKSAAN,
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::DISPENSING,
         )
         .is_err());
     }
 
     #[test]
     fn allowed_functions_are_exposed_by_dataset() {
+        for dataset in DatasetCategory::all() {
+            assert!(
+                get_allowed_function_categories(*dataset)
+                    .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL),
+                "{dataset:?} should include ADMINISTRATIVE_GENERAL"
+            );
+        }
+        let rawat_jalan = get_allowed_function_categories(DatasetCategory::RAWAT_JALAN);
+        assert_eq!(rawat_jalan.len(), 11);
+        assert!(rawat_jalan.contains(&FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN));
         assert_eq!(
-            get_allowed_function_categories(DatasetCategory::ADMINISTRATIVE),
-            vec![FunctionCategory::ADMINISTRATIVE_GENERAL]
+            get_allowed_function_categories(DatasetCategory::LABORATORIUM).len(),
+            2
         );
+        assert_eq!(get_allowed_function_categories(DatasetCategory::APOTEK).len(), 3);
         assert!(get_allowed_function_categories(DatasetCategory::RAWAT_INAP)
             .contains(&FunctionCategory::PERENCANAAN_PEMULANGAN));
     }

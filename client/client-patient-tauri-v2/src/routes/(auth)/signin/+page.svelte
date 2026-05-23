@@ -283,7 +283,7 @@
 					<div class="flex items-center justify-center flex-col gap-2">
 						<Button.Root type="submit" class="button-dark mt-2">Next</Button.Root>
 						<p>
-							Already have an account? <a href="/signup" class="underline underline-offset-4"
+							Doesn't have an account? <a href="/signup" class="underline underline-offset-4"
 								>Signup</a
 							>
 						</p>

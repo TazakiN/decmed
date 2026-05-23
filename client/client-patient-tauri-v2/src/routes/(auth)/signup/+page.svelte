@@ -338,7 +338,7 @@
 							{/if}
 						</Button.Root>
 						<p>
-							Doesn't have an account? <a href="/signin" class="underline underline-offset-4"
+							Already have an account? <a href="/signin" class="underline underline-offset-4"
 								>Signin</a
 							>
 						</p>

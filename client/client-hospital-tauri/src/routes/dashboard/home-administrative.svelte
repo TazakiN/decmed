@@ -73,7 +73,8 @@
 			{:then updateAccess}
 				{#if updateAccess && updateAccess.length > 0}
 					{#each updateAccess as access, i (i)}
-						<div
+						<a
+							href={`/dashboard/delegation?patientAddress=${encodeURIComponent(access.patientIotaAddress)}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div
@@ -82,7 +83,10 @@
 								<p class="text-xs font-medium">{i + 1}</p>
 							</div>
 							<p class="flex-1 flex">{access.patientName}</p>
-						</div>
+							<span class="flex items-center justify-center">
+								<ChevronRight />
+							</span>
+						</a>
 					{/each}
 				{:else}
 					<div class="p-2">
@@ -91,8 +95,5 @@
 				{/if}
 			{/await}
 		</div>
-		<a href="/dashboard/delegation" class="button-dark inline-block text-center">
-			Buka halaman delegasi
-		</a>
 	</Tabs.Content>
 </Tabs.Root>

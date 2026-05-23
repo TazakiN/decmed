@@ -111,11 +111,8 @@
 			<p>Hospital:</p>
 			<p>{confirmDialogData?.hospitalPersonnelHospitalName}</p>
 		</div>
-		<p class="text-sm text-zinc-600 mt-2">
-			Pilih episode untuk write token. Read token tetap mencakup semua dataset.
-		</p>
 		<fieldset class="flex flex-col gap-2 mt-2">
-			<legend class="font-medium">Episode write token</legend>
+			<legend class="font-medium">Select service type</legend>
 			<label class="flex items-center gap-2">
 				<input type="radio" bind:group={scanEncounterDataset} value="RAWAT_JALAN" />
 				Rawat Jalan

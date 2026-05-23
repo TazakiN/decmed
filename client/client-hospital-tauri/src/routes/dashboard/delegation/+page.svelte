@@ -11,6 +11,7 @@
 
 	let writeAccess = $state<TauriAccessData[]>([]);
 	let selectedAccessIndex = $state(0);
+	let selectedAccess = $derived(writeAccess[selectedAccessIndex]);
 	let preset = $state<Preset>('doctor');
 	let delegateeAddress = $state('');
 	let delegateePrePublicKey = $state('');
@@ -31,16 +32,19 @@
 			return;
 		}
 		writeAccess = res.data.data;
-	};
 
-	const selectAccess = (index: number) => {
-		selectedAccessIndex = index;
+		if (data.patientAddress) {
+			const selectedIndex = writeAccess.findIndex(
+				(access) => access.patientIotaAddress === data.patientAddress
+			);
+			selectedAccessIndex = selectedIndex >= 0 ? selectedIndex : 0;
+		}
 	};
 
 	const delegateAccess = async () => {
-		const entry = writeAccess[selectedAccessIndex];
+		const entry = selectedAccess;
 		if (!entry) {
-			toast.error('Pilih entry akses terlebih dahulu');
+			toast.error('Write access pasien tidak ditemukan');
 			return;
 		}
 		if (!delegateeAddress.trim() || !delegateePrePublicKey.trim()) {
@@ -88,24 +92,16 @@
 	{#if !isAdminPersonnel}
 		<p>Halaman ini hanya untuk Administrative Personnel.</p>
 	{:else}
-		<div class="flex flex-col gap-2">
-			<span class="font-medium">Write token pasien (AdminPersonnel)</span>
-			{#if writeAccess.length === 0}
-				<p class="text-sm text-zinc-600">Belum ada write access dari pasien.</p>
-			{/if}
-			{#each writeAccess as entry, i}
-				<button
-					type="button"
-					class="border p-3 rounded text-left {selectedAccessIndex === i
-						? 'border-blue-500 bg-blue-50'
-						: ''}"
-					onclick={() => selectAccess(i)}
-				>
-					<p class="font-medium">{entry.patientName}</p>
-					<p class="text-xs text-zinc-600 truncate">{entry.patientIotaAddress}</p>
-				</button>
-			{/each}
-		</div>
+		{#if selectedAccess}
+			<div class="border border-zinc-200 rounded p-3">
+				<p class="font-medium">{selectedAccess.patientName}</p>
+				<p class="text-xs text-zinc-600 truncate">{selectedAccess.patientIotaAddress}</p>
+			</div>
+		{:else if writeAccess.length === 0}
+			<p class="text-sm text-zinc-600">Belum ada write access dari pasien.</p>
+		{:else}
+			<p class="text-sm text-zinc-600">Write access pasien yang dipilih tidak ditemukan.</p>
+		{/if}
 
 		<label class="flex flex-col gap-1">
 			<span>Preset delegasi</span>

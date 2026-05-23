@@ -177,6 +177,8 @@ export type AdministrativeData = {
 
 export type GetProfileData = {
 	hospital: string | null;
+	hospitalIdHash?: string | null;
+	hospitalPrePublicKey?: string | null;
 	id: string;
 	idHash: string;
 	iotaAddress: string;

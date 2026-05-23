@@ -106,9 +106,7 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         session_pin: Some("123456".to_string()),
     };
     let move_call = MoveCall { decmed_package };
-    let scan_state = ScanState {
-        hospital_personnel_qr_content: None,
-    };
+    let scan_state = ScanState::default();
 
     match keys_entry.get_secret() {
         Ok(_) => {

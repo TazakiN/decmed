@@ -17,6 +17,8 @@ public struct PatientAccessLog has copy, drop, store {
     hospital_personnel_metadata: String,
     index: u64,
     is_revoked: bool,
+    is_delegated: bool,
+    delegated_by_address: Option<address>,
 }
 
 public(package) fun new(
@@ -41,6 +43,8 @@ public(package) fun new(
         hospital_personnel_metadata,
         index,
         is_revoked,
+        is_delegated: false,
+        delegated_by_address: option::none(),
     }
 }
 

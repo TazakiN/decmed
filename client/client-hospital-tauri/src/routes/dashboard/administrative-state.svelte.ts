@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 
 export class AdministrativeHomeState {
-	tabs = ['read'];
+	tabs = ['read', 'write'];
 	currentTab = $state(this.tabs[0]);
 
 	constructor() {}
@@ -24,5 +24,20 @@ export class AdministrativeHomeState {
 		console.log(resInvokeGetReadAccess.data.data);
 
 		return resInvokeGetReadAccess.data.data;
+	};
+
+	get_update_access = async () => {
+		const resInvokeGetUpdateAccess = await tryCatchAsVal(async () => {
+			return (await invoke('get_update_access_administrative_personnel')) as SuccessResponse<
+				TauriAccessData[]
+			>;
+		});
+
+		if (!resInvokeGetUpdateAccess.success) {
+			toast.error(resInvokeGetUpdateAccess.error);
+			return [];
+		}
+
+		return resInvokeGetUpdateAccess.data.data;
 	};
 }

@@ -11,7 +11,7 @@ DecMed Macaroon caveat layer for fine-grained RME access control.
 | `root_subject` | `root_subject = 0xDOKTER` |
 | `delegated_by` / `delegated_to` | delegation chain pairs |
 | `read_dataset_in` / `write_dataset_in` | `[LABORATORIUM]` |
-| `read_function_in` / `write_function_in` | `[PERMINTAAN_PEMERIKSAAN]` |
+| `read_function_in` / `write_function_in` | `[LABORATORIUM]` |
 | `expires_before` | `2026-05-16T18:00:00` |
 | `max_delegation_depth` | `1` |
 | `proof_required` | `wallet_signature` |

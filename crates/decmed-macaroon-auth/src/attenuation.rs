@@ -20,24 +20,108 @@ pub struct DelegationAttenuationParams {
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
     pub require_wallet_proof: bool,
+    /// When set, assigns a new related RME id (only allowed if parent has none).
+    pub related_rme_id: Option<String>,
 }
 
 impl DelegationAttenuationParams {
-    pub fn example_lab_delegation(delegated_by: &str, lab_address: &str) -> Self {
-        use DatasetCategory::LABORATORIUM;
-        use FunctionCategory::{HASIL_PEMERIKSAAN, PERMINTAAN_PEMERIKSAAN};
+    pub fn example_lab_delegation(delegator: &str, lab_address: &str) -> Self {
+        use DatasetCategory::LABORATORIUM as LabDataset;
+        use FunctionCategory::{ADMINISTRATIVE_GENERAL, LABORATORIUM as LabFunction};
         Self {
-            delegated_by: delegated_by.to_string(),
+            delegated_by: delegator.to_string(),
             delegated_to: lab_address.to_string(),
-            read_datasets: vec![LABORATORIUM],
-            write_datasets: vec![LABORATORIUM],
-            read_functions: vec![PERMINTAAN_PEMERIKSAAN],
-            write_functions: vec![HASIL_PEMERIKSAAN],
+            read_datasets: vec![LabDataset],
+            write_datasets: vec![LabDataset],
+            read_functions: vec![ADMINISTRATIVE_GENERAL, LabFunction],
+            write_functions: vec![ADMINISTRATIVE_GENERAL, LabFunction],
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 0,
             require_wallet_proof: true,
+            related_rme_id: None,
+        }
+    }
+
+    pub fn example_nurse_delegation(delegator: &str, nurse_address: &str) -> Self {
+        use DatasetCategory::RAWAT_JALAN;
+        use FunctionCategory::{ADMINISTRATIVE_GENERAL, ANAMNESIS, PEMERIKSAAN_FISIK};
+        Self {
+            delegated_by: delegator.to_string(),
+            delegated_to: nurse_address.to_string(),
+            read_datasets: vec![RAWAT_JALAN],
+            write_datasets: vec![RAWAT_JALAN],
+            read_functions: vec![ADMINISTRATIVE_GENERAL, ANAMNESIS, PEMERIKSAAN_FISIK],
+            write_functions: vec![ADMINISTRATIVE_GENERAL, ANAMNESIS, PEMERIKSAAN_FISIK],
+            expires_before: DateTime::parse_from_rfc3339("2030-05-16T15:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            max_delegation_depth: 0,
+            require_wallet_proof: true,
+            related_rme_id: None,
+        }
+    }
+
+    pub fn example_apotek_delegation(delegator: &str, apotek_address: &str) -> Self {
+        use DatasetCategory::APOTEK;
+        use FunctionCategory::{ADMINISTRATIVE_GENERAL, DISPENSING, PERESEPAN};
+        Self {
+            delegated_by: delegator.to_string(),
+            delegated_to: apotek_address.to_string(),
+            read_datasets: vec![APOTEK],
+            write_datasets: vec![APOTEK],
+            read_functions: vec![ADMINISTRATIVE_GENERAL, PERESEPAN, DISPENSING],
+            write_functions: vec![ADMINISTRATIVE_GENERAL, PERESEPAN, DISPENSING],
+            expires_before: DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            max_delegation_depth: 0,
+            require_wallet_proof: true,
+            related_rme_id: None,
+        }
+    }
+
+    /// Delegation preset from an admin write parent (encounter + LAB + APOTEK).
+    pub fn example_admin_delegate_to_doctor(
+        delegated_by: &str,
+        doctor_address: &str,
+        related_rme_id: &str,
+        encounter: DatasetCategory,
+    ) -> Self {
+        use FunctionCategory::{
+            ADMINISTRATIVE_GENERAL, ANAMNESIS, DIAGNOSIS, DISPENSING,
+            LABORATORIUM as LabFunction, PEMERIKSAAN_FISIK, PERESEPAN, TERAPI,
+        };
+        let datasets = crate::issuance::admin_write_datasets(encounter);
+        Self {
+            delegated_by: delegated_by.to_string(),
+            delegated_to: doctor_address.to_string(),
+            read_datasets: datasets.clone(),
+            write_datasets: datasets,
+            read_functions: vec![
+                ADMINISTRATIVE_GENERAL,
+                ANAMNESIS,
+                PEMERIKSAAN_FISIK,
+                DIAGNOSIS,
+                TERAPI,
+                LabFunction,
+                PERESEPAN,
+            ],
+            write_functions: vec![
+                ADMINISTRATIVE_GENERAL,
+                DIAGNOSIS,
+                TERAPI,
+                LabFunction,
+                PERESEPAN,
+                DISPENSING,
+            ],
+            expires_before: DateTime::parse_from_rfc3339("2030-05-16T17:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            max_delegation_depth: 1,
+            require_wallet_proof: true,
+            related_rme_id: Some(related_rme_id.to_string()),
         }
     }
 }
@@ -93,6 +177,9 @@ pub fn attenuate_macaroon(
     );
     if params.require_wallet_proof {
         add_caveat_to_macaroon(&mut mac, CaveatKey::ProofRequired, "wallet_signature");
+    }
+    if let Some(rme_id) = &params.related_rme_id {
+        add_caveat_to_macaroon(&mut mac, CaveatKey::RelatedRmeId, rme_id);
     }
 
     mac.serialize(Format::V2)
@@ -155,6 +242,15 @@ fn validate_attenuation(
         return Err(CaveatVerificationError::DelegationExpandsAccess(
             "write_function_in".into(),
         ));
+    }
+
+    match (&parent.related_rme_id, &params.related_rme_id) {
+        (None, Some(_)) => {}
+        (None, None) => {}
+        (Some(_), None) => {}
+        (Some(_), Some(_)) => {
+            return Err(CaveatVerificationError::RelatedRmeAlreadyAssigned);
+        }
     }
 
     Ok(())

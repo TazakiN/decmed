@@ -4,12 +4,14 @@ use tauri::{async_runtime::Mutex, State};
 use crate::{
     current_fn,
     hospital_error::HospitalError,
+    hospital_pre::generate_hospital_pre_keys_for_admin,
     types::{
         AdministrativeData, AppState, PrivateAdministrativeData, PublicAdministrativeData,
         ResponseStatus, SuccessResponse,
     },
     utils::{
         aes_encrypt_custom_key, compute_pre_keys, compute_seed_from_seed_words,
+        decode_hospital_personnel_id, decode_hospital_personnel_id_to_argon,
         encode_activation_key_from_keys_entry, generate_iota_keys_ed, parse_keys_entry,
         serde_serialize_to_base64, sha_hash,
     },
@@ -91,6 +93,22 @@ pub async fn signin(
         Some(serde_serialize_to_base64(&hospital_personnel_pre_public_key).context(current_fn!())?);
     keys_entry.pre_nonce = Some(STANDARD.encode(hospital_personnel_pre_secret_key_nonce));
     keys_entry.iota_nonce = Some(STANDARD.encode(hospital_personnel_iota_key_pair_nonce));
+
+    let id = keys_entry
+        .id
+        .clone()
+        .ok_or(anyhow!("Id not found on keys entry").context(current_fn!()))?;
+    if decode_hospital_personnel_id(id.clone())
+        .map(|(part, _)| part == "admin")
+        .unwrap_or(false)
+        && keys_entry.hospital_pre_public_key.is_none()
+    {
+        let (_, hospital_id_hash) =
+            decode_hospital_personnel_id_to_argon(id).context(current_fn!())?;
+        generate_hospital_pre_keys_for_admin(&mut keys_entry, &pin, &hospital_id_hash)
+            .context(current_fn!())?;
+    }
+
     state
         .keys_entry
         .set_secret(&serde_json::to_vec(&keys_entry).context(current_fn!())?)

@@ -309,11 +309,32 @@ pub fn parse_move_read_only_result<T: DeserializeOwned>(
     val: DevInspectResults,
     index: usize,
 ) -> Result<T> {
-    let res = val.results.context(current_fn!())?[0].return_values[index]
-        .0
-        .to_vec();
+    let results = val.results.context(current_fn!())?;
+    let return_values = results
+        .first()
+        .context(current_fn!())?
+        .return_values
+        .as_slice();
+    let entry = return_values.get(index).ok_or_else(|| {
+        anyhow!(
+            "move read-only result index {index} out of bounds (len {})",
+            return_values.len()
+        )
+    })?;
+    let res = entry.0.to_vec();
 
     Ok(bcs::from_bytes::<T>(&res).context(current_fn!())?)
+}
+
+pub fn move_read_only_return_count(val: &DevInspectResults) -> Result<usize> {
+    Ok(val
+        .results
+        .as_ref()
+        .context(current_fn!())?
+        .first()
+        .context(current_fn!())?
+        .return_values
+        .len())
 }
 
 pub async fn get_iota_client() -> Result<IotaClient> {
@@ -368,21 +389,52 @@ pub fn validate_by_regex(value: &str, regex: &str) -> Result<bool> {
 }
 
 pub fn decode_hospital_personnel_qr(content: String) -> Result<(IotaAddress, PublicKey)> {
-    let content: Vec<&str> = content.split("@").collect();
+    let grant = decode_hospital_grant_qr(content)?;
+    Ok((grant.personnel_iota_address, grant.personnel_pre_public_key))
+}
 
-    if content.len() != 2 {
-        return Err(anyhow!(
-            "Invalid content length, expected 2 found {}",
-            content.len()
-        ))
-        .context(current_fn!());
+#[derive(Clone, Debug)]
+pub struct HospitalGrantQr {
+    pub hospital_id: String,
+    pub hospital_pre_public_key: Option<PublicKey>,
+    pub personnel_iota_address: IotaAddress,
+    pub personnel_pre_public_key: PublicKey,
+}
+
+/// Combined grant QR: `{hospital_id}@{hospital_pre_pk}@{personnel_iota}@{personnel_pre_pk}`
+/// Legacy 2-part: `{personnel_iota}@{personnel_pre_pk}`
+/// Legacy 5-part (with trailing role) is accepted but role is ignored.
+pub fn decode_hospital_grant_qr(content: String) -> Result<HospitalGrantQr> {
+    let parts: Vec<&str> = content.split('@').collect();
+    if parts.len() == 2 {
+        let personnel_iota_address = IotaAddress::from_str(parts[0]).context(current_fn!())?;
+        let personnel_pre_public_key =
+            serde_deserialize_from_base64(parts[1].to_string()).context(current_fn!())?;
+        return Ok(HospitalGrantQr {
+            hospital_id: String::new(),
+            hospital_pre_public_key: None,
+            personnel_iota_address,
+            personnel_pre_public_key,
+        });
     }
-
-    let iota_address = IotaAddress::from_str(content[0]).context(current_fn!())?;
-    let pre_public_key =
-        serde_deserialize_from_base64(content[1].to_string()).context(current_fn!())?;
-
-    Ok((iota_address, pre_public_key))
+    if parts.len() == 4 || parts.len() == 5 {
+        let hospital_pre_public_key =
+            serde_deserialize_from_base64(parts[1].to_string()).context(current_fn!())?;
+        let personnel_iota_address = IotaAddress::from_str(parts[2]).context(current_fn!())?;
+        let personnel_pre_public_key =
+            serde_deserialize_from_base64(parts[3].to_string()).context(current_fn!())?;
+        return Ok(HospitalGrantQr {
+            hospital_id: parts[0].to_string(),
+            hospital_pre_public_key: Some(hospital_pre_public_key),
+            personnel_iota_address,
+            personnel_pre_public_key,
+        });
+    }
+    Err(anyhow!(
+        "Invalid QR content length, expected 2 or 4 parts found {}",
+        parts.len()
+    ))
+    .context(current_fn!())
 }
 
 pub async fn do_http_post_json_request<P, T, E>(

@@ -17,6 +17,8 @@ pub struct DelegateMacaroonPayload {
     pub max_delegation_depth: u32,
     #[serde(default = "default_true")]
     pub require_wallet_proof: bool,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -37,8 +39,8 @@ pub fn delegate_macaroon(payload: DelegateMacaroonPayload) -> Result<DelegateMac
         values
             .iter()
             .map(|v| {
-                let json = format!("\"{v}\"");
-                serde_json::from_str(&json).map_err(|e| anyhow::anyhow!(e))?
+                serde_json::from_str(&format!("\"{v}\""))
+                    .map_err(|e| HospitalError::Anyhow(anyhow::anyhow!(e)))
             })
             .collect()
     };
@@ -46,8 +48,8 @@ pub fn delegate_macaroon(payload: DelegateMacaroonPayload) -> Result<DelegateMac
         values
             .iter()
             .map(|v| {
-                let json = format!("\"{v}\"");
-                serde_json::from_str(&json).map_err(|e| anyhow::anyhow!(e))?
+                serde_json::from_str(&format!("\"{v}\""))
+                    .map_err(|e| HospitalError::Anyhow(anyhow::anyhow!(e)))
             })
             .collect()
     };
@@ -66,6 +68,7 @@ pub fn delegate_macaroon(payload: DelegateMacaroonPayload) -> Result<DelegateMac
         expires_before,
         max_delegation_depth: payload.max_delegation_depth,
         require_wallet_proof: payload.require_wallet_proof,
+        related_rme_id: payload.related_rme_id,
     };
 
     let delegated_token = attenuate_macaroon(&payload.parent_token, &params)

@@ -6,7 +6,7 @@ use decmed_macaroon_auth::{
 };
 use decmed_rme_segment::RmeSegmentMetadata;
 use iota_types::base_types::IotaAddress;
-use iota_types::crypto::{IotaSignature, Signature, SignatureScheme};
+use iota_types::crypto::{IotaSignature, SignatureScheme};
 use macaroon::{Macaroon, MacaroonKey};
 use shared_crypto::intent::{Intent, IntentMessage};
 use std::str::FromStr;
@@ -119,7 +119,7 @@ pub fn verify_decmed_macaroon(
         segment_id: String::new(),
         patient_address: patient_address.to_string(),
         related_rme_id: related_rme_id.to_string(),
-        dataset_category: decmed_rme_segment::DatasetCategory::ADMINISTRATIVE,
+        dataset_category: decmed_rme_segment::DatasetCategory::RAWAT_JALAN,
         function_category: decmed_rme_segment::FunctionCategory::ADMINISTRATIVE_GENERAL,
     });
     let ctx = TokenVerificationContext {

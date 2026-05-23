@@ -18,7 +18,11 @@ use decmed::std_struct_hospital_metadata::HospitalMetadata;
 use decmed::std_struct_hospital_personnel_access::{
     new as hospital_personnel_access_new,
 };
-use decmed::std_struct_hospital_personnel_access_data::HospitalPersonnelAccessData;
+use decmed::std_struct_hospital_personnel_access_data::{
+    HospitalPersonnelAccessData,
+    borrow_delegation_depth as hospital_personnel_access_data_borrow_delegation_depth,
+    new_delegated as hospital_personnel_access_data_new_delegated,
+};
 use decmed::std_struct_hospital_personnel_account::{
     HospitalPersonnelAccount,
     new as hospital_personnel_account_new,
@@ -35,6 +39,11 @@ use decmed::std_struct_hospital_personnel_metadata::{
 use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::{
     new as patient_medical_metadata_new,
+};
+
+use decmed::std_enum_hospital_personnel_access_data_type::{
+    administrative as hospital_personnel_access_data_type_administrative,
+    medical as hospital_personnel_access_data_type_medical,
 };
 
 use iota::clock::Clock;
@@ -55,6 +64,11 @@ const EIllegalActionNoUpdateAccess: u64 = 2007;
 const EInvalidActivationKey: u64 = 2008;
 const EInvalidHospitalPersonnelRole: u64 = 2009;
 const EPatientNotFound: u64 = 2010;
+const EDelegatorNoAccess: u64 = 2011;
+const EDifferentHospital: u64 = 2012;
+const EDelegateeNotFound: u64 = 2013;
+const EInvalidMetadataLength: u64 = 2014;
+const EAccessExpired: u64 = 2015;
 
 // Functions
 
@@ -442,6 +456,192 @@ entry fun get_update_access(
     res
 }
 
+/// Delegator grants attenuated access to another personnel in the same hospital.
+entry fun create_delegated_access(
+    activation_key: String,
+    address_id: &AddressId,
+    clock: &Clock,
+    delegatee_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    metadata: vector<String>,
+    ctx: &TxContext,
+)
+{
+    let address_id_table = address_id.borrow_table();
+    let delegator_address = ctx.sender();
+    let delegator_personnel_id = *address_id_table.borrow(delegator_address);
+    let delegatee_personnel_id = *address_id_table.borrow(delegatee_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let current_time = clock.timestamp_ms();
+
+    if (metadata.length() == 1) {
+        let read_access_data_types;
+        let read_exp;
+        let delegation_depth;
+        {
+            let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
+            require_account_activation(activation_key, delegator_account);
+
+            assert!(
+                hospital_personnel_id_account_table.contains(delegatee_personnel_id),
+                EDelegateeNotFound,
+            );
+            let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
+            assert!(delegatee_account.borrow_is_activation_key_used(), EAccountNotActivated);
+
+            assert!(
+                *delegator_account.borrow_hospital_id() == *delegatee_account.borrow_hospital_id(),
+                EDifferentHospital,
+            );
+
+            let delegator_access = delegator_account.borrow_access().borrow();
+            let delegator_read = delegator_access.borrow_read();
+            assert!(delegator_read.contains(&patient_id), EDelegatorNoAccess);
+            let source = delegator_read.get(&patient_id);
+            assert!(source.borrow_exp() >= current_time, EAccessExpired);
+
+            read_access_data_types = *source.borrow_access_data_types();
+            read_exp = source.borrow_exp();
+            delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source) + 1;
+        };
+
+        let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
+        let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
+        let delegatee_read = delegatee_access.borrow_mut_read();
+        if (delegatee_read.contains(&patient_id)) {
+            delegatee_read.remove(&patient_id);
+        };
+
+        let delegated = hospital_personnel_access_data_new_delegated(
+            read_access_data_types,
+            read_exp,
+            *metadata.borrow(0),
+            option::none(),
+            delegator_address,
+            delegation_depth,
+        );
+        delegatee_read.insert(patient_id, delegated);
+    } else if (metadata.length() == 2) {
+        let mut read_access_data_types;
+        let read_exp;
+        let mut update_access_data_types;
+        let update_exp;
+        let delegation_depth;
+        {
+            let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
+            require_account_activation(activation_key, delegator_account);
+
+            assert!(
+                hospital_personnel_id_account_table.contains(delegatee_personnel_id),
+                EDelegateeNotFound,
+            );
+            let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
+            assert!(delegatee_account.borrow_is_activation_key_used(), EAccountNotActivated);
+
+            assert!(
+                *delegator_account.borrow_hospital_id() == *delegatee_account.borrow_hospital_id(),
+                EDifferentHospital,
+            );
+
+            let delegator_access = delegator_account.borrow_access().borrow();
+            let delegator_read = delegator_access.borrow_read();
+            let delegator_update = delegator_access.borrow_update();
+            assert!(delegator_read.contains(&patient_id), EDelegatorNoAccess);
+            assert!(delegator_update.contains(&patient_id), EDelegatorNoAccess);
+
+            let source_read = delegator_read.get(&patient_id);
+            let source_update = delegator_update.get(&patient_id);
+            assert!(source_read.borrow_exp() >= current_time, EAccessExpired);
+            assert!(source_update.borrow_exp() >= current_time, EAccessExpired);
+
+            read_access_data_types = *source_read.borrow_access_data_types();
+            read_exp = source_read.borrow_exp();
+            update_access_data_types = *source_update.borrow_access_data_types();
+            update_exp = source_update.borrow_exp();
+            delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source_read) + 1;
+
+            if (*delegator_account.borrow_role() == hospital_personnel_role_admin_administrative_personnel()) {
+                read_access_data_types = vector::empty();
+                read_access_data_types.push_back(hospital_personnel_access_data_type_medical());
+                read_access_data_types.push_back(hospital_personnel_access_data_type_administrative());
+                update_access_data_types = vector::empty();
+                update_access_data_types.push_back(hospital_personnel_access_data_type_medical());
+            };
+        };
+
+        let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
+        let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
+
+        let delegatee_read = delegatee_access.borrow_mut_read();
+        if (delegatee_read.contains(&patient_id)) {
+            delegatee_read.remove(&patient_id);
+        };
+        let delegated_read = hospital_personnel_access_data_new_delegated(
+            read_access_data_types,
+            read_exp,
+            *metadata.borrow(0),
+            option::none(),
+            delegator_address,
+            delegation_depth,
+        );
+        delegatee_read.insert(patient_id, delegated_read);
+
+        let delegatee_update = delegatee_access.borrow_mut_update();
+        if (delegatee_update.contains(&patient_id)) {
+            delegatee_update.remove(&patient_id);
+        };
+        let delegated_update = hospital_personnel_access_data_new_delegated(
+            update_access_data_types,
+            update_exp,
+            *metadata.borrow(1),
+            option::none(),
+            delegator_address,
+            delegation_depth,
+        );
+        delegatee_update.insert(patient_id, delegated_update);
+    } else {
+        abort EInvalidMetadataLength
+    };
+}
+
+entry fun revoke_delegated_access(
+    activation_key: String,
+    address_id: &AddressId,
+    delegatee_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    ctx: &TxContext,
+)
+{
+    let address_id_table = address_id.borrow_table();
+    let delegator_address = ctx.sender();
+    let delegator_personnel_id = *address_id_table.borrow(delegator_address);
+    let delegatee_personnel_id = *address_id_table.borrow(delegatee_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
+    require_account_activation(activation_key, delegator_account);
+
+    assert!(hospital_personnel_id_account_table.contains(delegatee_personnel_id), EDelegateeNotFound);
+
+    let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
+    let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
+
+    let delegatee_read = delegatee_access.borrow_mut_read();
+    if (delegatee_read.contains(&patient_id)) {
+        delegatee_read.remove(&patient_id);
+    };
+
+    let delegatee_update = delegatee_access.borrow_mut_update();
+    if (delegatee_update.contains(&patient_id)) {
+        delegatee_update.remove(&patient_id);
+    };
+}
+
 entry fun is_account_registered(
     activation_key: String,
     address_id: &AddressId,
@@ -450,8 +650,16 @@ entry fun is_account_registered(
 )
 {
     let address_id_table = address_id.borrow_table();
+    if (!address_id_table.contains(ctx.sender())) {
+        abort EAccountNotFound
+    };
+
     let hospital_personnel_id = *address_id_table.borrow(ctx.sender());
     let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+    if (!hospital_personnel_id_account_table.contains(hospital_personnel_id)) {
+        abort EAccountNotFound
+    };
+
     let hospital_personnel_account = hospital_personnel_id_account_table.borrow(hospital_personnel_id);
 
     require_account_activation(activation_key, hospital_personnel_account);

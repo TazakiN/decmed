@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::move_call::MoveCall;
 use decmed_macaroon_auth::VerifiedDecmedToken;
+use decmed_rme_segment::DatasetCategory;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthRole {
@@ -181,6 +182,13 @@ pub struct HandlerStoreKeysPayload {
     pub signer_pre_public_key: String,
     #[serde(default)]
     pub related_rme_id: Option<String>,
+    #[serde(default)]
+    pub hospital_id: Option<String>,
+    #[serde(default)]
+    pub root_subject: Option<String>,
+    /// RAWAT_JALAN or RAWAT_INAP — required for AdministrativePersonnel DecMed dual issuance.
+    #[serde(default)]
+    pub encounter_dataset: Option<DatasetCategory>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

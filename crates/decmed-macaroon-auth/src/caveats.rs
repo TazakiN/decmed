@@ -21,6 +21,7 @@ pub enum CaveatKey {
     ExpiresBefore,
     MaxDelegationDepth,
     ProofRequired,
+    HospitalId,
     // Legacy coarse-grained caveats (still parsed for migration)
     Role,
     Purpose,
@@ -44,6 +45,7 @@ impl CaveatKey {
             "expires_before" => Some(Self::ExpiresBefore),
             "max_delegation_depth" => Some(Self::MaxDelegationDepth),
             "proof_required" => Some(Self::ProofRequired),
+            "hospital_id" => Some(Self::HospitalId),
             "role" => Some(Self::Role),
             "purpose" => Some(Self::Purpose),
             "subject" => Some(Self::Subject),
@@ -234,6 +236,7 @@ pub fn caveat_line(key: CaveatKey, value: &str) -> String {
         CaveatKey::ExpiresBefore => "expires_before",
         CaveatKey::MaxDelegationDepth => "max_delegation_depth",
         CaveatKey::ProofRequired => "proof_required",
+        CaveatKey::HospitalId => "hospital_id",
         CaveatKey::Role => "role",
         CaveatKey::Purpose => "purpose",
         CaveatKey::Subject => "subject",

@@ -36,6 +36,10 @@ pub enum CaveatVerificationError {
     ParseError(String),
     #[error("Legacy token missing subject/role/purpose")]
     LegacyTokenIncomplete,
+    #[error("Related RME id already assigned on parent token")]
+    RelatedRmeAlreadyAssigned,
+    #[error("Related RME id assignment requires parent without RME id")]
+    RelatedRmeAssignmentRequiresEmptyParent,
     #[error("holder_address must not be used")]
     HolderAddressForbidden,
 }

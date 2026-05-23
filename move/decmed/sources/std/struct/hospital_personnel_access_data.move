@@ -11,6 +11,8 @@ public struct HospitalPersonnelAccessData has copy, drop, store {
     exp: u64,
     metadata: String,
     medical_metadata_index: Option<u64>,
+    delegated_by: Option<address>,
+    delegation_depth: u8,
 }
 
 public(package) fun new(
@@ -24,7 +26,28 @@ public(package) fun new(
         access_data_types,
         exp,
         metadata,
-        medical_metadata_index
+        medical_metadata_index,
+        delegated_by: option::none(),
+        delegation_depth: 0,
+    }
+}
+
+public(package) fun new_delegated(
+    access_data_types: vector<HospitalPersonnelAccessDataType>,
+    exp: u64,
+    metadata: String,
+    medical_metadata_index: Option<u64>,
+    delegated_by: address,
+    delegation_depth: u8,
+): HospitalPersonnelAccessData
+{
+    HospitalPersonnelAccessData {
+        access_data_types,
+        exp,
+        metadata,
+        medical_metadata_index,
+        delegated_by: option::some(delegated_by),
+        delegation_depth,
     }
 }
 
@@ -80,6 +103,20 @@ public(package) fun set_medical_metadata_index(
     self.medical_metadata_index = medical_metadata_index;
 }
 
+public(package) fun borrow_delegated_by(
+    self: &HospitalPersonnelAccessData,
+): Option<address>
+{
+    self.delegated_by
+}
+
+public(package) fun borrow_delegation_depth(
+    self: &HospitalPersonnelAccessData,
+): u8
+{
+    self.delegation_depth
+}
+
 #[test_only]
 public(package) fun default(): HospitalPersonnelAccessData
 {
@@ -88,5 +125,7 @@ public(package) fun default(): HospitalPersonnelAccessData
     	exp: 0,
     	metadata: string::utf8(b"Metadata"),
     	medical_metadata_index: option::none(),
+    	delegated_by: option::none(),
+    	delegation_depth: 0,
     }
 }

@@ -82,6 +82,8 @@ pub async fn new_medical_record(
         ProxyReencryptionErrorResponse,
     >(
         Some(access_token),
+        None,
+        None,
         &format!("{}/medical-record", PROXY_BASE_URL),
         &json!({
             "medical_metadata": serde_serialize_to_base64(&medical_metadata).context(current_fn!())?,
@@ -105,6 +107,8 @@ pub async fn get_medical_record(
     access_token: String,
     index: Option<u64>,
     patient_iota_address: String,
+    enc_data_pre_secret_key_seed: Option<String>,
+    data_pre_secret_key_seed_capsule: Option<String>,
 ) -> Result<SuccessResponse<Value>, HospitalError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
@@ -129,6 +133,8 @@ pub async fn get_medical_record(
         _,
     >(
         Some(access_token),
+        None,
+        None,
         &req_client,
         StatusCode::OK,
         format!(
@@ -146,13 +152,19 @@ pub async fn get_medical_record(
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
         let medical_record_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.data_pre_secret_key_seed_capsule)
-                .context(current_fn!())?;
+            serde_deserialize_from_base64(
+                data_pre_secret_key_seed_capsule
+                    .unwrap_or(res.data.data_pre_secret_key_seed_capsule),
+            )
+            .context(current_fn!())?;
         let medical_record_pre_secret_key_seed = decrypt_original(
             &hospital_personnel_pre_secret_key,
             &medical_record_pre_secret_key_seed_capsule,
             STANDARD
-                .decode(res.data.enc_data_pre_secret_key_seed)
+                .decode(
+                    enc_data_pre_secret_key_seed
+                        .unwrap_or(res.data.enc_data_pre_secret_key_seed),
+                )
                 .context(current_fn!())?,
         )
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
@@ -287,6 +299,8 @@ pub async fn get_medical_record_update(
         _,
     >(
         Some(access_token),
+        None,
+        None,
         &req_client,
         StatusCode::OK,
         format!(
@@ -483,11 +497,22 @@ pub async fn get_read_access_medical_personnel(
             let access = AccessData {
                 access_data_types: access.access_data_types,
                 access_token: access_metadata.access_token,
+                token_hash: access_metadata.token_hash,
+                enc_data_pre_secret_key_seed: access_metadata.enc_data_pre_secret_key_seed,
+                data_pre_secret_key_seed_capsule: access_metadata.data_pre_secret_key_seed_capsule,
                 exp: access.exp,
                 medical_metadata_index: access.medical_metadata_index,
                 patient_iota_address: access_metadata.patient_iota_address,
                 patient_name: access_metadata.patient_name,
                 patient_pre_public_key: access_metadata.patient_pre_public_key,
+                related_rme_id: access_metadata.related_rme_id,
+                delegated_by: access_metadata
+                    .delegated_by
+                    .or_else(|| access.delegated_by.map(|a| a.to_string())),
+                delegated_to: access_metadata.delegated_to,
+                expires_before: access_metadata.expires_before,
+                delegation_signature: access_metadata.delegation_signature,
+                delegation_depth: Some(access.delegation_depth),
             };
 
             Ok(access)
@@ -573,11 +598,22 @@ pub async fn get_update_access_medical_personnel(
             let access = AccessData {
                 access_data_types: access.access_data_types,
                 access_token: access_metadata.access_token,
+                token_hash: access_metadata.token_hash,
+                enc_data_pre_secret_key_seed: access_metadata.enc_data_pre_secret_key_seed,
+                data_pre_secret_key_seed_capsule: access_metadata.data_pre_secret_key_seed_capsule,
                 exp: access.exp,
                 medical_metadata_index: access.medical_metadata_index,
                 patient_iota_address: access_metadata.patient_iota_address,
                 patient_name: access_metadata.patient_name,
                 patient_pre_public_key: access_metadata.patient_pre_public_key,
+                related_rme_id: access_metadata.related_rme_id,
+                delegated_by: access_metadata
+                    .delegated_by
+                    .or_else(|| access.delegated_by.map(|a| a.to_string())),
+                delegated_to: access_metadata.delegated_to,
+                expires_before: access_metadata.expires_before,
+                delegation_signature: access_metadata.delegation_signature,
+                delegation_depth: Some(access.delegation_depth),
             };
 
             Ok(access)

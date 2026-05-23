@@ -22,8 +22,8 @@ use crate::{
         ResponseStatus, SuccessResponse,
     },
     utils::{
-        aes_encrypt, do_http_post_request_json, serde_deserialize_from_base64,
-        serde_serialize_to_base64,
+        aes_encrypt, do_http_post_request_json, get_iota_key_pair_from_keys_entry, parse_keys_entry,
+        serde_deserialize_from_base64, serde_serialize_to_base64,
     },
 };
 
@@ -85,19 +85,49 @@ pub fn build_encrypted_rme_segment(
 
 #[tauri::command]
 pub async fn new_medical_record_segment(
-    _state: State<'_, Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     access_token: String,
     data: CreateRmeSegmentRequest,
     patient_pre_public_key: String,
+    pin: String,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<CreateRmeSegmentResponse>, HospitalError> {
+    use anyhow::anyhow;
+    use iota_types::crypto::{EncodeDecodeBase64, Signature};
+    use shared_crypto::intent::{Intent, IntentMessage};
+
+    let state = state.lock().await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)?;
     let req_client = reqwest::Client::new();
     let patient_iota_address =
         IotaAddress::from_str(&data.patient_address).context(current_fn!())?;
     let patient_pre_public_key: PublicKey =
         serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
+    let iota_key_pair =
+        get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+    let author_address = crate::utils::get_iota_address_from_keys_entry(&keys_entry)?.to_string();
+    let mut segment_request = data;
+    segment_request.author_address = author_address;
+
     let (_, encrypted_segment) =
-        build_encrypted_rme_segment(data, patient_pre_public_key).context(current_fn!())?;
+        build_encrypted_rme_segment(segment_request, patient_pre_public_key).context(current_fn!())?;
+
+    let wallet_ctx = decmed_macaroon_auth::WalletProofContext {
+        token_id: access_token.chars().take(32).collect(),
+        patient_address: encrypted_segment.patient_address.clone(),
+        related_rme_id: encrypted_segment.related_rme_id.clone(),
+        operation: decmed_macaroon_auth::AccessMode::Write,
+        segment_id: encrypted_segment.segment_id.clone(),
+        dataset_category: encrypted_segment.dataset_category,
+        function_category: encrypted_segment.function_category,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    let canonical = wallet_ctx
+        .canonical_message()
+        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
+    let intent_message = IntentMessage::new(Intent::personal_message(), canonical);
+    let wallet_signature = Signature::new_secure(&intent_message, &iota_key_pair).encode_base64();
 
     let res = do_http_post_request_json::<
         _,
@@ -105,6 +135,8 @@ pub async fn new_medical_record_segment(
         ProxyReencryptionErrorResponse,
     >(
         Some(access_token),
+        Some(wallet_signature),
+        delegation_signature,
         &format!("{}/medical-record-segment", PROXY_BASE_URL),
         &ProxyCreateRmeSegmentPayload {
             encrypted_segment: serde_serialize_to_base64(&encrypted_segment)
@@ -121,6 +153,26 @@ pub async fn new_medical_record_segment(
         status: ResponseStatus::Success,
         data: res.data,
     })
+}
+
+#[tauri::command]
+pub async fn get_medical_record_segment(
+    state: State<'_, Mutex<AppState>>,
+    access_token: String,
+    patient_iota_address: String,
+    index: Option<u64>,
+    enc_data_pre_secret_key_seed: Option<String>,
+    data_pre_secret_key_seed_capsule: Option<String>,
+) -> Result<SuccessResponse<serde_json::Value>, HospitalError> {
+    crate::medical_personnel::get_medical_record(
+        state,
+        access_token,
+        index,
+        patient_iota_address,
+        enc_data_pre_secret_key_seed,
+        data_pre_secret_key_seed_capsule,
+    )
+    .await
 }
 
 #[cfg(test)]

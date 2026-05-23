@@ -1670,10 +1670,13 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "decmed-rme-segment",
+ "hex",
  "macaroon",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]

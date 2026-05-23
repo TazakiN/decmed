@@ -6,14 +6,16 @@ use umbral_pre::encrypt;
 use crate::{
     current_fn,
     hospital_error::HospitalError,
+    hospital_pre::generate_hospital_pre_keys_for_admin,
     types::{
         AdministrativeData, AppState, KeyNonce, PrivateAdministrativeData,
         PrivateAdministrativeMetadata, PublicAdministrativeData, ResponseStatus, SuccessResponse,
     },
     utils::{
         aes_encrypt, aes_encrypt_custom_key, compute_pre_keys, compute_seed_from_seed_words,
-        decode_hospital_personnel_id_to_argon, encode_activation_key_from_keys_entry,
-        generate_iota_keys_ed, parse_keys_entry, serde_serialize_to_base64, sha_hash,
+        decode_hospital_personnel_id, decode_hospital_personnel_id_to_argon,
+        encode_activation_key_from_keys_entry, generate_iota_keys_ed, parse_keys_entry,
+        serde_serialize_to_base64, sha_hash,
     },
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -184,11 +186,11 @@ pub async fn signup(
         )
     };
 
-    let _ = state
+    let _ = match state
         .move_call
         .signup(
-            activation_key,
-            hospital_personnnel_hospital_part_hash,
+            activation_key.clone(),
+            hospital_personnnel_hospital_part_hash.clone(),
             hospital_personnnel_id_part_hash,
             serde_serialize_to_base64(&private_administrative_metadata).context(current_fn!())?,
             serde_serialize_to_base64(&public_administrative_data).context(current_fn!())?,
@@ -196,7 +198,19 @@ pub async fn signup(
             hospital_personnel_iota_key_pair,
         )
         .await
-        .context(current_fn!())?;
+    {
+        Ok(()) => (),
+        Err(e) => {
+            let already_registered = state
+                .move_call
+                .is_account_registered(activation_key, hospital_personnel_iota_address)
+                .await
+                .unwrap_or(false);
+            if !already_registered {
+                return Err(e);
+            }
+        }
+    };
 
     keys_entry.iota_address = Some(hospital_personnel_iota_address.to_string());
     keys_entry.iota_key_pair = Some(STANDARD.encode(enc_hospital_personnel_iota_key_pair));
@@ -205,6 +219,19 @@ pub async fn signup(
         Some(serde_serialize_to_base64(&hospital_personnel_pre_public_key).context(current_fn!())?);
     keys_entry.pre_nonce = Some(STANDARD.encode(hospital_personnel_pre_secret_key_nonce));
     keys_entry.iota_nonce = Some(STANDARD.encode(hospital_personnel_iota_keypair_nonce));
+
+    if decode_hospital_personnel_id(id.clone())
+        .map(|(part, _)| part == "admin")
+        .unwrap_or(false)
+    {
+        generate_hospital_pre_keys_for_admin(
+            &mut keys_entry,
+            &pin,
+            &hospital_personnnel_hospital_part_hash,
+        )
+        .context(current_fn!())?;
+    }
+
     let keys_entry = serde_json::to_vec(&keys_entry).context(current_fn!())?;
     state
         .keys_entry

@@ -1,8 +1,10 @@
+mod access_delegation;
 mod activation;
 mod admin;
 mod administrative_personnel;
 mod constants;
 mod hospital_error;
+mod hospital_pre;
 mod macros;
 mod macaroon_delegation;
 mod medical_personnel;
@@ -60,6 +62,9 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
             "iotaprivkey1qq4e64j84c9hatlxywe32yftc27hhpjpgh2u3yu4l69q4me98g76jxtsgry",
         )),
         activation_key: None,
+        hospital_pre_nonce: None,
+        hospital_pre_public_key: None,
+        hospital_pre_secret_key: None,
         iota_address: None,
         iota_key_pair: None,
         pre_secret_key: None,
@@ -143,6 +148,8 @@ pub fn run() {
             medical_personnel::update_medical_record,
             administrative_personnel::get_administrative_data,
             administrative_personnel::get_read_access_administrative_personnel,
+            administrative_personnel::get_update_access_administrative_personnel,
+            access_delegation::create_admin_delegated_access,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

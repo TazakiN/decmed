@@ -16,6 +16,11 @@
 				class="data-[state=active]:bg-zinc-100 hover:bg-zinc-100 cursor-pointer px-3 py-1 rounded-md"
 				>Read</Tabs.Trigger
 			>
+			<Tabs.Trigger
+				value={administrativeHomeState.tabs[1]}
+				class="data-[state=active]:bg-zinc-100 hover:bg-zinc-100 cursor-pointer px-3 py-1 rounded-md"
+				>Write</Tabs.Trigger
+			>
 		</div>
 	</Tabs.List>
 	<Tabs.Content value={administrativeHomeState.tabs[0]}>
@@ -53,5 +58,41 @@
 				{/if}
 			{/await}
 		</div>
+	</Tabs.Content>
+
+	<Tabs.Content value={administrativeHomeState.tabs[1]}>
+		<div class="bg-white border border-zinc-200 rounded-md mb-4">
+			{#await administrativeHomeState.get_update_access()}
+				<div class="p-4">
+					<div
+						class="animate-pulse bg-zinc-100 w-full shadow h-20 flex items-center justify-center rounded-md"
+					>
+						<Loader2 class="animate-spin" />
+					</div>
+				</div>
+			{:then updateAccess}
+				{#if updateAccess && updateAccess.length > 0}
+					{#each updateAccess as access, i (i)}
+						<div
+							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
+						>
+							<div
+								class="size-8 rounded-full flex items-center justify-center bg-zinc-50 border border-zinc-200 shrink-0"
+							>
+								<p class="text-xs font-medium">{i + 1}</p>
+							</div>
+							<p class="flex-1 flex">{access.patientName}</p>
+						</div>
+					{/each}
+				{:else}
+					<div class="p-2">
+						<p>No write access found.</p>
+					</div>
+				{/if}
+			{/await}
+		</div>
+		<a href="/dashboard/delegation" class="button-dark inline-block text-center">
+			Buka halaman delegasi
+		</a>
 	</Tabs.Content>
 </Tabs.Root>

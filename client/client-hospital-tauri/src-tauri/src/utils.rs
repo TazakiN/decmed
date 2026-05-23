@@ -341,15 +341,16 @@ pub async fn get_iota_client() -> Result<IotaClient, HospitalError> {
 }
 
 pub fn handle_error_move_call_read_only(response: DevInspectResults) -> Result<(), HospitalError> {
-    if response.error.is_some() {
+    if let Some(err) = response.error {
         return Err(HospitalError::Anyhow(
-            anyhow!(response.error.unwrap()).context(current_fn!()),
+            anyhow!(map_abort_code_to_message(&err.to_string())).context(current_fn!()),
         ));
     }
 
     if response.effects.status().is_err() {
+        let raw = response.effects.status().to_string();
         return Err(HospitalError::Anyhow(
-            anyhow!(response.effects.status().to_string()).context(current_fn!()),
+            anyhow!(map_abort_code_to_message(&raw)).context(current_fn!()),
         ));
     }
 
@@ -416,6 +417,10 @@ fn map_abort_code_to_message(raw: &str) -> String {
             }
         }
     }
+    if raw.contains("dynamic_field") && raw.contains("borrow_child_object") {
+        return "Account not found. Verify that the CID is correct (address not registered on-chain)"
+            .to_string();
+    }
     raw.to_string()
 }
 
@@ -457,6 +462,8 @@ pub fn _decode_hospital_personnel_qr(
 
 pub async fn do_http_post_request_json<P, T, E>(
     access_token: Option<String>,
+    wallet_signature: Option<String>,
+    delegation_signature: Option<String>,
     endpoint: &str,
     payload: &P,
     req_client: &Client,
@@ -468,8 +475,14 @@ where
     T: DeserializeOwned,
 {
     let mut res = req_client.post(endpoint).json(payload);
-    if access_token.is_some() {
-        res = res.bearer_auth(access_token.unwrap());
+    if let Some(token) = access_token {
+        res = res.bearer_auth(token);
+    }
+    if let Some(sig) = wallet_signature {
+        res = res.header("x-decmed-wallet-signature", sig);
+    }
+    if let Some(sig) = delegation_signature {
+        res = res.header("x-decmed-delegation-signature", sig);
     }
     let res = res.send().await.context(current_fn!())?;
 
@@ -656,6 +669,8 @@ pub fn compute_seed_from_seed_words(
 
 pub async fn do_http_get_request_json<T, E, U>(
     access_token: Option<String>,
+    wallet_signature: Option<String>,
+    delegation_signature: Option<String>,
     req_client: &Client,
     success_status_code: StatusCode,
     url: U,
@@ -666,8 +681,14 @@ where
     U: IntoUrl,
 {
     let mut res = req_client.get(url);
-    if access_token.is_some() {
-        res = res.bearer_auth(access_token.unwrap());
+    if let Some(token) = access_token {
+        res = res.bearer_auth(token);
+    }
+    if let Some(sig) = wallet_signature {
+        res = res.header("x-decmed-wallet-signature", sig);
+    }
+    if let Some(sig) = delegation_signature {
+        res = res.header("x-decmed-delegation-signature", sig);
     }
     let res = res.send().await.context(current_fn!())?;
 

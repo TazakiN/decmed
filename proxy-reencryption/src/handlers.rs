@@ -18,14 +18,18 @@ use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
 
 use crate::constants::{
-    ADMINISTRATIVE_KEYS_READ_DUR, MEDICAL_KEYS_READ_DUR, MEDICAL_KEYS_UPDATE_DUR, NONCE_EXP_DUR,
+    ADMINISTRATIVE_KEYS_READ_DUR, ADMINISTRATIVE_KEYS_UPDATE_DUR, MEDICAL_KEYS_READ_DUR,
+    MEDICAL_KEYS_UPDATE_DUR, NONCE_EXP_DUR,
 };
 use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
 use decmed_macaroon_auth::{verify_decmed_token, SegmentAccessContext, TokenVerificationContext};
 use crate::middlewares::WALLET_SIGNATURE_HEADER;
 use crate::proxy_error::{ProxyError, ResultExt};
-use decmed_macaroon_auth::{issue_initial_token, AccessMode, InitialDoctorTokenParams};
+use decmed_macaroon_auth::{
+    issue_admin_personnel_token, issue_initial_token, AccessMode, AdminTokenKind,
+    InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
@@ -77,6 +81,77 @@ fn deserialize_stored_medical_metadata(
         created_at: segment_metadata.created_at,
         enc_key_and_nonce: segment_metadata.enc_key_and_nonce,
     })
+}
+
+fn issue_legacy_role_macaroons(
+    root_key: &macaroon::MacaroonKey,
+    role_str: &str,
+    subject: &str,
+    hospital_id: Option<&str>,
+    read_keys_duration: u64,
+    update_keys_duration: Option<u64>,
+) -> Result<(String, Option<String>), ProxyError> {
+    let read_exp = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + read_keys_duration;
+
+    let mut read_macaroon = macaroon::Macaroon::create(
+        Some("proxy-reencryption".into()),
+        root_key,
+        subject.into(),
+    )
+    .map_err(|_| anyhow!("Failed to create macaroon"))
+    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+    read_macaroon.add_first_party_caveat("purpose = Read".into());
+    read_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
+    if let Some(hospital_id) = hospital_id.filter(|id| !id.is_empty()) {
+        read_macaroon.add_first_party_caveat(format!("hospital_id = {}", hospital_id).into());
+    }
+    read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
+
+    let read_token = read_macaroon
+        .serialize(macaroon::Format::V2)
+        .map_err(|_| anyhow!("Failed to serialize macaroon"))
+        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let update_token = if let Some(update_keys_duration) = update_keys_duration {
+        let update_exp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + update_keys_duration;
+
+        let mut update_macaroon = macaroon::Macaroon::create(
+            Some("proxy-reencryption".into()),
+            root_key,
+            subject.into(),
+        )
+        .map_err(|_| anyhow!("Failed to create macaroon"))
+        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
+        update_macaroon.add_first_party_caveat("purpose = Update".into());
+        update_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
+        if let Some(hospital_id) = hospital_id.filter(|id| !id.is_empty()) {
+            update_macaroon.add_first_party_caveat(format!("hospital_id = {}", hospital_id).into());
+        }
+        update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
+
+        Some(
+            update_macaroon
+                .serialize(macaroon::Format::V2)
+                .map_err(|_| anyhow!("Failed to serialize macaroon"))
+                .code(StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
+    } else {
+        None
+    };
+
+    Ok((read_token, update_token))
 }
 
 impl Handlers {
@@ -927,7 +1002,7 @@ impl Handlers {
             MoveHospitalPersonnelRole::AdministrativePersonnel => (
                 AuthRole::AdministrativePersonnel,
                 ADMINISTRATIVE_KEYS_READ_DUR,
-                None,
+                Some(ADMINISTRATIVE_KEYS_UPDATE_DUR),
             ),
             MoveHospitalPersonnelRole::MedicalPersonnel => (
                 AuthRole::MedicalPersonnel,
@@ -951,108 +1026,155 @@ impl Handlers {
             AuthRole::Patient => "Patient",
         };
 
+        let root_subject = payload
+            .root_subject
+            .clone()
+            .unwrap_or_else(|| hospital_personnel_iota_address.to_string());
+
+        let hospital_id_opt = payload
+            .hospital_id
+            .as_deref()
+            .filter(|id| !id.is_empty());
+
         let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
-            if let Some(related_rme_id) = payload.related_rme_id.clone() {
-                if hospital_personnel_role != AuthRole::MedicalPersonnel {
-                    return Err(ProxyError::Anyhow {
-                        source: anyhow!("DecMed caveat tokens require medical personnel"),
-                        code: StatusCode::BAD_REQUEST,
-                    });
-                }
-                let expires_before = chrono::Utc::now() + chrono::Duration::seconds(read_keys_duration as i64);
-                let mut read_params = InitialDoctorTokenParams::example_doctor_token(
-                    &patient_iota_address.to_string(),
-                    &related_rme_id,
-                    &hospital_personnel_iota_address.to_string(),
-                );
-                read_params.expires_before = expires_before;
-                read_params.purpose = Some("Read".into());
-                read_params.role = Some(role_str.to_string());
-                read_params.require_wallet_proof = true;
+            match hospital_personnel_role {
+                AuthRole::AdministrativePersonnel => {
+                    if payload.related_rme_id.is_some() {
+                        return Err(ProxyError::Anyhow {
+                            source: anyhow!(
+                                "related_rme_id must not be sent for administrative personnel grant"
+                            ),
+                            code: StatusCode::BAD_REQUEST,
+                        });
+                    }
+                    if let Some(encounter_dataset) = payload.encounter_dataset {
+                        let read_expires = chrono::Utc::now()
+                            + chrono::Duration::seconds(read_keys_duration as i64);
+                        let update_expires = chrono::Utc::now()
+                            + chrono::Duration::seconds(
+                                update_keys_duration.unwrap_or(ADMINISTRATIVE_KEYS_UPDATE_DUR)
+                                    as i64,
+                            );
 
-                let read_token = issue_initial_token(&root_key, &read_params)
-                    .map_err(|e| ProxyError::Caveat {
-                        code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                        error: e.to_string(),
-                    })?;
+                        let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
+                            &patient_iota_address.to_string(),
+                            &root_subject,
+                            encounter_dataset,
+                            AdminTokenKind::Read,
+                            read_expires,
+                        )
+                        .map_err(|e| ProxyError::Caveat {
+                            code: StatusCode::BAD_REQUEST.as_u16(),
+                            error: e.to_string(),
+                        })?;
+                        read_params.require_wallet_proof = true;
+                        if let Some(hospital_id) = payload.hospital_id.clone() {
+                            read_params.hospital_id = Some(hospital_id);
+                        }
 
-                let update_token = if update_keys_duration.is_some() {
-                    let update_expires =
-                        chrono::Utc::now() + chrono::Duration::seconds(update_keys_duration.unwrap() as i64);
-                    let mut update_params = read_params.clone();
-                    update_params.expires_before = update_expires;
-                    update_params.purpose = Some("Update".into());
-                    Some(
-                        issue_initial_token(&root_key, &update_params).map_err(|e| {
-                            ProxyError::Caveat {
+                        let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
+                            &patient_iota_address.to_string(),
+                            &root_subject,
+                            encounter_dataset,
+                            AdminTokenKind::Write,
+                            update_expires,
+                        )
+                        .map_err(|e| ProxyError::Caveat {
+                            code: StatusCode::BAD_REQUEST.as_u16(),
+                            error: e.to_string(),
+                        })?;
+                        write_params.require_wallet_proof = true;
+                        if let Some(hospital_id) = payload.hospital_id.clone() {
+                            write_params.hospital_id = Some(hospital_id);
+                        }
+
+                        let read_token = issue_admin_personnel_token(&root_key, &read_params)
+                            .map_err(|e| ProxyError::Caveat {
                                 code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
                                 error: e.to_string(),
-                            }
-                        })?,
-                    )
-                } else {
-                    None
-                };
-                (read_token, update_token)
-            } else {
-                let read_exp = std::time::SystemTime::now()
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + read_keys_duration;
+                            })?;
+                        let update_token = issue_admin_personnel_token(&root_key, &write_params)
+                            .map_err(|e| ProxyError::Caveat {
+                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                error: e.to_string(),
+                            })?;
+                        (read_token, Some(update_token))
+                    } else {
+                        return Err(ProxyError::Anyhow {
+                            source: anyhow!(
+                                "encounter_dataset (RAWAT_JALAN or RAWAT_INAP) is required for administrative personnel access grant"
+                            ),
+                            code: StatusCode::BAD_REQUEST,
+                        });
+                    }
+                }
+                AuthRole::MedicalPersonnel => {
+                    if payload.encounter_dataset.is_some() && payload.related_rme_id.is_none() {
+                        return Err(ProxyError::Anyhow {
+                            source: anyhow!(
+                                "Scanned personnel is registered as MedicalPersonnel; use the Administrative Personnel QR from the hospital profile"
+                            ),
+                            code: StatusCode::BAD_REQUEST,
+                        });
+                    }
+                    if let Some(related_rme_id) = payload.related_rme_id.clone() {
+                        let expires_before = chrono::Utc::now()
+                            + chrono::Duration::seconds(read_keys_duration as i64);
+                        let mut read_params = InitialDoctorTokenParams::example_rm_initial_token(
+                            &patient_iota_address.to_string(),
+                            &related_rme_id,
+                            &root_subject,
+                        );
+                        read_params.expires_before = expires_before;
+                        read_params.purpose = Some("Read".into());
+                        read_params.role = Some(role_str.to_string());
+                        read_params.require_wallet_proof = true;
+                        if let Some(hospital_id) = payload.hospital_id.clone() {
+                            read_params.hospital_id = Some(hospital_id);
+                        }
 
-                let mut read_macaroon = macaroon::Macaroon::create(
-                    Some("proxy-reencryption".into()),
-                    &root_key,
-                    hospital_personnel_iota_address.to_string().into(),
-                )
-                .map_err(|_| anyhow!("Failed to create macaroon"))
-                .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+                        let read_token = issue_initial_token(&root_key, &read_params)
+                            .map_err(|e| ProxyError::Caveat {
+                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                error: e.to_string(),
+                            })?;
 
-                read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-                read_macaroon.add_first_party_caveat("purpose = Read".into());
-                read_macaroon.add_first_party_caveat(
-                    format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
-                );
-                read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
-
-                let read_token = read_macaroon
-                    .serialize(macaroon::Format::V2)
-                    .map_err(|_| anyhow!("Failed to serialize macaroon"))
-                    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-                let update_token = if let Some(update_keys_duration) = update_keys_duration {
-                    let update_exp = std::time::SystemTime::now()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        + update_keys_duration;
-
-                    let mut update_macaroon = macaroon::Macaroon::create(
-                        Some("proxy-reencryption".into()),
-                        &root_key,
-                        hospital_personnel_iota_address.to_string().into(),
-                    )
-                    .map_err(|_| anyhow!("Failed to create macaroon"))
-                    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-                    update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-                    update_macaroon.add_first_party_caveat("purpose = Update".into());
-                    update_macaroon.add_first_party_caveat(
-                        format!("subject = {}", hospital_personnel_iota_address.to_string()).into(),
-                    );
-                    update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
-
-                    Some(
-                        update_macaroon
-                            .serialize(macaroon::Format::V2)
-                            .map_err(|_| anyhow!("Failed to serialize macaroon"))
-                            .code(StatusCode::INTERNAL_SERVER_ERROR)?,
-                    )
-                } else {
-                    None
-                };
-                (read_token, update_token)
+                        let update_token = if let Some(update_keys_duration) = update_keys_duration
+                        {
+                            let update_expires = chrono::Utc::now()
+                                + chrono::Duration::seconds(update_keys_duration as i64);
+                            let mut update_params = read_params.clone();
+                            update_params.expires_before = update_expires;
+                            update_params.purpose = Some("Update".into());
+                            Some(
+                                issue_initial_token(&root_key, &update_params).map_err(|e| {
+                                    ProxyError::Caveat {
+                                        code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                        error: e.to_string(),
+                                    }
+                                })?,
+                            )
+                        } else {
+                            None
+                        };
+                        (read_token, update_token)
+                    } else {
+                        issue_legacy_role_macaroons(
+                            &root_key,
+                            role_str,
+                            &root_subject,
+                            hospital_id_opt,
+                            read_keys_duration,
+                            update_keys_duration,
+                        )?
+                    }
+                }
+                AuthRole::Patient => {
+                    return Err(ProxyError::Anyhow {
+                        source: anyhow!("Invalid personnel account"),
+                        code: StatusCode::BAD_REQUEST,
+                    })
+                }
             };
 
         let access_keys = AccessKeys {

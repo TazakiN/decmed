@@ -115,6 +115,104 @@ fn test_macaroon_flow() {
 }
 
 #[test]
+fn test_admin_dual_token_issue_and_verify() {
+    use decmed_macaroon_auth::{
+        issue_admin_personnel_token, verify_decmed_token, AccessMode, AdminTokenKind,
+        InitialAdminPersonnelTokenParams, SegmentAccessContext, TokenVerificationContext,
+    };
+    use decmed_rme_segment::{DatasetCategory, FunctionCategory};
+
+    const ROOT: &str = "decmed-proxy-test-root-key-64-bytes-padding!!";
+    const PATIENT: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    const ADMIN: &str = "0x7777777777777777777777777777777777777777777777777777777777777777";
+
+    let root_key = MacaroonKey::generate(ROOT.as_bytes());
+    let expires = chrono::Utc::now() + chrono::Duration::hours(24);
+
+    let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        ADMIN,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Read,
+        expires,
+    )
+    .unwrap();
+    read_params.require_wallet_proof = false;
+    let read_token = issue_admin_personnel_token(&root_key, &read_params).unwrap();
+
+    let write_expires = chrono::Utc::now() + chrono::Duration::hours(2);
+    let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        ADMIN,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Write,
+        write_expires,
+    )
+    .unwrap();
+    write_params.require_wallet_proof = false;
+    let write_token = issue_admin_personnel_token(&root_key, &write_params).unwrap();
+
+    let read_mac = Macaroon::deserialize(&read_token).unwrap();
+    assert!(verify_decmed_token(
+        &read_mac,
+        &root_key,
+        &TokenVerificationContext {
+            operation: AccessMode::Read,
+            segment: SegmentAccessContext {
+                segment_id: "seg".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: "RME-ANY".into(),
+                dataset_category: DatasetCategory::RAWAT_INAP,
+                function_category: FunctionCategory::ANAMNESIS,
+            },
+            wallet_signature_b64: None,
+            now: chrono::Utc::now(),
+        },
+        None,
+    )
+    .is_ok());
+
+    let write_mac = Macaroon::deserialize(&write_token).unwrap();
+    assert!(verify_decmed_token(
+        &write_mac,
+        &root_key,
+        &TokenVerificationContext {
+            operation: AccessMode::Write,
+            segment: SegmentAccessContext {
+                segment_id: "seg".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: "ignored".into(),
+                dataset_category: DatasetCategory::LABORATORIUM,
+                function_category: FunctionCategory::LABORATORIUM,
+            },
+            wallet_signature_b64: None,
+            now: chrono::Utc::now(),
+        },
+        None,
+    )
+    .is_ok());
+
+    assert!(verify_decmed_token(
+        &write_mac,
+        &root_key,
+        &TokenVerificationContext {
+            operation: AccessMode::Write,
+            segment: SegmentAccessContext {
+                segment_id: "seg".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: "ignored".into(),
+                dataset_category: DatasetCategory::RAWAT_INAP,
+                function_category: FunctionCategory::ANAMNESIS,
+            },
+            wallet_signature_b64: None,
+            now: chrono::Utc::now(),
+        },
+        None,
+    )
+    .is_err());
+}
+
+#[test]
 fn test_pre_flow() {
     // 1. Setup Alice (Data Owner) and Bob (Data Consumer)
     let alice_sk = SecretKey::random();

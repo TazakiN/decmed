@@ -425,7 +425,13 @@ impl MoveCall {
         let response = move_call_read_only(sender, &iota_client, pt)
             .await
             .context(current_fn!())?;
-        handle_error_move_call_read_only(response.clone()).context(current_fn!())?;
+        if let Err(err) = handle_error_move_call_read_only(response) {
+            let msg = err.to_string();
+            if msg.contains("Account not found") || msg.contains("dynamic_field") {
+                return Ok(false);
+            }
+            return Err(err);
+        }
 
         Ok(true)
     }
@@ -691,6 +697,105 @@ impl MoveCall {
 
         handle_error_execute_tx(response).context(current_fn!())?;
 
+        Ok(())
+    }
+
+    pub async fn create_delegated_access(
+        &self,
+        activation_key: String,
+        delegatee_address: IotaAddress,
+        patient_address: IotaAddress,
+        metadata: Vec<String>,
+        sender: IotaAddress,
+        sender_key_pair: IotaKeyPair,
+    ) -> Result<(), HospitalError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            String::from("create_delegated_access"),
+            self.decmed_package.package_id,
+            self.decmed_package.module_hospital_personnel.clone(),
+            vec![],
+            vec![
+                CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
+                self.construct_address_id_object_call_arg(false),
+                self.construct_clock_call_arg(),
+                CallArg::Pure(bcs::to_bytes(&delegatee_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&patient_address).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
+            .await
+            .context(current_fn!())?;
+        let ref_gas_price = get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
+
+        let tx_data = construct_sponsored_tx_data(
+            sender,
+            gas_coins,
+            pt,
+            GAS_BUDGET,
+            ref_gas_price,
+            sponsor_account,
+        );
+
+        let tx = Transaction::from_data_and_signer(tx_data, vec![&sender_key_pair]);
+        let response = execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
+        handle_error_execute_tx(response).context(current_fn!())?;
+        Ok(())
+    }
+
+    pub async fn revoke_delegated_access(
+        &self,
+        activation_key: String,
+        delegatee_address: IotaAddress,
+        patient_address: IotaAddress,
+        sender: IotaAddress,
+        sender_key_pair: IotaKeyPair,
+    ) -> Result<(), HospitalError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            String::from("revoke_delegated_access"),
+            self.decmed_package.package_id,
+            self.decmed_package.module_hospital_personnel.clone(),
+            vec![],
+            vec![
+                CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
+                self.construct_address_id_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&delegatee_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&patient_address).context(current_fn!())?),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
+            .await
+            .context(current_fn!())?;
+        let ref_gas_price = get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
+
+        let tx_data = construct_sponsored_tx_data(
+            sender,
+            gas_coins,
+            pt,
+            GAS_BUDGET,
+            ref_gas_price,
+            sponsor_account,
+        );
+
+        let tx = Transaction::from_data_and_signer(tx_data, vec![&sender_key_pair]);
+        let response = execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
+        handle_error_execute_tx(response).context(current_fn!())?;
         Ok(())
     }
 }

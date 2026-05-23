@@ -3,6 +3,7 @@ module decmed::patient;
 use decmed::std_enum_hospital_personnel_role::{
     administrative_personnel as hospital_personnel_role_administrative_personnel,
     medical_personnel as hospital_personnel_role_medical_personnel,
+    HospitalPersonnelRole,
 };
 use decmed::std_enum_hospital_personnel_access_type::{
     read as hospital_personnel_access_type_read,
@@ -101,21 +102,27 @@ entry fun create_access(
 
 
     if (hospital_personnel_role == hospital_personnel_role_administrative_personnel()) {
-        let (read_access, access_data_type_read, exp_dur) = create_access_administrative_personnel(clock, metadata);
+        let (read_access, access_data_type_read, update_access, access_data_type_update, exp_dur_read, exp_dur_update) =
+            create_access_administrative_personnel(clock, metadata);
 
         let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
 
         if (hospital_personnel_read_access.contains(&patient_id)) {
             hospital_personnel_read_access.remove(&patient_id);
         };
-
         hospital_personnel_read_access.insert(patient_id, read_access);
+
+        let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+        if (hospital_personnel_update_access.contains(&patient_id)) {
+            hospital_personnel_update_access.remove(&patient_id);
+        };
+        hospital_personnel_update_access.insert(patient_id, update_access);
 
         let patient_access_log_read = patient_access_log_new(
             access_data_type_read,
             hospital_personnel_access_type_read(),
             date,
-            exp_dur,
+            exp_dur_read,
             *hospital_metadata,
             hospital_personnel_address,
             hospital_personnel_administrative_metadata_public,
@@ -123,6 +130,19 @@ entry fun create_access(
             false,
         );
         patient_access_log.push_back(patient_access_log_read);
+
+        let patient_access_log_update = patient_access_log_new(
+            access_data_type_update,
+            hospital_personnel_access_type_update(),
+            date,
+            exp_dur_update,
+            *hospital_metadata,
+            hospital_personnel_address,
+            hospital_personnel_administrative_metadata_public,
+            patient_access_log.length(),
+            false,
+        );
+        patient_access_log.push_back(patient_access_log_update);
     };
 
     if (hospital_personnel_role == hospital_personnel_role_medical_personnel()) {
@@ -196,22 +216,27 @@ public(package) fun create_access_test(
 
 /// ## Params:
 /// - `metadata`: vector<Base64 encoded>
-///     - length = 1 for administrative
+///     - length = 2 for administrative (read + write/delegation parent)
 ///     - length = 2 for medical
 ///         - 0: read
 ///         - 1: update
 fun create_access_administrative_personnel(
     clock: &Clock,
     metadata: vector<String>,
-): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64)
+): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>,
+    HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64, u64)
 {
-    assert!(metadata.length() == 1, EInvalidMetadataLength);
+    assert!(metadata.length() == 2, EInvalidMetadataLength);
 
     let mut hospital_personnel_access_data_types_read = vector::empty<HospitalPersonnelAccessDataType>();
     hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_administrative());
+    let mut hospital_personnel_access_data_types_update = vector::empty<HospitalPersonnelAccessDataType>();
+    hospital_personnel_access_data_types_update.push_back(hospital_personnel_access_data_type_administrative());
 
-    let exp_dur = 5;
-    let exp_read = clock.timestamp_ms() + (exp_dur * 60 * 1000); // 5 minutes
+    let exp_dur_read = 15;
+    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000); // 15 minutes
+    let exp_dur_update = 2 * 60;
+    let exp_update = clock.timestamp_ms() + (exp_dur_update * 60 * 1000); // 2 hours
 
     let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_read,
@@ -219,8 +244,16 @@ fun create_access_administrative_personnel(
         *metadata.borrow(0),
         option::none(),
     );
+    let hospital_personnel_access_data_update = hospital_personnel_access_data_new(
+        hospital_personnel_access_data_types_update,
+        exp_update,
+        *metadata.borrow(1),
+        option::none(),
+    );
 
-    (hospital_personnel_access_data_read, hospital_personnel_access_data_types_read, exp_dur)
+    (hospital_personnel_access_data_read, hospital_personnel_access_data_types_read,
+     hospital_personnel_access_data_update, hospital_personnel_access_data_types_update,
+     exp_dur_read, exp_dur_update)
 }
 
 
@@ -374,13 +407,14 @@ entry fun get_account_state(
 /// ## Return:
 /// 0: public administrative data
 /// 1: hospital name
+/// 2: hospital personnel role
 entry fun get_hospital_personnel_info(
     address_id: &AddressId,
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &HospitalPersonnelIdAccount,
     ctx: &TxContext,
-): (String, String)
+): (String, String, HospitalPersonnelRole)
 {
     let address_id_table = address_id.borrow_table();
 
@@ -398,8 +432,27 @@ entry fun get_hospital_personnel_info(
 
     let public_data = *hospital_personnel_administrative_metadata.borrow_public_metadata();
     let hospital_name = *hospital_metadata.borrow_name();
+    let role = *hospital_personnel_account.borrow_role();
 
-    (public_data, hospital_name)
+    (public_data, hospital_name, role)
+}
+
+/// Role lookup for patient grant flow (no ProxyCap required).
+entry fun get_hospital_personnel_role_for_grant(
+    address_id: &AddressId,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    hospital_personnel_address: address,
+    ctx: &TxContext,
+): HospitalPersonnelRole {
+    let address_id_table = address_id.borrow_table();
+
+    assert!(address_id_table.contains(ctx.sender()), EAccountNotFound);
+
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow(hospital_personnel_id);
+
+    *hospital_personnel_account.borrow_role()
 }
 
 entry fun get_access_log(

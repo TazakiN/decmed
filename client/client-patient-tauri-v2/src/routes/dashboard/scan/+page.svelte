@@ -16,6 +16,7 @@
 	let isConfirmDialogOpen = $state(false);
 	let isEnterPinDialogOpen = $state(false);
 	let confirmDialogData = $state<InvokeProcessQrResponse>();
+	let scanEncounterDataset = $state<'RAWAT_JALAN' | 'RAWAT_INAP'>('RAWAT_JALAN');
 
 	const {
 		form: hospitalQrForm,
@@ -60,7 +61,10 @@
 		onUpdate: async ({ form, result, cancel }) => {
 			if (result.type === 'success') {
 				const resInvokeCreateAccess = await tryCatchAsVal(async () => {
-					return (await invoke('create_access', { pin: form.data.pin })) as SuccessResponse<null>;
+					return (await invoke('create_access', {
+						pin: form.data.pin,
+						encounterDataset: scanEncounterDataset
+					})) as SuccessResponse<null>;
 				});
 
 				if (!resInvokeCreateAccess.success && resInvokeCreateAccess.error === 'Invalid PIN') {
@@ -107,6 +111,20 @@
 			<p>Hospital:</p>
 			<p>{confirmDialogData?.hospitalPersonnelHospitalName}</p>
 		</div>
+		<p class="text-sm text-zinc-600 mt-2">
+			Pilih episode untuk write token. Read token tetap mencakup semua dataset.
+		</p>
+		<fieldset class="flex flex-col gap-2 mt-2">
+			<legend class="font-medium">Episode write token</legend>
+			<label class="flex items-center gap-2">
+				<input type="radio" bind:group={scanEncounterDataset} value="RAWAT_JALAN" />
+				Rawat Jalan
+			</label>
+			<label class="flex items-center gap-2">
+				<input type="radio" bind:group={scanEncounterDataset} value="RAWAT_INAP" />
+				Rawat Inap
+			</label>
+		</fieldset>
 	</div>
 
 	<Button.Root

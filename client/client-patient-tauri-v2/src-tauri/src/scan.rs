@@ -12,25 +12,27 @@ use crate::{
     patient_error::PatientError,
     types::{
         AppState, CommandProcessQrResponse, HospitalPersonnelPublicAdministrativeData,
-        MoveCreateAccessData, MoveCreateAccessMetadata, ProxyReencryptionErrorResponse,
-        ProxyReencryptionNoncePayload, ProxyReencryptionPostKeysResponseData,
-        ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
+        MoveCreateAccessData, MoveCreateAccessMetadata,
+        ProxyReencryptionErrorResponse, ProxyReencryptionNoncePayload,
+        ProxyReencryptionPostKeysResponseData, ProxyReencryptionSuccessResponse, ResponseStatus,
+        SuccessResponse,
     },
     utils::{
-        compute_pre_keys, decode_hospital_personnel_qr, do_http_post_json_request,
-        generate_64_bytes_seed, get_iota_address_from_keys_entry,
-        get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
-        process_qr_image, serde_deserialize_from_base64, serde_serialize_to_base64,
-        sys_time_to_iso,
+        compute_pre_keys, decode_hospital_grant_qr, do_http_post_json_request, generate_64_bytes_seed,
+        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
+        get_pre_keys_from_keys_entry, parse_keys_entry, process_qr_image,
+        serde_deserialize_from_base64, serde_serialize_to_base64, sys_time_to_iso,
     },
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use decmed_rme_segment::DatasetCategory;
 
 #[tauri::command]
 pub async fn create_access(
     state: State<'_, Mutex<AppState>>,
     pin: String,
+    encounter_dataset: Option<String>,
 ) -> Result<SuccessResponse<()>, PatientError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
@@ -79,21 +81,25 @@ pub async fn create_access(
     };
 
     let (
+        hospital_id,
         hospital_personnel_iota_address,
         hospital_personnel_pre_public_key,
         data_pre_secret_key_seed_capsule,
         enc_data_pre_secret_key_seed,
         data_pre_public_key,
     ) = {
-        let (hospital_personnel_iota_address, hospital_personnel_pre_public_key) =
-            decode_hospital_personnel_qr(
-                state
-                    .scan_state
-                    .hospital_personnel_qr_content
-                    .clone()
-                    .context(current_fn!())?,
-            )
-            .context(current_fn!())?;
+        let grant = decode_hospital_grant_qr(
+            state
+                .scan_state
+                .hospital_personnel_qr_content
+                .clone()
+                .context(current_fn!())?,
+        )
+        .context(current_fn!())?;
+
+        let hospital_personnel_iota_address = grant.personnel_iota_address;
+        let hospital_personnel_pre_public_key = grant.personnel_pre_public_key;
+        let hospital_id = grant.hospital_id;
 
         let data_pre_secret_key_seed = generate_64_bytes_seed();
         let (data_pre_secret_key_seed_capsule, enc_data_pre_secret_key_seed) = encrypt(
@@ -106,6 +112,7 @@ pub async fn create_access(
             compute_pre_keys(&data_pre_secret_key_seed[0..32]).context(current_fn!())?;
 
         (
+            hospital_id,
             hospital_personnel_iota_address,
             hospital_personnel_pre_public_key,
             data_pre_secret_key_seed_capsule,
@@ -139,7 +146,19 @@ pub async fn create_access(
         Signature::new_secure(&intent_message, &patient_iota_key_pair)
     };
 
-    let payload = json!({
+    let raw = encounter_dataset
+        .or_else(|| {
+            state
+                .scan_state
+                .encounter_dataset
+                .map(|ds| serde_json::to_string(&ds).unwrap_or_default())
+        })
+        .context(current_fn!())?;
+    let json = format!("\"{}\"", raw.trim_matches('"'));
+    let encounter_dataset =
+        serde_json::from_str::<DatasetCategory>(&json).context(current_fn!())?;
+
+    let mut payload = json!({
         "enc_data_pre_secret_key_seed": STANDARD.encode(enc_data_pre_secret_key_seed),
         "hospital_personnel_iota_address": hospital_personnel_iota_address.to_string(),
         "k_frag": serde_serialize_to_base64(&k_frag).context(current_fn!())?,
@@ -151,7 +170,13 @@ pub async fn create_access(
         "signature": signature.encode_base64(),
         "signer_pre_public_key": serde_serialize_to_base64(&signer_public_key)
             .context(current_fn!())?,
+        "root_subject": hospital_personnel_iota_address.to_string(),
     });
+    if !hospital_id.is_empty() {
+        payload["hospital_id"] = json!(hospital_id);
+    }
+    payload["encounter_dataset"] = json!(encounter_dataset);
+
     let access_token = do_http_post_json_request::<
         _,
         ProxyReencryptionSuccessResponse<ProxyReencryptionPostKeysResponseData>,
@@ -166,6 +191,14 @@ pub async fn create_access(
     .await
     .context(current_fn!())?
     .data;
+
+    let access_token_update = access_token.access_token_update.ok_or_else(|| {
+        anyhow!(
+            "Proxy did not issue write access token (read-only). \
+             Restart proxy-reencryption to the latest version and scan the Administrative Personnel QR."
+        )
+        .context(current_fn!())
+    })?;
 
     let (metadata_read, metadata_update, date) = {
         let patient_name = state
@@ -193,28 +226,23 @@ pub async fn create_access(
             enc_data: STANDARD.encode(enc_data_read),
         };
 
-        let metadata_update = if access_token.access_token_update.is_some() {
-            let data_update = MoveCreateAccessData {
-                access_token: access_token.access_token_update.unwrap(),
-                patient_name,
-                patient_iota_address: patient_iota_address.to_string(),
-                patient_pre_public_key: Some(
-                    serde_serialize_to_base64(&patient_pre_public_key).context(current_fn!())?,
-                ),
-            };
+        let data_update = MoveCreateAccessData {
+            access_token: access_token_update,
+            patient_name,
+            patient_iota_address: patient_iota_address.to_string(),
+            patient_pre_public_key: Some(
+                serde_serialize_to_base64(&patient_pre_public_key).context(current_fn!())?,
+            ),
+        };
 
-            let (data_capsule_update, enc_data_update) = encrypt(
-                &hospital_personnel_pre_public_key,
-                &serde_json::to_vec(&data_update).context(current_fn!())?,
-            )
-            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-            let metadata_update = MoveCreateAccessMetadata {
-                capsule: serde_serialize_to_base64(&data_capsule_update).context(current_fn!())?,
-                enc_data: STANDARD.encode(enc_data_update),
-            };
-            Some(metadata_update)
-        } else {
-            None
+        let (data_capsule_update, enc_data_update) = encrypt(
+            &hospital_personnel_pre_public_key,
+            &serde_json::to_vec(&data_update).context(current_fn!())?,
+        )
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+        let metadata_update = MoveCreateAccessMetadata {
+            capsule: serde_serialize_to_base64(&data_capsule_update).context(current_fn!())?,
+            enc_data: STANDARD.encode(enc_data_update),
         };
 
         let date = sys_time_to_iso(std::time::SystemTime::now());
@@ -222,10 +250,10 @@ pub async fn create_access(
         (metadata_read, metadata_update, date)
     };
 
-    let mut metadata = vec![serde_serialize_to_base64(&metadata_read).context(current_fn!())?];
-    if metadata_update.is_some() {
-        metadata.push(serde_serialize_to_base64(&metadata_update).context(current_fn!())?);
-    }
+    let metadata = vec![
+        serde_serialize_to_base64(&metadata_read).context(current_fn!())?,
+        serde_serialize_to_base64(&metadata_update).context(current_fn!())?,
+    ];
 
     let _ = state
         .move_call
@@ -256,11 +284,10 @@ pub async fn process_qr(
     let patient_iota_address =
         get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
 
-    // hp_addr_pub_key = hospital personnel {iota_address}@{hex_pre_pub_key_bytes}
     let (_meta, hp_addr_pub_key) = process_qr_image(&qr_bytes).context(current_fn!())?;
+    let grant = decode_hospital_grant_qr(hp_addr_pub_key.clone()).context(current_fn!())?;
     state.scan_state.hospital_personnel_qr_content = Some(hp_addr_pub_key.clone());
-    let (hospital_personnel_iota_address, _) =
-        decode_hospital_personnel_qr(hp_addr_pub_key).context(current_fn!())?;
+    let hospital_personnel_iota_address = grant.personnel_iota_address;
 
     let (hospital_personnel_public_administrative_data, hospital_name) = state
         .move_call

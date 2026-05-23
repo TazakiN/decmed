@@ -40,7 +40,7 @@ export class ProfileState {
 		this.profile = resInvokeGetProfile.data.data;
 
 		QRCode.toString(
-			`${this.profile.iotaAddress ?? ''}@${this.profile.prePublicKey ?? ''}`,
+			`${this.profile.hospitalIdHash ?? ''}@${this.profile.hospitalPrePublicKey ?? ''}@${this.profile.iotaAddress ?? ''}@${this.profile.prePublicKey ?? ''}`,
 			{
 				type: 'svg'
 			},
@@ -65,7 +65,7 @@ export class ProfileState {
 		}
 
 		const res = await QRCode.toDataURL(
-			`${this.profile?.iotaAddress ?? ''}@${this.profile?.prePublicKey ?? ''}`,
+			`${this.profile?.hospitalIdHash ?? ''}@${this.profile?.hospitalPrePublicKey ?? ''}@${this.profile?.iotaAddress ?? ''}@${this.profile?.prePublicKey ?? ''}`,
 			{
 				type: 'image/png'
 			}

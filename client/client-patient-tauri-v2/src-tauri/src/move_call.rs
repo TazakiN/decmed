@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use iota_types::{
     base_types::{IotaAddress, ObjectID},
     crypto::IotaKeyPair,
@@ -13,13 +13,14 @@ use crate::{
     current_fn,
     patient_error::PatientError,
     types::{
-        DecmedPackage, MovePatientAccessLog, MovePatientAdministrativeMetadata,
-        MovePatientMedicalMetadata,
+        DecmedPackage, MovePatientAccessLog,
+        MovePatientAdministrativeMetadata, MovePatientMedicalMetadata,
     },
     utils::{
         construct_pt, construct_shared_object_call_arg, construct_sponsored_tx_data, execute_tx,
         get_iota_client, get_ref_gas_price, handle_error_execute_tx,
-        handle_error_move_call_read_only, move_call_read_only, parse_move_read_only_result,
+        handle_error_move_call_read_only, move_call_read_only,
+        parse_move_read_only_result,
         reserve_gas,
     },
 };
@@ -77,6 +78,14 @@ impl MoveCall {
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), PatientError> {
+        if metadata.len() != 2 {
+            return Err(anyhow!(
+                "create_access requires exactly 2 metadata entries (read + write), got {}",
+                metadata.len()
+            )
+            .into());
+        }
+
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let pt = construct_pt(
             "create_access".to_string(),
@@ -230,7 +239,7 @@ impl MoveCall {
         let hospital_personnel_public_administrative_metadata: String =
             parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
         let hospital_name: String =
-            parse_move_read_only_result(response, 1).context(current_fn!())?;
+            parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
 
         Ok((
             hospital_personnel_public_administrative_metadata,

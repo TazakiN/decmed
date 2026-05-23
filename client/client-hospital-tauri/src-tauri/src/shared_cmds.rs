@@ -5,6 +5,7 @@ use umbral_pre::{decrypt_original, encrypt, Capsule};
 use crate::{
     current_fn,
     hospital_error::HospitalError,
+    hospital_pre::hospital_pre_public_key_for_personnel,
     types::{
         AdministrativeData, AppState, CommandGetProfileResponseData, CommandUpdateProfileArgs,
         HospitalPersonnelRole, KeyNonce, PrivateAdministrativeData, PrivateAdministrativeMetadata,
@@ -179,15 +180,28 @@ pub async fn get_profile(
         let (hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash) =
             decode_hospital_personnel_id_to_argon(private_administrative_data.id.clone())
                 .context(current_fn!())?;
-        let hospital_personnel_id_hash = format!(
+        format!(
             "{}@{}",
             hospital_personnel_id_part_hash, hospital_personnel_hospital_part_hash
-        );
-        hospital_personnel_id_hash
+        )
     };
+
+    let hospital_id_hash = {
+        let (_, hospital_personnel_hospital_part_hash) =
+            decode_hospital_personnel_id_to_argon(private_administrative_data.id.clone())
+                .context(current_fn!())?;
+        hospital_personnel_hospital_part_hash
+    };
+
+    let hospital_pre_public_key = hospital_pre_public_key_for_personnel(&keys_entry, &hospital_id_hash)
+        .ok()
+        .map(|pk| serde_serialize_to_base64(&pk).context(current_fn!()))
+        .transpose()?;
 
     let data = CommandGetProfileResponseData {
         hospital: hospital_metadata.name.clone(),
+        hospital_id_hash,
+        hospital_pre_public_key,
         id: private_administrative_data.id.clone(),
         id_hash: hospital_personnel_id_hash,
         iota_address: hospital_personnel_iota_address.to_string(),

@@ -41,7 +41,10 @@ use serde_json::json;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use crate::{
-    constants::{GAS_STATION_BASE_URL, IOTA_URL, IPFS_BASE_URL, IPFS_GATEWAY_BASE_URL},
+    constants::{
+        DECMED_ORIGINAL_PACKAGE_ID, DECMED_PACKAGE_ID, GAS_STATION_BASE_URL, IOTA_URL,
+        IPFS_BASE_URL, IPFS_GATEWAY_BASE_URL,
+    },
     current_fn,
     proxy_error::ProxyError,
     types::{ExecuteTxResponse, ReserveGasResponse, SuccessResponse, UtilIpfsAddResponse},
@@ -337,34 +340,36 @@ impl Utils {
     pub async fn get_proxy_cap(
         iota_client: &IotaClient,
         module: Identifier,
-        package_id: AccountAddress,
         proxy_address: IotaAddress,
     ) -> Result<IotaObjectData, ProxyError> {
-        let query = IotaObjectResponseQuery {
-            filter: Some(IotaObjectDataFilter::StructType(StructTag {
-                address: package_id,
-                module,
-                name: Identifier::from_str("ProxyCap").context(current_fn!())?,
-                type_params: vec![],
-            })),
-            options: None,
-        };
-        let res = iota_client
-            .read_api()
-            .get_owned_objects(proxy_address, query, None, 1)
-            .await
-            .context(current_fn!())?;
+        for package_id_str in [DECMED_PACKAGE_ID, DECMED_ORIGINAL_PACKAGE_ID] {
+            let package_id = AccountAddress::from_str(package_id_str).context(current_fn!())?;
+            let query = IotaObjectResponseQuery {
+                filter: Some(IotaObjectDataFilter::StructType(StructTag {
+                    address: package_id,
+                    module: module.clone(),
+                    name: Identifier::from_str("ProxyCap").context(current_fn!())?,
+                    type_params: vec![],
+                })),
+                options: None,
+            };
+            let res = iota_client
+                .read_api()
+                .get_owned_objects(proxy_address, query, None, 1)
+                .await
+                .context(current_fn!())?;
 
-        if res.data.is_empty() {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("ProxyCap not found").context(current_fn!()),
-                code: StatusCode::INTERNAL_SERVER_ERROR,
-            });
+            if let Some(entry) = res.data.first() {
+                if let Some(proxy_cap) = entry.data.clone() {
+                    return Ok(proxy_cap);
+                }
+            }
         }
 
-        let proxy_cap = res.data[0].data.clone().unwrap();
-
-        Ok(proxy_cap)
+        Err(ProxyError::Anyhow {
+            source: anyhow!("ProxyCap not found").context(current_fn!()),
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+        })
     }
 
     pub async fn get_ref_gas_price(iota_client: &IotaClient) -> Result<u64, ProxyError> {

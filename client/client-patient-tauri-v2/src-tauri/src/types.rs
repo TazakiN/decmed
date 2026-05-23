@@ -14,7 +14,7 @@ pub use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
 // Enum.
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum HospitalPersonnelRole {
     Admin,
     AdministrativePersonnel,
@@ -276,6 +276,11 @@ pub struct ProxyReencryptionNoncePayload {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionPersonnelRoleResponseData {
+    pub role: HospitalPersonnelRole,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionSuccessResponse<T> {
     pub data: T,
     pub status_code: u16,
@@ -294,9 +299,10 @@ pub struct ReserveGasResult {
     pub sponsor_address: IotaAddress,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ScanState {
     pub hospital_personnel_qr_content: Option<String>,
+    pub encounter_dataset: Option<DatasetCategory>,
 }
 
 pub struct SignInState {

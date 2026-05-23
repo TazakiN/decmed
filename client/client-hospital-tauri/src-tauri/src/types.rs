@@ -42,6 +42,12 @@ pub struct AccessData {
     pub access_data_types: Vec<MoveHospitalPersonnelAccessDataType>,
     #[serde(rename = "accessToken")]
     pub access_token: String,
+    #[serde(rename = "tokenHash", default, skip_serializing_if = "Option::is_none")]
+    pub token_hash: Option<String>,
+    #[serde(rename = "dataPreSecretKeySeedCapsule", default)]
+    pub data_pre_secret_key_seed_capsule: Option<String>,
+    #[serde(rename = "encDataPreSecretKeySeed", default)]
+    pub enc_data_pre_secret_key_seed: Option<String>,
     pub exp: u64,
     #[serde(rename = "medicalMetadataIndex")]
     pub medical_metadata_index: Option<u64>,
@@ -51,14 +57,42 @@ pub struct AccessData {
     pub patient_name: String,
     #[serde(rename = "patientPrePublicKey")]
     pub patient_pre_public_key: Option<String>,
+    #[serde(rename = "relatedRmeId", default, skip_serializing_if = "Option::is_none")]
+    pub related_rme_id: Option<String>,
+    #[serde(rename = "delegatedBy", default, skip_serializing_if = "Option::is_none")]
+    pub delegated_by: Option<String>,
+    #[serde(rename = "delegatedTo", default, skip_serializing_if = "Option::is_none")]
+    pub delegated_to: Option<String>,
+    #[serde(rename = "expiresBefore", default, skip_serializing_if = "Option::is_none")]
+    pub expires_before: Option<String>,
+    #[serde(rename = "delegationSignature", default, skip_serializing_if = "Option::is_none")]
+    pub delegation_signature: Option<String>,
+    #[serde(rename = "delegationDepth", default, skip_serializing_if = "Option::is_none")]
+    pub delegation_depth: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AccessMetadata {
     pub access_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_hash: Option<String>,
     pub patient_iota_address: String,
     pub patient_name: String,
     pub patient_pre_public_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enc_data_pre_secret_key_seed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_pre_secret_key_seed_capsule: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_rme_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegated_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation_signature: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -115,6 +149,10 @@ pub struct CommandGetHospitalPersonnelsResponseData {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandGetProfileResponseData {
     pub hospital: String,
+    #[serde(rename = "hospitalIdHash")]
+    pub hospital_id_hash: String,
+    #[serde(rename = "hospitalPrePublicKey")]
+    pub hospital_pre_public_key: Option<String>,
     pub id: String,
     #[serde(rename = "idHash")]
     pub id_hash: String,
@@ -193,6 +231,9 @@ pub struct KeysEntry {
     pub activation_key: Option<String>,
     pub admin_address: Option<String>,
     pub admin_secret_key: Option<String>,
+    pub hospital_pre_nonce: Option<String>,
+    pub hospital_pre_public_key: Option<String>,
+    pub hospital_pre_secret_key: Option<String>,
     pub id: Option<String>,
     pub iota_address: Option<String>,
     pub iota_key_pair: Option<String>,
@@ -229,6 +270,8 @@ pub struct MoveHospitalPersonnelAccessData {
     pub exp: u64,
     pub metadata: String,
     pub medical_metadata_index: Option<u64>,
+    pub delegated_by: Option<IotaAddress>,
+    pub delegation_depth: u8,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

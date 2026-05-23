@@ -87,11 +87,136 @@ fn doctor_read_allowed_segment() {
         &doctor_token(),
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         None,
         None,
     )
     .is_ok());
+}
+
+const ADMIN: &str = "0x7777777777777777777777777777777777777777777777777777777777777777";
+
+fn admin_read_token() -> String {
+    use decmed_macaroon_auth::{
+        issue_admin_personnel_token, AdminTokenKind, InitialAdminPersonnelTokenParams,
+    };
+    let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+        .unwrap()
+        .with_timezone(&Utc);
+    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        ADMIN,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Read,
+        expires,
+    )
+    .unwrap();
+    params.require_wallet_proof = false;
+    issue_admin_personnel_token(&root_key(), &params).unwrap()
+}
+
+fn admin_write_token() -> String {
+    use decmed_macaroon_auth::{
+        issue_admin_personnel_token, AdminTokenKind, InitialAdminPersonnelTokenParams,
+    };
+    let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+        .unwrap()
+        .with_timezone(&Utc);
+    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        ADMIN,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Write,
+        expires,
+    )
+    .unwrap();
+    params.require_wallet_proof = false;
+    issue_admin_personnel_token(&root_key(), &params).unwrap()
+}
+
+#[test]
+fn admin_read_without_rme_reads_any_episode() {
+    assert!(verify_ctx(
+        &admin_read_token(),
+        AccessMode::Read,
+        DatasetCategory::RAWAT_INAP,
+        FunctionCategory::ANAMNESIS,
+        None,
+        None,
+    )
+    .is_ok());
+
+    let mac = macaroon::Macaroon::deserialize(&admin_read_token()).unwrap();
+    assert!(verify_decmed_token(
+        &mac,
+        &root_key(),
+        &TokenVerificationContext {
+            operation: AccessMode::Read,
+            segment: SegmentAccessContext {
+                segment_id: "seg".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: "RME-OTHER-EPISODE".into(),
+                dataset_category: DatasetCategory::LABORATORIUM,
+                function_category: FunctionCategory::LABORATORIUM,
+            },
+            wallet_signature_b64: None,
+            now: Utc::now(),
+        },
+        None,
+    )
+    .is_ok());
+}
+
+#[test]
+fn admin_write_parent_assigns_rme_on_delegate() {
+    const DELEGATED_RME: &str = "RME-2026-abc12345";
+    let mut params = DelegationAttenuationParams::example_admin_delegate_to_doctor(
+        ADMIN,
+        DOCTOR,
+        DELEGATED_RME,
+        DatasetCategory::RAWAT_JALAN,
+    );
+    params.require_wallet_proof = false;
+    let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
+    let mac = macaroon::Macaroon::deserialize(&delegated).unwrap();
+    assert!(verify_decmed_token(
+        &mac,
+        &root_key(),
+        &TokenVerificationContext {
+            operation: AccessMode::Write,
+            segment: SegmentAccessContext {
+                segment_id: "seg-1".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: DELEGATED_RME.into(),
+                dataset_category: DatasetCategory::RAWAT_JALAN,
+                function_category: FunctionCategory::DIAGNOSIS,
+            },
+            wallet_signature_b64: None,
+            now: Utc::now(),
+        },
+        None,
+    )
+    .is_ok());
+
+    let rme_err = verify_decmed_token(
+        &mac,
+        &root_key(),
+        &TokenVerificationContext {
+            operation: AccessMode::Write,
+            segment: SegmentAccessContext {
+                segment_id: "seg".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: "RME-WRONG".into(),
+                dataset_category: DatasetCategory::RAWAT_JALAN,
+                function_category: FunctionCategory::DIAGNOSIS,
+            },
+            wallet_signature_b64: None,
+            now: Utc::now(),
+        },
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(rme_err, CaveatVerificationError::RmeMismatch);
 }
 
 #[test]
@@ -102,7 +227,7 @@ fn doctor_patient_mismatch() {
         patient_address: "0xBAD".into(),
         related_rme_id: RME_ID.into(),
         dataset_category: DatasetCategory::LABORATORIUM,
-        function_category: FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        function_category: FunctionCategory::LABORATORIUM,
     };
     let err = verify_decmed_token(
         &mac,
@@ -127,7 +252,7 @@ fn doctor_rme_mismatch() {
         patient_address: PATIENT.into(),
         related_rme_id: "RME-999".into(),
         dataset_category: DatasetCategory::LABORATORIUM,
-        function_category: FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        function_category: FunctionCategory::LABORATORIUM,
     };
     let err = verify_decmed_token(
         &mac,
@@ -152,7 +277,7 @@ fn expired_token_rejected() {
         patient_address: PATIENT.into(),
         related_rme_id: RME_ID.into(),
         dataset_category: DatasetCategory::LABORATORIUM,
-        function_category: FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        function_category: FunctionCategory::LABORATORIUM,
     };
     let future = chrono::DateTime::parse_from_rfc3339("2031-01-01T00:00:00+00:00")
         .unwrap()
@@ -190,7 +315,7 @@ fn lab_read_permintaan_ok() {
         &lab_token(&doctor_token()),
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         None,
         None,
     )
@@ -203,7 +328,7 @@ fn lab_write_hasil_ok() {
         &lab_token(&doctor_token()),
         AccessMode::Write,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::HASIL_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         None,
         None,
     )
@@ -219,7 +344,7 @@ fn wallet_signature_required_when_proof_caveat_present() {
         &token,
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         None,
         None,
     )
@@ -240,7 +365,7 @@ fn invalid_wallet_signature_rejected() {
         &token,
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         Some("bad-sig".into()),
         Some(&verifier),
     )
@@ -251,7 +376,7 @@ fn invalid_wallet_signature_rejected() {
         &token,
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         Some("valid-sig".into()),
         Some(&verifier),
     )
@@ -278,7 +403,7 @@ fn lab_denied_apotek_resep() {
         &lab_token(&doctor_token()),
         AccessMode::Read,
         DatasetCategory::APOTEK,
-        FunctionCategory::DATA_RESEP_DAN_OBAT,
+        FunctionCategory::PERESEPAN,
         None,
         None,
     )
@@ -297,7 +422,7 @@ fn broken_delegation_chain_rejected() {
         &serialized,
         AccessMode::Read,
         DatasetCategory::LABORATORIUM,
-        FunctionCategory::PERMINTAAN_PEMERIKSAAN,
+        FunctionCategory::LABORATORIUM,
         None,
         None,
     )

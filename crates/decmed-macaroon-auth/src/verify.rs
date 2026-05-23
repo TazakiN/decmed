@@ -79,8 +79,10 @@ pub fn verify_decmed_token(
     if effective.patient_address.as_deref() != Some(ctx.segment.patient_address.as_str()) {
         return Err(CaveatVerificationError::PatientMismatch);
     }
-    if effective.related_rme_id.as_deref() != Some(ctx.segment.related_rme_id.as_str()) {
-        return Err(CaveatVerificationError::RmeMismatch);
+    match effective.related_rme_id.as_deref() {
+        None => {}
+        Some(token_rme) if token_rme == ctx.segment.related_rme_id => {}
+        Some(_) => return Err(CaveatVerificationError::RmeMismatch),
     }
 
     if effective.is_expired(ctx.now) {

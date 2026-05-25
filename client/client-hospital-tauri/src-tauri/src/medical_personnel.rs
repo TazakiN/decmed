@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
+use decmed_rme_segment::RmeSegmentData;
 use iota_types::base_types::IotaAddress;
 use serde_json::{json, Value};
 use tauri::{async_runtime::Mutex, http::StatusCode, State};
@@ -84,6 +85,7 @@ pub async fn new_medical_record(
         Some(access_token),
         None,
         None,
+        None,
         &format!("{}/medical-record", PROXY_BASE_URL),
         &json!({
             "medical_metadata": serde_serialize_to_base64(&medical_metadata).context(current_fn!())?,
@@ -151,19 +153,16 @@ pub async fn get_medical_record(
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
-        let medical_record_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(
-                data_pre_secret_key_seed_capsule
-                    .unwrap_or(res.data.data_pre_secret_key_seed_capsule),
-            )
-            .context(current_fn!())?;
+        let medical_record_pre_secret_key_seed_capsule: Capsule = serde_deserialize_from_base64(
+            data_pre_secret_key_seed_capsule.unwrap_or(res.data.data_pre_secret_key_seed_capsule),
+        )
+        .context(current_fn!())?;
         let medical_record_pre_secret_key_seed = decrypt_original(
             &hospital_personnel_pre_secret_key,
             &medical_record_pre_secret_key_seed_capsule,
             STANDARD
                 .decode(
-                    enc_data_pre_secret_key_seed
-                        .unwrap_or(res.data.enc_data_pre_secret_key_seed),
+                    enc_data_pre_secret_key_seed.unwrap_or(res.data.enc_data_pre_secret_key_seed),
                 )
                 .context(current_fn!())?,
         )
@@ -208,8 +207,20 @@ pub async fn get_medical_record(
                 .context(current_fn!())?,
         )
         .context(current_fn!())?;
-        let medical_data: MedicalData =
-            serde_json::from_slice(&medical_data).context(current_fn!())?;
+        let medical_data_value =
+            if let Ok(segment) = serde_json::from_slice::<RmeSegmentData>(&medical_data) {
+                json!({
+                    "recordKind": "segment",
+                    "segment": segment,
+                })
+            } else {
+                let medical_data: MedicalData =
+                    serde_json::from_slice(&medical_data).context(current_fn!())?;
+                json!({
+                    "recordKind": "legacy",
+                    "medicalData": medical_data,
+                })
+            };
 
         let c_frag_administrative: CapsuleFrag =
             serde_deserialize_from_base64(res.data.c_frag_administrative).context(current_fn!())?;
@@ -251,14 +262,16 @@ pub async fn get_medical_record(
         let administrative_data: PatientPrivateAdministrativeData =
             serde_json::from_slice(&administrative_data).context(current_fn!())?;
 
-        (medical_data, administrative_data)
+        (medical_data_value, administrative_data)
     };
 
     let res_data = json!({
         "administrativeData": administrative_data,
         "createdAt": res.data.medical_data_created_at,
         "currentIndex": res.data.current_index,
-        "medicalData": medical_data,
+        "medicalData": medical_data.get("medicalData").cloned().unwrap_or(serde_json::Value::Null),
+        "recordKind": medical_data.get("recordKind").cloned().unwrap_or(json!("legacy")),
+        "segment": medical_data.get("segment").cloned(),
         "nextIndex": res.data.next_index,
         "prevIndex": res.data.prev_index,
     });

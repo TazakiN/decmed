@@ -21,8 +21,6 @@ export class AdministrativeHomeState {
 			return [];
 		}
 
-		console.log(resInvokeGetReadAccess.data.data);
-
 		return resInvokeGetReadAccess.data.data;
 	};
 

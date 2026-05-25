@@ -36,10 +36,24 @@ class Auth implements AuthContext {
 				return [...defaultNav];
 			}
 			case MEDICAL_PERSONNEL_ROLE: {
-				return [...defaultNav];
+				return [
+					...defaultNav,
+					{
+						label: 'Delegate',
+						link: `/dashboard/delegation`,
+						pageTitle: 'Delegate'
+					}
+				];
 			}
 			case ADMINISTRATIVE_PERSONNEL_ROLE: {
-				return [...defaultNav];
+				return [
+					...defaultNav,
+					{
+						label: 'Delegate',
+						link: `/dashboard/delegation`,
+						pageTitle: 'Delegate'
+					}
+				];
 			}
 			default: {
 				return defaultNav;

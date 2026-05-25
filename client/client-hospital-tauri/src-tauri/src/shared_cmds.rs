@@ -358,7 +358,7 @@ pub async fn update_profile(
 pub async fn auth_status(
     state: State<'_, Mutex<AppState>>,
 ) -> Result<SuccessResponse<Option<HospitalPersonnelRole>>, HospitalError> {
-    let state = state.lock().await;
+    let mut state = state.lock().await;
     let keys_entry = parse_keys_entry(
         &state
             .keys_entry
@@ -450,6 +450,8 @@ pub async fn auth_status(
             anyhow!("Session PIN not found").context("$<4>$"),
         ));
     }
+
+    state.auth_state.role = role;
 
     Ok(SuccessResponse {
         data: role,

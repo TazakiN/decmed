@@ -14,6 +14,8 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 
 	return {
 		accessToken,
+		dataPreSecretKeySeedCapsule: url.searchParams.get('dataPreSecretKeySeedCapsule'),
+		encDataPreSecretKeySeed: url.searchParams.get('encDataPreSecretKeySeed'),
 		patientIotaAddress,
 		index: isNaN(parseInt(index)) ? 0 : parseInt(index)
 	};

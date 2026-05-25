@@ -19,6 +19,7 @@ use decmed_macaroon_auth::{
 };
 
 pub const WALLET_SIGNATURE_HEADER: &str = "x-decmed-wallet-signature";
+pub const WALLET_TIMESTAMP_HEADER: &str = "x-decmed-wallet-timestamp";
 
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,

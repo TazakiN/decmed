@@ -22,8 +22,8 @@ use crate::{
         ResponseStatus, SuccessResponse,
     },
     utils::{
-        aes_encrypt, do_http_post_request_json, get_iota_key_pair_from_keys_entry, parse_keys_entry,
-        serde_deserialize_from_base64, serde_serialize_to_base64,
+        aes_encrypt, do_http_post_request_json, get_iota_key_pair_from_keys_entry,
+        parse_keys_entry, serde_deserialize_from_base64, serde_serialize_to_base64,
     },
 };
 
@@ -89,7 +89,7 @@ pub async fn new_medical_record_segment(
     access_token: String,
     data: CreateRmeSegmentRequest,
     patient_pre_public_key: String,
-    pin: String,
+    pin: Option<String>,
     delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<CreateRmeSegmentResponse>, HospitalError> {
     use anyhow::anyhow;
@@ -104,6 +104,11 @@ pub async fn new_medical_record_segment(
     let patient_pre_public_key: PublicKey =
         serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
+    let pin = pin
+        .or_else(|| state.auth_state.session_pin.clone())
+        .ok_or_else(|| {
+            HospitalError::Anyhow(anyhow!("Session PIN not found").context(current_fn!()))
+        })?;
     let iota_key_pair =
         get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
     let author_address = crate::utils::get_iota_address_from_keys_entry(&keys_entry)?.to_string();
@@ -111,17 +116,21 @@ pub async fn new_medical_record_segment(
     segment_request.author_address = author_address;
 
     let (_, encrypted_segment) =
-        build_encrypted_rme_segment(segment_request, patient_pre_public_key).context(current_fn!())?;
+        build_encrypted_rme_segment(segment_request, patient_pre_public_key)
+            .context(current_fn!())?;
 
+    let mac = macaroon::Macaroon::deserialize(&access_token)
+        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
+    let wallet_timestamp = chrono::Utc::now().to_rfc3339();
     let wallet_ctx = decmed_macaroon_auth::WalletProofContext {
-        token_id: access_token.chars().take(32).collect(),
+        token_id: mac.identifier().to_string(),
         patient_address: encrypted_segment.patient_address.clone(),
         related_rme_id: encrypted_segment.related_rme_id.clone(),
         operation: decmed_macaroon_auth::AccessMode::Write,
         segment_id: encrypted_segment.segment_id.clone(),
         dataset_category: encrypted_segment.dataset_category,
         function_category: encrypted_segment.function_category,
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: wallet_timestamp.clone(),
     };
     let canonical = wallet_ctx
         .canonical_message()
@@ -136,6 +145,7 @@ pub async fn new_medical_record_segment(
     >(
         Some(access_token),
         Some(wallet_signature),
+        Some(wallet_timestamp),
         delegation_signature,
         &format!("{}/medical-record-segment", PROXY_BASE_URL),
         &ProxyCreateRmeSegmentPayload {

@@ -19,7 +19,7 @@
 			<Tabs.Trigger
 				value={medicalHomeState.tabs[1]}
 				class="data-[state=active]:bg-zinc-100 hover:bg-zinc-100 cursor-pointer px-3 py-1 rounded-md"
-				>Update</Tabs.Trigger
+				>Write</Tabs.Trigger
 			>
 		</div>
 	</Tabs.List>
@@ -35,9 +35,9 @@
 				</div>
 			{:then readAccess}
 				{#if readAccess && readAccess.length > 0}
-					{#each readAccess as access, i (i)}
+					{#each readAccess as capability, i (i)}
 						<a
-							href={`/dashboard/emr/${access.patientIotaAddress}?accessToken=${access.accessToken}&index=0`}
+							href={`/dashboard/emr/${capability.access.patientIotaAddress}?accessToken=${encodeURIComponent(capability.access.accessToken)}&index=0&encDataPreSecretKeySeed=${encodeURIComponent(capability.access.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(capability.access.dataPreSecretKeySeedCapsule ?? '')}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div
@@ -45,7 +45,7 @@
 							>
 								<p class="text-xs font-medium">{i + 1}</p>
 							</div>
-							<p class="flex-1 flex">{access.patientName}</p>
+							<p class="flex-1 flex">{capability.access.patientName}</p>
 							<span class="flex items-center justify-center">
 								<ChevronRight />
 							</span>
@@ -72,9 +72,9 @@
 				</div>
 			{:then updateAccess}
 				{#if updateAccess && updateAccess.length > 0}
-					{#each updateAccess as access, i (i)}
+					{#each updateAccess as capability, i (i)}
 						<a
-							href={`/dashboard/emr/${access.patientIotaAddress}/update?accessToken=${access.accessToken}&patientPrePublicKey=${access.patientPrePublicKey}&medicalMetadataIndex=${access.medicalMetadataIndex}`}
+							href={`/dashboard/emr/${capability.access.patientIotaAddress}/write?accessToken=${encodeURIComponent(capability.access.accessToken)}&patientPrePublicKey=${encodeURIComponent(capability.access.patientPrePublicKey ?? '')}&relatedRmeId=${encodeURIComponent(capability.relatedRmeId ?? capability.access.relatedRmeId ?? '')}&delegationSignature=${encodeURIComponent(capability.access.delegationSignature ?? '')}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div
@@ -82,7 +82,7 @@
 							>
 								<p class="text-xs font-medium">{i + 1}</p>
 							</div>
-							<p class="flex flex-1">{access.patientName}</p>
+							<p class="flex flex-1">{capability.access.patientName}</p>
 							<span class="flex items-center justify-center">
 								<ChevronRight />
 							</span>

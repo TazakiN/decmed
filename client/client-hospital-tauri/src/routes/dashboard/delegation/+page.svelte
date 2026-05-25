@@ -1,134 +1,360 @@
 <script lang="ts">
-	import { ADMINISTRATIVE_PERSONNEL_ROLE } from '$lib/constants';
-	import type { SuccessResponse, TauriAccessData } from '$lib/types';
+	import {
+		datasetLabels,
+		functionLabels,
+		intersect,
+		isReadableCapability,
+		isWritableCapability,
+		presetItems,
+		presetScope,
+		sortDatasets,
+		sortFunctions,
+		type DelegationMode,
+		type DelegationPreset
+	} from '$lib/capabilities';
+	import type {
+		AccessCapabilitiesResponse,
+		AccessCapabilityData,
+		DatasetCategory,
+		FunctionCategory,
+		SuccessResponse
+	} from '$lib/types';
 	import { tryCatchAsVal } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
+	import { Loader2 } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-
-	type Preset = 'nurse' | 'doctor' | 'lab' | 'apotek';
 
 	let { data } = $props();
 
-	let writeAccess = $state<TauriAccessData[]>([]);
-	let selectedAccessIndex = $state(0);
-	let selectedAccess = $derived(writeAccess[selectedAccessIndex]);
-	let preset = $state<Preset>('doctor');
+	type PatientAccess = {
+		patientIotaAddress: string;
+		patientName: string;
+		read?: AccessCapabilityData;
+		write?: AccessCapabilityData;
+	};
+
+	let accesses = $state<PatientAccess[]>([]);
+	let selectedPatientAddress = $state(data.patientAddress ?? '');
+	let mode = $state<DelegationMode>('read_write');
+	let preset = $state<DelegationPreset>('nurse');
+	let encounterDataset = $state<DatasetCategory>('RAWAT_JALAN');
+	let previewReadDatasets = $state<DatasetCategory[]>([]);
+	let previewWriteDatasets = $state<DatasetCategory[]>([]);
+	let previewReadFunctions = $state<FunctionCategory[]>([]);
+	let previewWriteFunctions = $state<FunctionCategory[]>([]);
 	let delegateeAddress = $state('');
 	let delegateePrePublicKey = $state('');
-	let generatedRelatedRmeId = $state<string | null>(null);
+	let isSubmitting = $state(false);
 
-	const isAdminPersonnel = $derived(data.role === ADMINISTRATIVE_PERSONNEL_ROLE);
+	const selectedAccess = $derived(
+		accesses.find((access) => access.patientIotaAddress === selectedPatientAddress)
+	);
+	const activeRead = $derived(selectedAccess?.read);
+	const activeWrite = $derived(selectedAccess?.write);
+	const availableEncounterDatasets = $derived(
+		sortDatasets(
+			intersect(
+				['RAWAT_JALAN', 'RAWAT_INAP'] as DatasetCategory[],
+				[...(activeRead?.readDatasets ?? []), ...(activeWrite?.writeDatasets ?? [])]
+			)
+		)
+	);
 
-	const loadAccess = async () => {
-		if (!isAdminPersonnel) return;
+	const groupAccesses = (capabilities: AccessCapabilitiesResponse) => {
+		const map = new Map<string, PatientAccess>();
+		for (const capability of capabilities.read.filter(isReadableCapability)) {
+			map.set(capability.access.patientIotaAddress, {
+				...(map.get(capability.access.patientIotaAddress) ?? {
+					patientIotaAddress: capability.access.patientIotaAddress,
+					patientName: capability.access.patientName
+				}),
+				read: capability
+			});
+		}
+		for (const capability of capabilities.write.filter(isWritableCapability)) {
+			map.set(capability.access.patientIotaAddress, {
+				...(map.get(capability.access.patientIotaAddress) ?? {
+					patientIotaAddress: capability.access.patientIotaAddress,
+					patientName: capability.access.patientName
+				}),
+				write: capability
+			});
+		}
+		return [...map.values()];
+	};
 
+	const loadAccesses = async () => {
 		const res = await tryCatchAsVal(async () => {
-			return (await invoke('get_update_access_administrative_personnel')) as SuccessResponse<
-				TauriAccessData[]
-			>;
+			return (await invoke('get_current_access_capabilities')) as SuccessResponse<AccessCapabilitiesResponse>;
 		});
 		if (!res.success) {
 			toast.error(res.error);
-			return;
+			return [];
 		}
-		writeAccess = res.data.data;
-
-		if (data.patientAddress) {
-			const selectedIndex = writeAccess.findIndex(
-				(access) => access.patientIotaAddress === data.patientAddress
-			);
-			selectedAccessIndex = selectedIndex >= 0 ? selectedIndex : 0;
+		accesses = groupAccesses(res.data.data);
+		if (!selectedPatientAddress) {
+			selectedPatientAddress = accesses[0]?.patientIotaAddress ?? '';
 		}
+		applyPreset();
+		return accesses;
 	};
 
-	const delegateAccess = async () => {
-		const entry = selectedAccess;
-		if (!entry) {
-			toast.error('Write access pasien tidak ditemukan');
+	const applyPreset = () => {
+		if (!selectedAccess) return;
+		if (availableEncounterDatasets.length > 0 && !availableEncounterDatasets.includes(encounterDataset)) {
+			encounterDataset = availableEncounterDatasets[0];
+		}
+		const scope = presetScope({
+			preset,
+			encounterDataset,
+			readCapability: activeRead,
+			writeCapability: activeWrite
+		});
+		previewReadDatasets = scope.readDatasets;
+		previewWriteDatasets = scope.writeDatasets;
+		previewReadFunctions = scope.readFunctions;
+		previewWriteFunctions = scope.writeFunctions;
+	};
+
+	const toggleDataset = (values: DatasetCategory[], value: DatasetCategory) => {
+		return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+	};
+
+	const toggleFunction = (values: FunctionCategory[], value: FunctionCategory) => {
+		return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+	};
+
+	const submitDelegation = async () => {
+		if (!selectedAccess) {
+			toast.error('Pilih pasien');
 			return;
 		}
 		if (!delegateeAddress.trim() || !delegateePrePublicKey.trim()) {
-			toast.error('Isi alamat dan PRE public key delegatee');
+			toast.error('Isi IOTA address dan PRE public key');
 			return;
 		}
 
-		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+		if ((mode === 'read' || mode === 'read_write') && !activeRead) {
+			toast.error('Read access parent tidak tersedia');
+			return;
+		}
+		if ((mode === 'write' || mode === 'read_write') && !activeWrite) {
+			toast.error('Write access parent tidak tersedia');
+			return;
+		}
+		const source = mode === 'read' ? activeRead : activeWrite;
+		if (!source) {
+			toast.error('Akses parent tidak tersedia');
+			return;
+		}
+		const sourceAccess = source.access;
+		const parentEncDataPreSecretKeySeed = sourceAccess.encDataPreSecretKeySeed;
+		const parentDataPreSecretKeySeedCapsule = sourceAccess.dataPreSecretKeySeedCapsule;
+		if (!parentEncDataPreSecretKeySeed || !parentDataPreSecretKeySeedCapsule) {
+			toast.error('Metadata kunci parent tidak lengkap');
+			return;
+		}
+		if (
+			(mode === 'read' || mode === 'read_write') &&
+			(previewReadDatasets.length === 0 || previewReadFunctions.length === 0)
+		) {
+			toast.error('Scope Read tidak boleh kosong');
+			return;
+		}
+		if (
+			(mode === 'write' || mode === 'read_write') &&
+			(previewWriteDatasets.length === 0 || previewWriteFunctions.length === 0)
+		) {
+			toast.error('Scope Write tidak boleh kosong');
+			return;
+		}
 
+		isSubmitting = true;
 		const res = await tryCatchAsVal(async () => {
-			return (await invoke('create_admin_delegated_access', {
+			return (await invoke('create_delegated_access', {
 				payload: {
-					parentWriteToken: entry.accessToken,
+					mode,
+					parentReadToken: activeRead?.access.accessToken ?? null,
+					parentWriteToken: activeWrite?.access.accessToken ?? null,
 					delegateeIotaAddress: delegateeAddress.trim(),
 					delegateePrePublicKey: delegateePrePublicKey.trim(),
-					patientIotaAddress: entry.patientIotaAddress,
-					patientName: entry.patientName,
-					patientPrePublicKey: entry.patientPrePublicKey,
-					parentEncDataPreSecretKeySeed: entry.encDataPreSecretKeySeed ?? '',
-					parentDataPreSecretKeySeedCapsule: entry.dataPreSecretKeySeedCapsule ?? '',
-					expiresBefore: expires,
-					preset
+					patientIotaAddress: selectedAccess.patientIotaAddress,
+					patientName: selectedAccess.patientName,
+					patientPrePublicKey:
+						activeWrite?.access.patientPrePublicKey ?? activeRead?.access.patientPrePublicKey ?? null,
+					parentEncDataPreSecretKeySeed,
+					parentDataPreSecretKeySeedCapsule,
+					expiresBefore: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+					relatedRmeId: activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null,
+					readDatasets: mode === 'write' ? [] : previewReadDatasets,
+					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
+					readFunctions: mode === 'write' ? [] : previewReadFunctions,
+					writeFunctions: mode === 'read' ? [] : previewWriteFunctions
 				}
-			})) as SuccessResponse<{ relatedRmeId: string }>;
+			})) as SuccessResponse<{ relatedRmeId?: string | null }>;
 		});
+		isSubmitting = false;
 
 		if (!res.success) {
 			toast.error(res.error);
 			return;
 		}
-
-		generatedRelatedRmeId = res.data.data.relatedRmeId;
-		toast.success(`Delegasi berhasil. RME ID: ${generatedRelatedRmeId}`);
+		toast.success('Delegasi berhasil dibuat');
 	};
 
 	$effect(() => {
-		void data.role;
-		void loadAccess();
+		void selectedPatientAddress;
+		void preset;
+		void encounterDataset;
+		applyPreset();
 	});
 </script>
 
-<div class="flex flex-col gap-4 p-4">
-	<h2 class="font-montserrat text-xl font-medium">Delegasi Akses</h2>
+<div class="flex flex-col gap-4">
+	<h2 class="font-montserrat text-xl font-medium">Delegate</h2>
 
-	{#if !isAdminPersonnel}
-		<p>Halaman ini hanya untuk Administrative Personnel.</p>
-	{:else}
-		{#if selectedAccess}
-			<div class="border border-zinc-200 rounded p-3">
-				<p class="font-medium">{selectedAccess.patientName}</p>
-				<p class="text-xs text-zinc-600 truncate">{selectedAccess.patientIotaAddress}</p>
+	{#await loadAccesses()}
+		<div class="p-4 bg-white border border-zinc-200 rounded-md flex items-center gap-2">
+			<Loader2 class="animate-spin" size={18} />
+			<span>Loading...</span>
+		</div>
+	{:then loadedAccesses}
+		<div class="bg-white border border-zinc-200 rounded-md p-4">
+			<h3 class="font-medium mb-3">Hak akses saya</h3>
+			{#if loadedAccesses.length === 0}
+				<p class="text-sm text-zinc-600">Belum ada akses pasien.</p>
+			{:else}
+				<div class="grid gap-3">
+					{#each loadedAccesses as access (access.patientIotaAddress)}
+						<div class="border border-zinc-200 rounded-md p-3">
+							<p class="font-medium">{access.patientName}</p>
+							<p class="text-xs text-zinc-500 break-all">{access.patientIotaAddress}</p>
+							<div class="mt-2 grid gap-1 text-sm">
+								<p>Read: {access.read ? access.read.readFunctions.length : 0} functions</p>
+								<p>Write: {access.write ? access.write.writeFunctions.length : 0} functions</p>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		{#if loadedAccesses.length > 0}
+			<div class="bg-white border border-zinc-200 rounded-md p-4 flex flex-col gap-4">
+				<label class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Pasien</span>
+					<select class="input-text max-w-md" bind:value={selectedPatientAddress}>
+						{#each loadedAccesses as access (access.patientIotaAddress)}
+							<option value={access.patientIotaAddress}>{access.patientName}</option>
+						{/each}
+					</select>
+				</label>
+
+				<div class="flex flex-wrap gap-2">
+					{#each [{ value: 'read', label: 'Read' }, { value: 'write', label: 'Write' }, { value: 'read_write', label: 'Read + Write' }] as item}
+						<button
+							type="button"
+							class={`px-3 py-1 rounded-md border ${mode === item.value ? 'bg-zinc-800 text-zinc-50 border-zinc-800' : 'bg-white border-zinc-200'}`}
+							onclick={() => (mode = item.value as DelegationMode)}
+						>
+							{item.label}
+						</button>
+					{/each}
+				</div>
+
+				<div class="grid md:grid-cols-2 gap-3">
+					<label class="flex flex-col gap-1">
+						<span class="text-sm font-medium">Preset</span>
+						<select class="input-text" bind:value={preset}>
+							{#each presetItems as item (item.value)}
+								<option value={item.value}>{item.label}</option>
+							{/each}
+						</select>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-sm font-medium">Encounter dataset</span>
+						<select class="input-text" bind:value={encounterDataset}>
+							{#each availableEncounterDatasets as dataset (dataset)}
+								<option value={dataset}>{datasetLabels[dataset]}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+
+				<div class="grid md:grid-cols-2 gap-4">
+					<div class="border border-zinc-200 rounded-md p-3">
+						<p class="font-medium mb-2">Read preview</p>
+						{#each sortDatasets(activeRead?.readDatasets ?? []) as dataset (dataset)}
+							<label class="flex items-center gap-2 text-sm">
+								<input
+									type="checkbox"
+									checked={previewReadDatasets.includes(dataset)}
+									onchange={() => (previewReadDatasets = toggleDataset(previewReadDatasets, dataset))}
+								/>
+								{datasetLabels[dataset]}
+							</label>
+						{/each}
+						<div class="mt-3 grid gap-1">
+							{#each sortFunctions(activeRead?.readFunctions ?? []) as functionCategory (functionCategory)}
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										checked={previewReadFunctions.includes(functionCategory)}
+										onchange={() =>
+											(previewReadFunctions = toggleFunction(previewReadFunctions, functionCategory))}
+									/>
+									{functionLabels[functionCategory]}
+								</label>
+							{/each}
+						</div>
+					</div>
+
+					<div class="border border-zinc-200 rounded-md p-3">
+						<p class="font-medium mb-2">Write preview</p>
+						{#each sortDatasets(activeWrite?.writeDatasets ?? []) as dataset (dataset)}
+							<label class="flex items-center gap-2 text-sm">
+								<input
+									type="checkbox"
+									checked={previewWriteDatasets.includes(dataset)}
+									onchange={() => (previewWriteDatasets = toggleDataset(previewWriteDatasets, dataset))}
+								/>
+								{datasetLabels[dataset]}
+							</label>
+						{/each}
+						<div class="mt-3 grid gap-1">
+							{#each sortFunctions(activeWrite?.writeFunctions ?? []) as functionCategory (functionCategory)}
+								<label class="flex items-center gap-2 text-sm">
+									<input
+										type="checkbox"
+										checked={previewWriteFunctions.includes(functionCategory)}
+										onchange={() =>
+											(previewWriteFunctions = toggleFunction(previewWriteFunctions, functionCategory))}
+									/>
+									{functionLabels[functionCategory]}
+								</label>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<label class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Delegatee IOTA address</span>
+					<input class="input-text" bind:value={delegateeAddress} />
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Delegatee PRE public key</span>
+					<input class="input-text" bind:value={delegateePrePublicKey} />
+				</label>
+
+				<button
+					type="button"
+					class="button-dark max-w-max px-4 disabled:opacity-50"
+					disabled={isSubmitting}
+					onclick={submitDelegation}
+				>
+					{isSubmitting ? 'Delegating...' : 'Delegate'}
+				</button>
 			</div>
-		{:else if writeAccess.length === 0}
-			<p class="text-sm text-zinc-600">Belum ada write access dari pasien.</p>
-		{:else}
-			<p class="text-sm text-zinc-600">Write access pasien yang dipilih tidak ditemukan.</p>
 		{/if}
-
-		<label class="flex flex-col gap-1">
-			<span>Preset delegasi</span>
-			<select class="border p-2 rounded" bind:value={preset}>
-				<option value="nurse">Perawat (anamnesis/pemeriksaan)</option>
-				<option value="doctor">Dokter (diagnosis/terapi/lab/resep)</option>
-				<option value="lab">Laboratorium</option>
-				<option value="apotek">Apotek (resep/dispensing)</option>
-			</select>
-		</label>
-
-		<p class="text-sm text-zinc-600">
-			Episode RAWAT diwarisi dari write token parent. RME ID baru dibuat otomatis saat delegasi.
-		</p>
-		{#if generatedRelatedRmeId}
-			<p class="text-sm font-medium">Related RME ID: {generatedRelatedRmeId}</p>
-		{/if}
-
-		<label class="flex flex-col gap-1">
-			<span>Delegatee IOTA address</span>
-			<input class="border p-2 rounded" bind:value={delegateeAddress} />
-		</label>
-		<label class="flex flex-col gap-1">
-			<span>Delegatee PRE public key (base64)</span>
-			<input class="border p-2 rounded" bind:value={delegateePrePublicKey} />
-		</label>
-
-		<button type="button" class="button-dark" onclick={delegateAccess}>Delegasi</button>
-	{/if}
+	{/await}
 </div>

@@ -1,19 +1,18 @@
-import type { SuccessResponse, TauriAccessData } from '$lib/types';
+import { isReadableCapability, isWritableCapability } from '$lib/capabilities';
+import type { AccessCapabilitiesResponse, SuccessResponse } from '$lib/types';
 import { tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 
 export class MedicalHomeState {
-	tabs = ['read', 'update'];
+	tabs = ['read', 'write'];
 	currentTab = $state(this.tabs[0]);
 
 	constructor() {}
 
 	get_read_access = async () => {
 		const resInvokeGetReadAccess = await tryCatchAsVal(async () => {
-			return (await invoke('get_read_access_medical_personnel')) as SuccessResponse<
-				TauriAccessData[]
-			>;
+			return (await invoke('get_current_access_capabilities')) as SuccessResponse<AccessCapabilitiesResponse>;
 		});
 
 		if (!resInvokeGetReadAccess.success) {
@@ -21,19 +20,13 @@ export class MedicalHomeState {
 			return [];
 		}
 
-		console.log(resInvokeGetReadAccess.data.data);
-
-		return resInvokeGetReadAccess.data.data;
+		return resInvokeGetReadAccess.data.data.read.filter(isReadableCapability);
 	};
 
 	get_update_access = async () => {
 		const resInvokeGetUpdateAccess = await tryCatchAsVal(async () => {
-			return (await invoke('get_update_access_medical_personnel')) as SuccessResponse<
-				TauriAccessData[]
-			>;
+			return (await invoke('get_current_access_capabilities')) as SuccessResponse<AccessCapabilitiesResponse>;
 		});
-
-		console.log('update-access', resInvokeGetUpdateAccess);
 
 		if (!resInvokeGetUpdateAccess.success) {
 			toast.error(resInvokeGetUpdateAccess.error);
@@ -41,6 +34,6 @@ export class MedicalHomeState {
 			return [];
 		}
 
-		return resInvokeGetUpdateAccess.data.data;
+		return resInvokeGetUpdateAccess.data.data.write.filter(isWritableCapability);
 	};
 }

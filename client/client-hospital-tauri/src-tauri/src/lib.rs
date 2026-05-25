@@ -5,8 +5,8 @@ mod administrative_personnel;
 mod constants;
 mod hospital_error;
 mod hospital_pre;
-mod macros;
 mod macaroon_delegation;
+mod macros;
 mod medical_personnel;
 mod move_call;
 mod rme_segment;
@@ -149,6 +149,8 @@ pub fn run() {
             administrative_personnel::get_administrative_data,
             administrative_personnel::get_read_access_administrative_personnel,
             administrative_personnel::get_update_access_administrative_personnel,
+            access_delegation::get_current_access_capabilities,
+            access_delegation::create_delegated_access,
             access_delegation::create_admin_delegated_access,
         ])
         .run(tauri::generate_context!())

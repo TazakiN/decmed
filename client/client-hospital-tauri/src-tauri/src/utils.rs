@@ -463,6 +463,7 @@ pub fn _decode_hospital_personnel_qr(
 pub async fn do_http_post_request_json<P, T, E>(
     access_token: Option<String>,
     wallet_signature: Option<String>,
+    wallet_timestamp: Option<String>,
     delegation_signature: Option<String>,
     endpoint: &str,
     payload: &P,
@@ -480,6 +481,9 @@ where
     }
     if let Some(sig) = wallet_signature {
         res = res.header("x-decmed-wallet-signature", sig);
+    }
+    if let Some(timestamp) = wallet_timestamp {
+        res = res.header("x-decmed-wallet-timestamp", timestamp);
     }
     if let Some(sig) = delegation_signature {
         res = res.header("x-decmed-delegation-signature", sig);

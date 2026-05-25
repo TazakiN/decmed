@@ -49,11 +49,20 @@ export type SuccessResponse<T> = {
 export type TauriAccessData = {
 	accessDataTypes: TauriAccessDataType[];
 	accessToken: string;
+	tokenHash?: string;
+	dataPreSecretKeySeedCapsule?: string | null;
+	encDataPreSecretKeySeed?: string | null;
 	exp: number;
 	medicalMetadataIndex: number | null;
 	patientIotaAddress: string;
 	patientName: string;
 	patientPrePublicKey: string | null;
+	relatedRmeId?: string | null;
+	delegatedBy?: string | null;
+	delegatedTo?: string | null;
+	expiresBefore?: string | null;
+	delegationSignature?: string | null;
+	delegationDepth?: number | null;
 };
 
 export type TauriAccessDataType = 'Administrative' | 'Medical';
@@ -67,7 +76,6 @@ export type TauriMedicalData = {
 };
 
 export type DatasetCategory =
-	| 'ADMINISTRATIVE'
 	| 'RAWAT_JALAN'
 	| 'RAWAT_INAP'
 	| 'LABORATORIUM'
@@ -86,22 +94,26 @@ export type FunctionCategory =
 	| 'DIAGNOSIS'
 	| 'INFORMED_CONSENT'
 	| 'TERAPI'
-	| 'PERMINTAAN_PEMERIKSAAN'
-	| 'SPESIMEN_KLINIS'
-	| 'PENGOLAHAN_SPESIMEN'
-	| 'HASIL_PEMERIKSAAN'
-	| 'VALIDASI_HASIL'
-	| 'DISTRIBUSI_HASIL'
-	| 'DATA_RESEP_DAN_OBAT'
-	| 'RIWAYAT_ALERGI'
-	| 'ASAL_RESEP'
-	| 'DOKTER_PENULIS_RESEP'
-	| 'STATUS_DAN_PENGKAJIAN_RESEP'
-	| 'STATUS_RESEP'
-	| 'WAKTU_PENYIAPAN_OBAT'
-	| 'WAKTU_PENYERAHAN_OBAT'
-	| 'PETUGAS_DISPENSING'
-	| 'ETIKET';
+	| 'LABORATORIUM'
+	| 'PERESEPAN'
+	| 'DISPENSING';
+
+export type AccessCapabilityData = {
+	access: TauriAccessData;
+	purpose: 'Read' | 'Update' | string;
+	readDatasets: DatasetCategory[];
+	writeDatasets: DatasetCategory[];
+	readFunctions: FunctionCategory[];
+	writeFunctions: FunctionCategory[];
+	expiresBefore?: string | null;
+	relatedRmeId?: string | null;
+	delegationDepth?: number | null;
+};
+
+export type AccessCapabilitiesResponse = {
+	read: AccessCapabilityData[];
+	write: AccessCapabilityData[];
+};
 
 export type RmeSegmentAttachment = {
 	cid: string;
@@ -200,7 +212,9 @@ export type GetProfileData = {
 export type InvokeGetMedicalRecordResponseData = {
 	administrativeData: TauriPatientPrivateAdministrativeData;
 	createdAt: string;
-	medicalData: TauriMedicalData;
+	medicalData: TauriMedicalData | null;
+	recordKind?: 'legacy' | 'segment';
+	segment?: RmeSegmentData | null;
 	currentIndex: number;
 	nextIndex?: number | null;
 	prevIndex?: number | null;

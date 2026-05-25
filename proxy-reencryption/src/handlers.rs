@@ -23,8 +23,10 @@ use crate::constants::{
 };
 use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
-use decmed_macaroon_auth::{verify_decmed_token, SegmentAccessContext, TokenVerificationContext};
-use crate::middlewares::WALLET_SIGNATURE_HEADER;
+use decmed_macaroon_auth::{
+    verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
+};
+use crate::middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER};
 use crate::proxy_error::{ProxyError, ResultExt};
 use decmed_macaroon_auth::{
     issue_admin_personnel_token, issue_initial_token, AccessMode, AdminTokenKind,
@@ -314,6 +316,9 @@ impl Handlers {
             let wallet_sig = headers
                 .get(WALLET_SIGNATURE_HEADER)
                 .and_then(|v| v.to_str().ok());
+            let wallet_timestamp = headers
+                .get(WALLET_TIMESTAMP_HEADER)
+                .and_then(|v| v.to_str().ok());
             let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
                 .map_err(|_| {
                     ProxyError::Anyhow {
@@ -338,6 +343,7 @@ impl Handlers {
                     operation: AccessMode::Write,
                     segment,
                     wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
+                    wallet_timestamp: wallet_timestamp.map(|s| s.to_string()),
                     now: chrono::Utc::now(),
                 },
                 verifier,
@@ -628,56 +634,81 @@ impl Handlers {
             let access_keys: AccessKeys =
                 Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
 
-            let (medical_metadata, administrative_metadata, current_index, prev_index, next_index) =
-                state
+            let mut scan_index = query.index.unwrap_or(0);
+            let (medical_metadata, administrative_metadata, current_index, prev_index, next_index) = loop {
+                let record = state
                     .move_call
                     .get_medical_record(
                         &hospital_personnel_iota_address,
-                        query.index.unwrap_or(0),
+                        scan_index,
                         &patient_iota_address,
                         proxy_iota_address,
                     )
                     .await
                     .context(current_fn!())?;
 
-            if current_user.decmed_token.is_some() {
-                if let Ok(segment_meta) = Utils::serde_deserialize_from_base64::<RmeSegmentMetadata>(
-                    medical_metadata.metadata.clone(),
-                ) {
-                    let wallet_sig = headers
-                        .get(WALLET_SIGNATURE_HEADER)
-                        .and_then(|v| v.to_str().ok());
-                    let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
-                        .map_err(|_| {
-                            ProxyError::Anyhow {
+                if current_user.decmed_token.is_some() {
+                    if let Ok(segment_meta) = Utils::serde_deserialize_from_base64::<
+                        RmeSegmentMetadata,
+                    >(record.0.metadata.clone())
+                    {
+                        let wallet_sig = headers
+                            .get(WALLET_SIGNATURE_HEADER)
+                            .and_then(|v| v.to_str().ok());
+                        let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
+                            .map_err(|_| ProxyError::Anyhow {
                                 source: anyhow!("Invalid access token"),
                                 code: StatusCode::UNAUTHORIZED,
+                            })?;
+                        let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+                        let segment = SegmentAccessContext {
+                            segment_id: segment_meta.segment_id.clone(),
+                            patient_address: segment_meta.patient_address.clone(),
+                            related_rme_id: segment_meta.related_rme_id.clone(),
+                            dataset_category: segment_meta.dataset_category,
+                            function_category: segment_meta.function_category,
+                        };
+                        let verifier: Option<&dyn decmed_macaroon_auth::WalletSignatureVerifier> =
+                            Some(&IotaWalletVerifier);
+                        match verify_decmed_token(
+                            &mac,
+                            &root_key,
+                            &TokenVerificationContext {
+                                operation: AccessMode::Read,
+                                segment,
+                                wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
+                                wallet_timestamp: None,
+                                now: chrono::Utc::now(),
+                            },
+                            verifier,
+                        ) {
+                            Ok(_) => break record,
+                            Err(CaveatVerificationError::WalletSignatureRequired)
+                                if wallet_sig.is_none() =>
+                            {
+                                break record
                             }
-                        })?;
-                    let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
-                    let segment = SegmentAccessContext {
-                        segment_id: segment_meta.segment_id.clone(),
-                        patient_address: segment_meta.patient_address.clone(),
-                        related_rme_id: segment_meta.related_rme_id.clone(),
-                        dataset_category: segment_meta.dataset_category,
-                        function_category: segment_meta.function_category,
-                    };
-                    let verifier: Option<&dyn decmed_macaroon_auth::WalletSignatureVerifier> =
-                        Some(&IotaWalletVerifier);
-                    verify_decmed_token(
-                        &mac,
-                        &root_key,
-                        &TokenVerificationContext {
-                            operation: AccessMode::Read,
-                            segment,
-                            wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
-                            now: chrono::Utc::now(),
-                        },
-                        verifier,
-                    )
-                    .map_err(map_caveat_error)?;
+                            Err(
+                                CaveatVerificationError::DatasetCategoryNotAllowed
+                                | CaveatVerificationError::FunctionCategoryNotAllowed
+                                | CaveatVerificationError::RmeMismatch,
+                            ) => {
+                                if let Some(next_scan_index) = record.4 {
+                                    scan_index = next_scan_index;
+                                    continue;
+                                }
+                                return Err(ProxyError::Anyhow {
+                                    source: anyhow!("No accessible medical record found"),
+                                    code: StatusCode::NOT_FOUND,
+                                });
+                            }
+                            Err(err) => return Err(map_caveat_error(err)),
+                        }
+                    }
                 }
-            }
+
+                break record;
+            };
 
             let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 

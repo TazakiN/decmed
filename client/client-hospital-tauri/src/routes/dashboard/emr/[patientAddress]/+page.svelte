@@ -5,9 +5,16 @@
 
 	let emrReadState = new EmrReadState({
 		accessToken: data.accessToken,
+		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule,
+		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
 		index: data.index,
 		patientIotaAddress: data.patientIotaAddress
 	});
+
+	const segmentPayloadText = (payload: Record<string, unknown> | undefined) => {
+		if (!payload) return '';
+		return typeof payload.text === 'string' ? payload.text : JSON.stringify(payload, null, 2);
+	};
 </script>
 
 <h2 class="text-lg font-montserrat font-semibold">EMR of</h2>
@@ -98,76 +105,108 @@
 			</div>
 		</div>
 
-		<div class="flex flex-col gap-1">
-			<label for="anamnesis" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-				>Anamnesis</label
-			>
-			<textarea
-				id="anamnesis"
-				name="anamnesis"
-				disabled
-				value={record.medicalData.anamnesis}
-				class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-			></textarea>
-		</div>
-		<div class="flex flex-col gap-1">
-			<label
-				for="physicalCheck"
-				class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-				>Physical Check</label
-			>
-			<textarea
-				id="physicalCheck"
-				name="physicalCheck"
-				disabled
-				value={record.medicalData.physical_check}
-				class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-			></textarea>
-		</div>
-		<div class="flex flex-col gap-1">
-			<label
-				for="psychologicalCheck"
-				class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-				>Psychological Check</label
-			>
-			<textarea
-				id="psychologicalCheck"
-				name="psychologicalCheck"
-				disabled
-				value={record.medicalData.psychological_check}
-				class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-			></textarea>
-		</div>
-		<div class="flex flex-col gap-1">
-			<label for="diagnose" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-				>Diagnose</label
-			>
-			<textarea
-				id="diagnose"
-				name="diagnose"
-				disabled
-				value={record.medicalData.diagnose}
-				class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-			></textarea>
-		</div>
-		<div class="flex flex-col gap-1">
-			<label for="therapy" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-				>Therapy</label
-			>
-			<textarea
-				id="therapy"
-				name="therapy"
-				disabled
-				value={record.medicalData.therapy}
-				class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-			></textarea>
-		</div>
+		{#if record.recordKind === 'segment' && record.segment}
+			<div class="grid grid-cols-[150px_1fr] items-center mt-4">
+				<div class="p-2 bg-white border border-b-0 border-zinc-200">
+					<span>Dataset</span>
+				</div>
+				<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
+					<span>{record.segment.dataset_category}</span>
+				</div>
+				<div class="p-2 bg-white border border-b-0 border-zinc-200">
+					<span>Function</span>
+				</div>
+				<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
+					<span>{record.segment.function_category}</span>
+				</div>
+				<div class="p-2 bg-white border border-zinc-200">
+					<span>Author</span>
+				</div>
+				<div class="p-2 border border-zinc-200 border-l-0">
+					<span class="break-all">{record.segment.author_address}</span>
+				</div>
+			</div>
+			<div class="flex flex-col gap-1 mt-4">
+				<label for="segmentPayload" class="font-medium text-sm py-2">Payload</label>
+				<textarea
+					id="segmentPayload"
+					disabled
+					value={segmentPayloadText(record.segment.payload)}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md min-h-28"
+				></textarea>
+			</div>
+		{:else if record.medicalData}
+			<div class="flex flex-col gap-1">
+				<label for="anamnesis" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
+					>Anamnesis</label
+				>
+				<textarea
+					id="anamnesis"
+					name="anamnesis"
+					disabled
+					value={record.medicalData.anamnesis}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
+				></textarea>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label
+					for="physicalCheck"
+					class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
+					>Physical Check</label
+				>
+				<textarea
+					id="physicalCheck"
+					name="physicalCheck"
+					disabled
+					value={record.medicalData.physical_check}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
+				></textarea>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label
+					for="psychologicalCheck"
+					class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
+					>Psychological Check</label
+				>
+				<textarea
+					id="psychologicalCheck"
+					name="psychologicalCheck"
+					disabled
+					value={record.medicalData.psychological_check}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
+				></textarea>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="diagnose" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
+					>Diagnose</label
+				>
+				<textarea
+					id="diagnose"
+					name="diagnose"
+					disabled
+					value={record.medicalData.diagnose}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
+				></textarea>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="therapy" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
+					>Therapy</label
+				>
+				<textarea
+					id="therapy"
+					name="therapy"
+					disabled
+					value={record.medicalData.therapy}
+					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
+				></textarea>
+			</div>
+		{/if}
 
 		<div class="flex items-center mt-4">
 			{#if record.prevIndex !== null && record.prevIndex !== undefined}
 				<div class="flex-1 justify-start flex items-center">
 					<a
-						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${data.accessToken}&index=${record.prevIndex}`}
+						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${encodeURIComponent(data.accessToken)}&index=${record.prevIndex}&encDataPreSecretKeySeed=${encodeURIComponent(data.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(data.dataPreSecretKeySeedCapsule ?? '')}`}
 						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
 						onclick={() => {
 							emrReadState.index = record.prevIndex as number;
@@ -175,10 +214,10 @@
 					>
 				</div>
 			{/if}
-			{#if record.nextIndex !== null && record.prevIndex !== undefined}
+			{#if record.nextIndex !== null && record.nextIndex !== undefined}
 				<div class="flex-1 justify-end flex items-center">
 					<a
-						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${data.accessToken}&index=${record.nextIndex}`}
+						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${encodeURIComponent(data.accessToken)}&index=${record.nextIndex}&encDataPreSecretKeySeed=${encodeURIComponent(data.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(data.dataPreSecretKeySeedCapsule ?? '')}`}
 						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
 						onclick={() => {
 							emrReadState.index = record.nextIndex as number;
@@ -187,7 +226,7 @@
 				</div>
 			{/if}
 		</div>
-	{:catch e}
+	{:catch}
 		<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500">
 			<p>No EMR found</p>
 		</div>

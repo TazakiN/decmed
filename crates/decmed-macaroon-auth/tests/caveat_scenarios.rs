@@ -74,6 +74,7 @@ fn verify_ctx(
             operation: op,
             segment,
             wallet_signature_b64: sig,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         wallet_verifier.map(|v| v as &dyn WalletSignatureVerifier),
@@ -160,6 +161,7 @@ fn admin_read_without_rme_reads_any_episode() {
                 function_category: FunctionCategory::LABORATORIUM,
             },
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         None,
@@ -192,6 +194,7 @@ fn admin_write_parent_assigns_rme_on_delegate() {
                 function_category: FunctionCategory::DIAGNOSIS,
             },
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         None,
@@ -211,6 +214,7 @@ fn admin_write_parent_assigns_rme_on_delegate() {
                 function_category: FunctionCategory::DIAGNOSIS,
             },
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         None,
@@ -236,6 +240,7 @@ fn doctor_patient_mismatch() {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         None,
@@ -261,6 +266,7 @@ fn doctor_rme_mismatch() {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: Utc::now(),
         },
         None,
@@ -289,6 +295,7 @@ fn expired_token_rejected() {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
+            wallet_timestamp: None,
             now: future,
         },
         None,
@@ -435,7 +442,8 @@ fn delegated_by_without_to_rejected() {
     use decmed_macaroon_auth::{add_caveat_to_macaroon, CaveatKey};
     let mut mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
     add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedBy, DOCTOR);
-    let mac2 = macaroon::Macaroon::deserialize(&mac.serialize(macaroon::Format::V2).unwrap()).unwrap();
+    let mac2 =
+        macaroon::Macaroon::deserialize(&mac.serialize(macaroon::Format::V2).unwrap()).unwrap();
     let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac2).unwrap();
     let err = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap_err();
     assert_eq!(err, CaveatVerificationError::InvalidDelegationChain);
@@ -460,10 +468,7 @@ fn cannot_increase_max_delegation_depth_on_delegate() {
     let mut params = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
     params.max_delegation_depth = 99;
     let err = attenuate_macaroon(&doctor_token(), &params).unwrap_err();
-    assert_eq!(
-        err,
-        CaveatVerificationError::DelegationDepthNotMonotonic
-    );
+    assert_eq!(err, CaveatVerificationError::DelegationDepthNotMonotonic);
 }
 
 #[test]

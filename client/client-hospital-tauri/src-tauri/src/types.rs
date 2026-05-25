@@ -70,7 +70,7 @@ pub enum ResponseStatus {
 
 // Struct
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccessData {
     #[serde(rename = "accessDataTypes")]
     pub access_data_types: Vec<MoveHospitalPersonnelAccessDataType>,

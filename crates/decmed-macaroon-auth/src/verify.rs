@@ -22,6 +22,7 @@ pub struct TokenVerificationContext {
     pub operation: AccessMode,
     pub segment: SegmentAccessContext,
     pub wallet_signature_b64: Option<String>,
+    pub wallet_timestamp: Option<String>,
     pub now: chrono::DateTime<Utc>,
 }
 
@@ -52,7 +53,10 @@ pub fn decmed_caveat_satisfier(predicate: &macaroon::ByteString) -> bool {
     false
 }
 
-pub fn verify_macaroon_signature(mac: &Macaroon, root_key: &MacaroonKey) -> Result<(), CaveatVerificationError> {
+pub fn verify_macaroon_signature(
+    mac: &Macaroon,
+    root_key: &MacaroonKey,
+) -> Result<(), CaveatVerificationError> {
     let mut verifier = Verifier::default();
     verifier.satisfy_general(decmed_caveat_satisfier);
     verifier
@@ -111,7 +115,10 @@ pub fn verify_decmed_token(
             segment_id: ctx.segment.segment_id.clone(),
             dataset_category: ctx.segment.dataset_category,
             function_category: ctx.segment.function_category,
-            timestamp: ctx.now.to_rfc3339(),
+            timestamp: ctx
+                .wallet_timestamp
+                .clone()
+                .unwrap_or_else(|| ctx.now.to_rfc3339()),
         };
         let verifier = wallet_verifier.ok_or(CaveatVerificationError::InvalidWalletSignature)?;
         verifier.verify(&proof_ctx, sig, &delegation.active_subject)?;

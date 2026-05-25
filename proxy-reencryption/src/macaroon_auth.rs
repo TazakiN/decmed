@@ -22,9 +22,8 @@ impl WalletSignatureVerifier for IotaWalletVerifier {
         signature_b64: &str,
         expected_address: &str,
     ) -> Result<(), CaveatVerificationError> {
-        let address = IotaAddress::from_str(expected_address).map_err(|_| {
-            CaveatVerificationError::InvalidWalletSignature
-        })?;
+        let address = IotaAddress::from_str(expected_address)
+            .map_err(|_| CaveatVerificationError::InvalidWalletSignature)?;
         let message = context.canonical_message()?;
         let intent_message = IntentMessage::new(Intent::personal_message(), message);
         let signature = crate::utils::Utils::construct_signature_from_str(signature_b64)
@@ -82,13 +81,13 @@ pub fn verify_segment_for_token(
         operation,
         segment,
         wallet_signature_b64: wallet_signature.map(|s| s.to_string()),
+        wallet_timestamp: None,
         now: chrono::Utc::now(),
     };
     verify_segment_access(&verified.effective, &ctx).map_err(map_caveat_error)?;
     if verified.effective.proof_required.is_some() {
-        let sig = wallet_signature.ok_or_else(|| {
-            map_caveat_error(CaveatVerificationError::WalletSignatureRequired)
-        })?;
+        let sig = wallet_signature
+            .ok_or_else(|| map_caveat_error(CaveatVerificationError::WalletSignatureRequired))?;
         let proof_ctx = WalletProofContext {
             token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
             patient_address: metadata.patient_address.clone(),
@@ -126,6 +125,7 @@ pub fn verify_decmed_macaroon(
         operation,
         segment,
         wallet_signature_b64: wallet_signature.map(|s| s.to_string()),
+        wallet_timestamp: None,
         now: chrono::Utc::now(),
     };
     let verifier: Option<&dyn WalletSignatureVerifier> = if wallet_signature.is_some() {

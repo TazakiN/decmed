@@ -1,0 +1,16 @@
+{
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/vendor/**": true,
+    "**/target/**": true,
+    "**/.svelte-kit/**": true,
+    "**/.tauri/**": true,
+    "**/coverage/**": true
+  },
+  "iota-move.server.path": "/home/gilyuusadan/.iota/bin/move-analyzer",
+  "move.iota.path": "/home/gilyuusadan/.cargo/bin/iota"
+}

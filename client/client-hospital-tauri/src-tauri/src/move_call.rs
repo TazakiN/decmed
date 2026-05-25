@@ -13,7 +13,7 @@ use crate::{
     current_fn,
     hospital_error::HospitalError,
     types::{
-        DecmedPackage, HospitalPersonnelRole, MoveHospitalMetadata,
+        DecmedPackage, HospitalPersonnelRole, HospitalPersonnelSubRole, MoveHospitalMetadata,
         MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAdministrativeMetadata,
         MoveHospitalPersonnelMetadata,
     },
@@ -178,6 +178,7 @@ impl MoveCall {
             Option<MoveHospitalPersonnelAdministrativeMetadata>,
             HospitalPersonnelRole,
             MoveHospitalMetadata,
+            Option<HospitalPersonnelSubRole>,
         ),
         HospitalError,
     > {
@@ -208,11 +209,14 @@ impl MoveCall {
             parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
         let hospital_metadata: MoveHospitalMetadata =
             parse_move_read_only_result(response.clone(), 2).context(current_fn!())?;
+        let sub_role: Option<HospitalPersonnelSubRole> =
+            parse_move_read_only_result(response.clone(), 3).context(current_fn!())?;
 
         Ok((
             hospital_personnel_administrative_metadata,
             role,
             hospital_metadata,
+            sub_role,
         ))
     }
 
@@ -443,10 +447,14 @@ impl MoveCall {
         personnel_activation_key: String,
         personnel_id: String,
         role: &str,
+        sub_role: Option<HospitalPersonnelSubRole>,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), HospitalError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
+        let sub_role_bytes: Vec<u8> = sub_role
+            .map(|sr| sr.as_bytes().to_vec())
+            .unwrap_or_default();
         let pt = construct_pt(
             String::from("create_activation_key"),
             self.decmed_package.package_id,
@@ -460,6 +468,7 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&personnel_activation_key).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&personnel_id).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(role.as_bytes()).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&sub_role_bytes).context(current_fn!())?),
             ],
         )
         .context(current_fn!())?;

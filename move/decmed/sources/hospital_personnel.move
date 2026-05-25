@@ -7,6 +7,14 @@ use decmed::std_enum_hospital_personnel_role::{
     medical_personnel as hospital_personnel_role_medical_personnel,
 };
 
+use decmed::std_enum_hospital_personnel_sub_role::{
+    HospitalPersonnelSubRole,
+    doctor as hospital_personnel_sub_role_doctor,
+    nurse as hospital_personnel_sub_role_nurse,
+    laboratory_staff as hospital_personnel_sub_role_laboratory_staff,
+    pharmacist as hospital_personnel_sub_role_pharmacist,
+};
+
 use decmed::shared::{
     encode_hospital_id,
     encode_hospital_personnel_id,
@@ -69,6 +77,9 @@ const EDifferentHospital: u64 = 2012;
 const EDelegateeNotFound: u64 = 2013;
 const EInvalidMetadataLength: u64 = 2014;
 const EAccessExpired: u64 = 2015;
+const EInvalidHospitalPersonnelSubRole: u64 = 2016;
+const ESubRoleRequiredForMedicalPersonnel: u64 = 2017;
+const ESubRoleNotAllowedForNonMedicalPersonnel: u64 = 2018;
 
 // Functions
 
@@ -159,6 +170,9 @@ entry fun cleanup_update_access(
 /// - `id`: argon_hash(raw_id)
 /// - `metadata`: Base64
 /// - `role`: raw_role ["Admin", "AdministrativePersonnel", "MedicalPersonnel"]
+/// - `sub_role`: raw_sub_role bytes; required when `role` is "MedicalPersonnel"
+///     - ["DOCTOR", "NURSE", "LABORATORY_STAFF", "PHARMACIST"]
+///     - empty bytes (b"") when `role` is not "MedicalPersonnel"
 entry fun create_activation_key(
     address_id: &AddressId,
     admin_activation_key: String,
@@ -167,6 +181,7 @@ entry fun create_activation_key(
     personnel_activation_key: String,
     personnel_id: String,
     role: vector<u8>,
+    sub_role: vector<u8>,
     ctx: &TxContext,
 )
 {
@@ -189,6 +204,8 @@ entry fun create_activation_key(
         _ => return assert!(false, EInvalidHospitalPersonnelRole)
     };
 
+    let sub_role_opt = resolve_sub_role(role, sub_role);
+
     let account = hospital_personnel_account_new(
         option::none(),
         personnel_activation_key,
@@ -198,7 +215,8 @@ entry fun create_activation_key(
         false,
         false,
         option::none(),
-        role
+        role,
+        sub_role_opt,
     );
 
     hopsital_personnel_id_account_table.add(hospital_personnel_id, account);
@@ -220,6 +238,7 @@ public(package) fun create_activation_key_test(
     personnel_activation_key: String,
     personnel_id: String,
     role: vector<u8>,
+    sub_role: vector<u8>,
     ctx: &TxContext,
 )
 {
@@ -231,8 +250,33 @@ public(package) fun create_activation_key_test(
         personnel_activation_key,
         personnel_id,
         role,
+        sub_role,
         ctx
     );
+}
+
+/// Validates and converts the raw `sub_role` bytes into an `Option<HospitalPersonnelSubRole>`.
+/// - When `role` is `MedicalPersonnel`, `sub_role` MUST be one of the supported values.
+/// - When `role` is not `MedicalPersonnel`, `sub_role` MUST be empty.
+fun resolve_sub_role(
+    role: HospitalPersonnelRole,
+    sub_role: vector<u8>,
+): Option<HospitalPersonnelSubRole>
+{
+    if (role == hospital_personnel_role_medical_personnel()) {
+        assert!(!sub_role.is_empty(), ESubRoleRequiredForMedicalPersonnel);
+        let sub_role_enum = match (sub_role) {
+            b"DOCTOR" => hospital_personnel_sub_role_doctor(),
+            b"NURSE" => hospital_personnel_sub_role_nurse(),
+            b"LABORATORY_STAFF" => hospital_personnel_sub_role_laboratory_staff(),
+            b"PHARMACIST" => hospital_personnel_sub_role_pharmacist(),
+            _ => abort EInvalidHospitalPersonnelSubRole
+        };
+        option::some(sub_role_enum)
+    } else {
+        assert!(sub_role.is_empty(), ESubRoleNotAllowedForNonMedicalPersonnel);
+        option::none<HospitalPersonnelSubRole>()
+    }
 }
 
 /// ## Params:
@@ -326,7 +370,7 @@ entry fun get_account_info(
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_id_account: &HospitalPersonnelIdAccount,
     ctx: &TxContext,
-): (Option<HospitalPersonnelAdministrativeMetadata>, HospitalPersonnelRole, HospitalMetadata)
+): (Option<HospitalPersonnelAdministrativeMetadata>, HospitalPersonnelRole, HospitalMetadata, Option<HospitalPersonnelSubRole>)
 {
     let address_id_table = address_id.borrow_table();
     let hospital_personnel_id = *address_id_table.borrow(ctx.sender());
@@ -340,7 +384,12 @@ entry fun get_account_info(
     let hospital_metadata_index = *hospital_id_metadata_table.borrow(*hospital_personnel_account.borrow_hospital_id());
     let hospital_metadata = hospital_id_metadata_vec.borrow(hospital_metadata_index).borrow_hospital_metadata();
 
-    (*hospital_personnel_account.borrow_administrative_metadata(), *hospital_personnel_account.borrow_role(), *hospital_metadata)
+    (
+        *hospital_personnel_account.borrow_administrative_metadata(),
+        *hospital_personnel_account.borrow_role(),
+        *hospital_metadata,
+        *hospital_personnel_account.borrow_sub_role(),
+    )
 }
 
 

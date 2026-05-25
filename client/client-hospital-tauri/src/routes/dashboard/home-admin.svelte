@@ -7,6 +7,7 @@
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
 	import { cn } from '$lib/utils';
 	import { Copy, RefreshCcw } from '@lucide/svelte';
+	import { MEDICAL_PERSONNEL_ROLE } from '$lib/constants';
 
 	type Props = {
 		addPersonnelFormData: SuperValidated<Infer<AddPersonnelSchemaStep2>>;
@@ -22,6 +23,12 @@
 		errors: addPersonnelFormErrors,
 		reset: addPersonnelFormReset
 	} = adminHomeState.addPersonnelFormMeta;
+
+	$effect(() => {
+		if ($addPersonnelForm.role !== MEDICAL_PERSONNEL_ROLE && $addPersonnelForm.subRole) {
+			$addPersonnelForm.subRole = undefined;
+		}
+	});
 </script>
 
 <div class="flex flex-col w-full flex-1">
@@ -72,6 +79,22 @@
 				</div>
 				<label for="role" class="font-medium after:content-['*'] after:text-red-500">Role</label>
 				<Select items={adminHomeState.roles} bind:value={$addPersonnelForm.role} type="single" />
+				{#if $addPersonnelForm.role === MEDICAL_PERSONNEL_ROLE}
+					<label for="subRole" class="font-medium after:content-['*'] after:text-red-500"
+						>Sub Role</label
+					>
+					<Select
+						items={adminHomeState.medicalSubRoles}
+						bind:value={$addPersonnelForm.subRole}
+						type="single"
+					/>
+					{#if $addPersonnelFormErrors.subRole}
+						<span
+							class="px-2 py-1 border-t border-zinc-200 text-xs font-medium text-red-500 bg-red-50"
+							>{$addPersonnelFormErrors.subRole[0]}</span
+						>
+					{/if}
+				{/if}
 				<Button.Root type="submit" class="button-dark mt-2">Add</Button.Root>
 				<Dialog
 					buttonText="Add personnel"
@@ -143,38 +166,48 @@
 					>
 						<div class="flex items-center justify-between gap-2">
 							<p class="text-zinc-400 text-sm">{personnel.id}</p>
-							<p
-								class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
-							>
-								{personnel.role}
-							</p>
+							<div class="flex items-center gap-1">
+								<p
+									class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
+								>
+									{personnel.role}
+								</p>
+								{#if personnel.sub_role}
+									<p
+										class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-500"
+									>
+										{personnel.sub_role}
+									</p>
+								{/if}
+							</div>
 						</div>
-					<div class="flex items-center gap-2">
-						<button
-							onclick={() => {
-								navigator.clipboard.writeText(personnel.activation_key);
-							}}
-							class="cursor-pointer"
-						>
-							<Copy size={14} />
-						</button>
-						<p class="text-sm text-zinc-500">{personnel.activation_key}</p>
-						<button
-							onclick={() => {
-								adminHomeState.updatePersonnelActivationKey({
-									personnelId: personnel.id,
-									role: personnel.role
-								});
-							}}
-							class="cursor-pointer"
-						>
-							{#if adminHomeState.isLoadingUpdateActivationKey}
-								<RefreshCcw size={14} class="animate-spin" />
-							{:else}
-								<RefreshCcw size={14} />
-							{/if}
-						</button>
-					</div>
+						<div class="flex items-center gap-2">
+							<button
+								onclick={() => {
+									navigator.clipboard.writeText(personnel.activation_key);
+								}}
+								class="cursor-pointer"
+							>
+								<Copy size={14} />
+							</button>
+							<p class="text-sm text-zinc-500">{personnel.activation_key}</p>
+							<button
+								onclick={() => {
+									adminHomeState.updatePersonnelActivationKey({
+										personnelId: personnel.id,
+										role: personnel.role,
+										subRole: personnel.sub_role
+									});
+								}}
+								class="cursor-pointer"
+							>
+								{#if adminHomeState.isLoadingUpdateActivationKey}
+									<RefreshCcw size={14} class="animate-spin" />
+								{:else}
+									<RefreshCcw size={14} />
+								{/if}
+							</button>
+						</div>
 					</div>
 				{/each}
 			{:else}

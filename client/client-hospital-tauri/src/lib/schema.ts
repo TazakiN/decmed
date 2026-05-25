@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from './constants';
+import {
+	ADMINISTRATIVE_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_SUB_ROLES
+} from './constants';
 
 export const datasetCategories = [
 	'ADMINISTRATIVE',
@@ -88,7 +92,10 @@ export const allowedSegmentFunctionCategories = {
 		'PETUGAS_DISPENSING',
 		'ETIKET'
 	]
-} as const satisfies Record<(typeof datasetCategories)[number], readonly (typeof functionCategories)[number][]>;
+} as const satisfies Record<
+	(typeof datasetCategories)[number],
+	readonly (typeof functionCategories)[number][]
+>;
 
 export const datasetCategorySchema = z.enum(datasetCategories);
 export const functionCategorySchema = z.enum(functionCategories);
@@ -277,6 +284,11 @@ export const signUpSchemaStep1 = signInSchemaStep1;
 export const signUpSchemaStep2 = signInSchemaStep2;
 export const signUpSchemaStep4 = signInSchemaStep3;
 
+export const medicalPersonnelSubRoleSchema = z.enum(MEDICAL_PERSONNEL_SUB_ROLES, {
+	required_error: 'Sub role is required.',
+	invalid_type_error: 'Sub role is invalid.'
+});
+
 export const addPersonnelSchemaStep1 = z.object({
 	id: z
 		.string({
@@ -289,7 +301,8 @@ export const addPersonnelSchemaStep1 = z.object({
 	role: z.enum([ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE], {
 		required_error: 'Role is required.',
 		invalid_type_error: 'Role is invalid.'
-	})
+	}),
+	subRole: medicalPersonnelSubRoleSchema.optional()
 });
 
 export const addPersonnelSchemaStep2 = addPersonnelSchemaStep1.extend(pinSchema);

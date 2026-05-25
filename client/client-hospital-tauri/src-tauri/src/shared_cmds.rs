@@ -133,7 +133,7 @@ pub async fn get_profile(
         )
     };
 
-    let (hospital_personnel_administrative_metadata, role, hospital_metadata) = state
+    let (hospital_personnel_administrative_metadata, role, hospital_metadata, sub_role) = state
         .move_call
         .get_account_info(activation_key, hospital_personnel_iota_address)
         .await
@@ -193,10 +193,11 @@ pub async fn get_profile(
         hospital_personnel_hospital_part_hash
     };
 
-    let hospital_pre_public_key = hospital_pre_public_key_for_personnel(&keys_entry, &hospital_id_hash)
-        .ok()
-        .map(|pk| serde_serialize_to_base64(&pk).context(current_fn!()))
-        .transpose()?;
+    let hospital_pre_public_key =
+        hospital_pre_public_key_for_personnel(&keys_entry, &hospital_id_hash)
+            .ok()
+            .map(|pk| serde_serialize_to_base64(&pk).context(current_fn!()))
+            .transpose()?;
 
     let data = CommandGetProfileResponseData {
         hospital: hospital_metadata.name.clone(),
@@ -212,6 +213,7 @@ pub async fn get_profile(
         pre_public_key: serde_serialize_to_base64(&hospital_personnel_pre_public_key)
             .context(current_fn!())?,
         role,
+        sub_role,
     };
 
     state.administrative_data = Some(AdministrativeData {

@@ -4,3 +4,9 @@ export const SIGNIN_TOTAL_STEP = 3;
 export const ADMIN_ROLE = 'Admin';
 export const MEDICAL_PERSONNEL_ROLE = 'MedicalPersonnel';
 export const ADMINISTRATIVE_PERSONNEL_ROLE = 'AdministrativePersonnel';
+export const MEDICAL_PERSONNEL_SUB_ROLES = [
+	'DOCTOR',
+	'NURSE',
+	'LABORATORY_STAFF',
+	'PHARMACIST'
+] as const;

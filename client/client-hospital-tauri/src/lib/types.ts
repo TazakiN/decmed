@@ -7,13 +7,20 @@ import type {
 	signUpSchemaStep4,
 	updateMedicalRecordSchema
 } from './schema';
-import { ADMIN_ROLE, ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from './constants';
+import {
+	ADMIN_ROLE,
+	ADMINISTRATIVE_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_SUB_ROLES
+} from './constants';
 import type { z } from 'zod';
 
 export type Role =
 	| typeof ADMIN_ROLE
 	| typeof MEDICAL_PERSONNEL_ROLE
 	| typeof ADMINISTRATIVE_PERSONNEL_ROLE;
+
+export type MedicalPersonnelSubRole = (typeof MEDICAL_PERSONNEL_SUB_ROLES)[number];
 
 export type NavLink = {
 	label: string;
@@ -31,6 +38,7 @@ export type HospitalPersonnel = {
 	id: string;
 	activation_key: string;
 	role: Role;
+	sub_role?: MedicalPersonnelSubRole;
 };
 
 export type SuccessResponse<T> = {
@@ -186,6 +194,7 @@ export type GetProfileData = {
 	name: string | null;
 	prePublicKey: string;
 	role: Role;
+	subRole?: MedicalPersonnelSubRole;
 };
 
 export type InvokeGetMedicalRecordResponseData = {

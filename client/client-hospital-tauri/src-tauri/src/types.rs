@@ -19,6 +19,40 @@ pub enum HospitalPersonnelRole {
     MedicalPersonnel,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum HospitalPersonnelSubRole {
+    #[serde(rename = "DOCTOR", alias = "Doctor")]
+    Doctor,
+    #[serde(rename = "NURSE", alias = "Nurse")]
+    Nurse,
+    #[serde(rename = "LABORATORY_STAFF", alias = "LaboratoryStaff")]
+    LaboratoryStaff,
+    #[serde(rename = "PHARMACIST", alias = "Pharmacist")]
+    Pharmacist,
+}
+
+impl HospitalPersonnelSubRole {
+    /// Returns the raw byte representation that the Move contract expects.
+    pub fn as_bytes(self) -> &'static [u8] {
+        match self {
+            HospitalPersonnelSubRole::Doctor => b"DOCTOR",
+            HospitalPersonnelSubRole::Nurse => b"NURSE",
+            HospitalPersonnelSubRole::LaboratoryStaff => b"LABORATORY_STAFF",
+            HospitalPersonnelSubRole::Pharmacist => b"PHARMACIST",
+        }
+    }
+
+    pub fn from_client_str(value: &str) -> Option<Self> {
+        match value {
+            "DOCTOR" => Some(HospitalPersonnelSubRole::Doctor),
+            "NURSE" => Some(HospitalPersonnelSubRole::Nurse),
+            "LABORATORY_STAFF" => Some(HospitalPersonnelSubRole::LaboratoryStaff),
+            "PHARMACIST" => Some(HospitalPersonnelSubRole::Pharmacist),
+            _ => None,
+        }
+    }
+}
+
 pub type MedicalDataMainCategory = DatasetCategory;
 pub type MedicalDataSubCategory = FunctionCategory;
 
@@ -57,17 +91,41 @@ pub struct AccessData {
     pub patient_name: String,
     #[serde(rename = "patientPrePublicKey")]
     pub patient_pre_public_key: Option<String>,
-    #[serde(rename = "relatedRmeId", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "relatedRmeId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub related_rme_id: Option<String>,
-    #[serde(rename = "delegatedBy", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "delegatedBy",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delegated_by: Option<String>,
-    #[serde(rename = "delegatedTo", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "delegatedTo",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delegated_to: Option<String>,
-    #[serde(rename = "expiresBefore", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "expiresBefore",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub expires_before: Option<String>,
-    #[serde(rename = "delegationSignature", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "delegationSignature",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delegation_signature: Option<String>,
-    #[serde(rename = "delegationDepth", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "delegationDepth",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delegation_depth: Option<u8>,
 }
 
@@ -164,6 +222,8 @@ pub struct CommandGetProfileResponseData {
     #[serde(rename = "prePublicKey")]
     pub pre_public_key: String,
     pub role: HospitalPersonnelRole,
+    #[serde(rename = "subRole", skip_serializing_if = "Option::is_none")]
+    pub sub_role: Option<HospitalPersonnelSubRole>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -218,6 +278,8 @@ pub struct HospitalPersonnelMetadata {
     pub activation_key: String,
     pub id: String,
     pub role: HospitalPersonnelRole,
+    #[serde(default, alias = "subRole", skip_serializing_if = "Option::is_none")]
+    pub sub_role: Option<HospitalPersonnelSubRole>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

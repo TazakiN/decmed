@@ -8,8 +8,8 @@ use crate::{
     types::{
         AppState, CommandGlobalAdminAddActivationKeyResponse,
         CommandHospitalAdminAddActivationKeyResponse, HospitalPersonnelMetadata,
-        HospitalPersonnelRole, MoveCallHospitalAdminAddActivationKeyPayload, ResponseStatus,
-        SuccessResponse,
+        HospitalPersonnelRole, HospitalPersonnelSubRole,
+        MoveCallHospitalAdminAddActivationKeyPayload, ResponseStatus, SuccessResponse,
     },
     utils::{
         decode_hospital_personnel_id, decode_hospital_personnel_id_to_argon, encode_activation_key,
@@ -95,6 +95,7 @@ pub async fn hospital_admin_add_activation_key(
     state: State<'_, Mutex<AppState>>,
     personnel_id_part: String,
     role: String,
+    sub_role: Option<String>,
     pin: String,
 ) -> Result<SuccessResponse<CommandHospitalAdminAddActivationKeyResponse>, HospitalError> {
     let state = state.lock().await;
@@ -134,6 +135,7 @@ pub async fn hospital_admin_add_activation_key(
         hospital_personnel_activation_key,
         metadata,
         hospital_personnel_id_part_hash,
+        sub_role_enum,
     ) = {
         let hospital_personnel_id =
             format!("{}@{}", personnel_id_part, hospital_admin_hospital_part);
@@ -149,10 +151,34 @@ pub async fn hospital_admin_add_activation_key(
             _ => return Err(HospitalError::Anyhow(anyhow!("Invalid role argument."))),
         };
 
+        let sub_role_enum: Option<HospitalPersonnelSubRole> = match role_type {
+            HospitalPersonnelRole::MedicalPersonnel => {
+                let raw = sub_role.as_deref().ok_or_else(|| {
+                    HospitalError::Anyhow(anyhow!(
+                        "sub_role is required when role is MedicalPersonnel."
+                    ))
+                })?;
+                Some(
+                    HospitalPersonnelSubRole::from_client_str(raw).ok_or_else(|| {
+                        HospitalError::Anyhow(anyhow!("Invalid sub_role argument."))
+                    })?,
+                )
+            }
+            _ => {
+                if sub_role.is_some() {
+                    return Err(HospitalError::Anyhow(anyhow!(
+                        "sub_role must not be provided for non-MedicalPersonnel role."
+                    )));
+                }
+                None
+            }
+        };
+
         let hospital_personnel_metadata = HospitalPersonnelMetadata {
             activation_key: activation_key.clone(),
             id: hospital_personnel_id.clone(),
             role: role_type,
+            sub_role: sub_role_enum,
         };
         let hospital_personnel_metadata_bytes =
             serde_json::to_vec(&hospital_personnel_metadata).context(current_fn!())?;
@@ -173,6 +199,7 @@ pub async fn hospital_admin_add_activation_key(
             activation_key,
             metadata,
             hospital_personnel_id_part_hash,
+            sub_role_enum,
         )
     };
 
@@ -188,6 +215,7 @@ pub async fn hospital_admin_add_activation_key(
             .context(current_fn!())?,
             hospital_personnel_id_part_hash,
             &role,
+            sub_role_enum,
             hospital_admin_iota_address,
             hospital_admin_iota_key_pair,
         )
@@ -210,6 +238,7 @@ pub async fn update_personnel_activation_key(
     state: State<'_, Mutex<AppState>>,
     personnel_id: String,
     role: String,
+    sub_role: Option<String>,
 ) -> Result<SuccessResponse<CommandHospitalAdminAddActivationKeyResponse>, HospitalError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
@@ -221,23 +250,21 @@ pub async fn update_personnel_activation_key(
         .clone()
         .ok_or(anyhow!("Session PIN not found").context(current_fn!()))?;
 
-    let (hospital_admin_pre_public_key, hospital_admin_iota_address, hospital_admin_iota_key_pair) =
-        {
-            let (_, hospital_admin_pre_public_key) =
-                get_pre_keys_from_keys_entry(&keys_entry, session_pin.clone())
-                    .context(current_fn!())?;
-            let hospital_admin_iota_address =
-                get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
-            let hospital_admin_iota_key_pair =
-                get_iota_key_pair_from_keys_entry(&keys_entry, session_pin)
-                    .context(current_fn!())?;
+    let (hospital_admin_pre_public_key, hospital_admin_iota_address, hospital_admin_iota_key_pair) = {
+        let (_, hospital_admin_pre_public_key) =
+            get_pre_keys_from_keys_entry(&keys_entry, session_pin.clone())
+                .context(current_fn!())?;
+        let hospital_admin_iota_address =
+            get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+        let hospital_admin_iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, session_pin).context(current_fn!())?;
 
-            (
-                hospital_admin_pre_public_key,
-                hospital_admin_iota_address,
-                hospital_admin_iota_key_pair,
-            )
-        };
+        (
+            hospital_admin_pre_public_key,
+            hospital_admin_iota_address,
+            hospital_admin_iota_key_pair,
+        )
+    };
 
     let new_activation_key = uuid::Uuid::new_v4().to_string();
 
@@ -255,10 +282,34 @@ pub async fn update_personnel_activation_key(
             _ => return Err(HospitalError::Anyhow(anyhow!("Invalid role argument."))),
         };
 
+        let sub_role_enum: Option<HospitalPersonnelSubRole> = match role_type {
+            HospitalPersonnelRole::MedicalPersonnel => {
+                let raw = sub_role.as_deref().ok_or_else(|| {
+                    HospitalError::Anyhow(anyhow!(
+                        "sub_role is required when role is MedicalPersonnel."
+                    ))
+                })?;
+                Some(
+                    HospitalPersonnelSubRole::from_client_str(raw).ok_or_else(|| {
+                        HospitalError::Anyhow(anyhow!("Invalid sub_role argument."))
+                    })?,
+                )
+            }
+            _ => {
+                if sub_role.is_some() {
+                    return Err(HospitalError::Anyhow(anyhow!(
+                        "sub_role must not be provided for non-MedicalPersonnel role."
+                    )));
+                }
+                None
+            }
+        };
+
         let hospital_personnel_metadata = HospitalPersonnelMetadata {
             activation_key: new_activation_key.clone(),
             id: personnel_id.clone(),
             role: role_type,
+            sub_role: sub_role_enum,
         };
         let hospital_personnel_metadata_bytes =
             serde_json::to_vec(&hospital_personnel_metadata).context(current_fn!())?;

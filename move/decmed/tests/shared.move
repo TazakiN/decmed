@@ -128,6 +128,16 @@ public(package) fun hospital_personnel_role_bytes(role: HospitalPersonnelRole): 
 }
 
 #[test_only]
+public(package) fun hospital_personnel_sub_role_bytes(role: HospitalPersonnelRole): vector<u8>
+{
+    if (role == hospital_personnel_role_medical_personnel()) {
+        return b"DOCTOR"
+    };
+
+    b""
+}
+
+#[test_only]
 public(package) fun account_metadata(): String
 {
     string::utf8(b"aG9zcGl0YWxhZG1pbm1ldGFkYXRh")
@@ -246,6 +256,7 @@ public(package) fun setup_data(
             hospital_personnel_activation_key(hospital_personnel_role_administrative_personnel()),
             hospital_personnel_id(hospital_personnel_role_administrative_personnel()),
             hospital_personnel_role_bytes(hospital_personnel_role_administrative_personnel()),
+            hospital_personnel_sub_role_bytes(hospital_personnel_role_administrative_personnel()),
             test_scenario::ctx(scenario),
         );
 
@@ -257,6 +268,7 @@ public(package) fun setup_data(
             hospital_personnel_activation_key(hospital_personnel_role_medical_personnel()),
             hospital_personnel_id(hospital_personnel_role_medical_personnel()),
             hospital_personnel_role_bytes(hospital_personnel_role_medical_personnel()),
+            hospital_personnel_sub_role_bytes(hospital_personnel_role_medical_personnel()),
             test_scenario::ctx(scenario),
         );
     };

@@ -1,4 +1,8 @@
-import { ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from '$lib/constants';
+import {
+	ADMINISTRATIVE_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_ROLE,
+	MEDICAL_PERSONNEL_SUB_ROLES
+} from '$lib/constants';
 import { addPersonnelSchemas } from '$lib/schema';
 import type {
 	Account,
@@ -42,6 +46,24 @@ export class AdminHomeState {
 			label: ADMINISTRATIVE_PERSONNEL_ROLE
 		}
 	];
+	medicalSubRoles = [
+		{
+			value: MEDICAL_PERSONNEL_SUB_ROLES[0],
+			label: 'Dokter'
+		},
+		{
+			value: MEDICAL_PERSONNEL_SUB_ROLES[1],
+			label: 'Perawat'
+		},
+		{
+			value: MEDICAL_PERSONNEL_SUB_ROLES[2],
+			label: 'Lab Personnel'
+		},
+		{
+			value: MEDICAL_PERSONNEL_SUB_ROLES[3],
+			label: 'Apoteker'
+		}
+	];
 
 	constructor({ addPersonnelForm }: Constructor) {
 		$effect(() => {
@@ -59,16 +81,28 @@ export class AdminHomeState {
 
 				const valid = await this.addPersonnelFormMeta.validateForm({ update: true });
 				if (valid) {
+					if (this.something?.role === MEDICAL_PERSONNEL_ROLE && !this.something.subRole) {
+						toast.error('Sub role is required for medical personnel');
+						return;
+					}
+
 					this.currentStep += 1;
 					this.askPin = true;
 				}
 			},
 			onUpdate: async ({ result, form, cancel }) => {
 				if (result.type === 'success') {
+					if (form.data.role === MEDICAL_PERSONNEL_ROLE && !form.data.subRole) {
+						cancel();
+						toast.error('Sub role is required for medical personnel');
+						return;
+					}
+
 					const resInvokeHospitalAdminAddActivationKey = await tryCatchAsVal(async () => {
 						return (await invoke('hospital_admin_add_activation_key', {
 							personnelIdPart: form.data.id,
 							role: form.data.role,
+							subRole: form.data.role === MEDICAL_PERSONNEL_ROLE ? form.data.subRole : undefined,
 							pin: form.data.pin
 						})) as SuccessResponse<InvokeHospitalAdminAddActivationKeyResponse>;
 					});
@@ -112,17 +146,20 @@ export class AdminHomeState {
 
 	updatePersonnelActivationKey = async ({
 		personnelId,
-		role
+		role,
+		subRole
 	}: {
 		personnelId: string;
 		role: Role;
+		subRole?: string;
 	}) => {
 		this.isLoadingUpdateActivationKey = true;
 
 		const resInvokeUpdatePersonnelActivationKey = await tryCatchAsVal(async () => {
 			return (await invoke('update_personnel_activation_key', {
 				personnelId,
-				role
+				role,
+				subRole: role === MEDICAL_PERSONNEL_ROLE ? subRole : undefined
 			})) as SuccessResponse<InvokeHospitalAdminAddActivationKeyResponse>;
 		});
 

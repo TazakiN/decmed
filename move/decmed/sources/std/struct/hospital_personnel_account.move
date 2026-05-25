@@ -1,6 +1,7 @@
 module decmed::std_struct_hospital_personnel_account;
 
 use decmed::std_enum_hospital_personnel_role::HospitalPersonnelRole;
+use decmed::std_enum_hospital_personnel_sub_role::HospitalPersonnelSubRole;
 use decmed::std_struct_hospital_personnel_access::HospitalPersonnelAccess;
 #[test_only]
 use decmed::std_struct_hospital_personnel_access::default as hospital_personnel_access_default;
@@ -28,6 +29,7 @@ public struct HospitalPersonnelAccount has copy, drop, store {
     is_profile_completed: bool,
     personnels: Option<VecMap<String, HospitalPersonnelMetadata>>,
     role: HospitalPersonnelRole,
+    sub_role: Option<HospitalPersonnelSubRole>,
 }
 
 public(package) fun new(
@@ -40,6 +42,7 @@ public(package) fun new(
     is_profile_completed: bool,
     personnels: Option<VecMap<String, HospitalPersonnelMetadata>>,
     role: HospitalPersonnelRole,
+    sub_role: Option<HospitalPersonnelSubRole>,
 ): HospitalPersonnelAccount
 {
     HospitalPersonnelAccount {
@@ -52,6 +55,7 @@ public(package) fun new(
         is_profile_completed,
     	personnels,
     	role,
+        sub_role,
     }
 }
 
@@ -239,6 +243,28 @@ public(package) fun set_role(
     self.role = role;
 }
 
+public(package) fun borrow_sub_role(
+    self: &HospitalPersonnelAccount,
+): &Option<HospitalPersonnelSubRole>
+{
+    &self.sub_role
+}
+
+public(package) fun borrow_mut_sub_role(
+    self: &mut HospitalPersonnelAccount,
+): &mut Option<HospitalPersonnelSubRole>
+{
+    &mut self.sub_role
+}
+
+public(package) fun set_sub_role(
+    self: &mut HospitalPersonnelAccount,
+    sub_role: Option<HospitalPersonnelSubRole>,
+)
+{
+    self.sub_role = sub_role;
+}
+
 #[test_only]
 public(package) fun default(role: HospitalPersonnelRole): HospitalPersonnelAccount
 {
@@ -252,5 +278,6 @@ public(package) fun default(role: HospitalPersonnelRole): HospitalPersonnelAccou
     	is_profile_completed: false,
     	personnels: option::none(),
     	role,
+        sub_role: option::none(),
     }
 }

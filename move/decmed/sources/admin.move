@@ -81,6 +81,7 @@ entry fun create_activation_key(
         false,
         option::none(),
         hospital_personnel_role_admin(),
+        option::none(),
     );
 
     hospital_personnel_id_account_table.add(hospital_personnel_id, account);

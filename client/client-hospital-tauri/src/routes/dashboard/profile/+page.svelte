@@ -44,6 +44,14 @@
 				class="flex items-center justify-center cursor-pointer"
 				onclick={() => copyToClipboard(profile.hospital || '')}><Copy size={16} /></button
 			>
+			<p class="break-all">Role:</p>
+			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
+				{profile.subRole ?? profile.role}
+			</p>
+			<button
+				class="flex items-center justify-center cursor-pointer"
+				onclick={() => copyToClipboard(profile.subRole ?? profile.role)}><Copy size={16} /></button
+			>
 		</div>
 	</div>
 

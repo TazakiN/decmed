@@ -5,17 +5,20 @@ use iota_types::{
     base_types::{IotaAddress, ObjectID},
     crypto::IotaKeyPair,
     gas_coin::NANOS_PER_IOTA,
-    transaction::{CallArg, Transaction},
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::{CallArg, Command, Transaction},
+    Identifier, TypeTag,
 };
+use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 
 use crate::{
     constants::GAS_BUDGET,
     current_fn,
     hospital_error::HospitalError,
     types::{
-        DecmedPackage, HospitalPersonnelRole, HospitalPersonnelSubRole, MoveHospitalMetadata,
-        MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAdministrativeMetadata,
-        MoveHospitalPersonnelMetadata,
+        DecmedPackage, HospitalPersonnelRole, HospitalPersonnelSubRole, MoveDelegateeCandidate,
+        MoveHospitalMetadata, MoveHospitalPersonnelAccessData,
+        MoveHospitalPersonnelAdministrativeMetadata, MoveHospitalPersonnelMetadata,
     },
     utils::{
         construct_capability_call_arg, construct_pt, construct_shared_object_call_arg,
@@ -27,6 +30,18 @@ use crate::{
 
 pub struct MoveCall {
     pub decmed_package: DecmedPackage,
+}
+
+const GAS_RESERVATION_DURATION_SECS: u64 = 60;
+const CREATE_DELEGATED_ACCESS_GAS_BUDGET: u64 = 200_000_000;
+
+fn move_string_type_tag() -> Result<TypeTag, HospitalError> {
+    Ok(TypeTag::Struct(Box::new(StructTag {
+        address: AccountAddress::ONE,
+        module: Identifier::from_str("string").context(current_fn!())?,
+        name: Identifier::from_str("String").context(current_fn!())?,
+        type_params: vec![],
+    })))
 }
 
 impl MoveCall {
@@ -92,9 +107,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -141,9 +157,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -290,6 +307,38 @@ impl MoveCall {
         Ok(hospital_peersonnels_metadata)
     }
 
+    pub async fn get_delegatee_candidates(
+        &self,
+        activation_key: String,
+        admin_personnel_id: String,
+        sender: IotaAddress,
+    ) -> Result<Vec<MoveDelegateeCandidate>, HospitalError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            String::from("get_delegatee_candidates"),
+            self.decmed_package.package_id,
+            self.decmed_package.module_hospital_personnel.clone(),
+            vec![],
+            vec![
+                CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&admin_personnel_id).context(current_fn!())?),
+                self.construct_address_id_object_call_arg(false),
+                self.construct_hospital_personnel_id_account_object_call_arg(false),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+        handle_error_move_call_read_only(response.clone()).context(current_fn!())?;
+
+        let candidates: Vec<MoveDelegateeCandidate> =
+            parse_move_read_only_result(response, 0).context(current_fn!())?;
+
+        Ok(candidates)
+    }
+
     pub async fn get_read_access(
         &self,
         activation_key: String,
@@ -379,9 +428,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -472,9 +522,10 @@ impl MoveCall {
             ],
         )
         .context(current_fn!())?;
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -528,9 +579,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -579,9 +631,10 @@ impl MoveCall {
             ],
         )
         .context(current_fn!())?;
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -631,9 +684,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA * 2, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -681,9 +735,10 @@ impl MoveCall {
             ],
         )
         .context(current_fn!())?;
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -719,26 +774,42 @@ impl MoveCall {
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), HospitalError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
-        let pt = construct_pt(
-            String::from("create_delegated_access"),
+        let mut builder = ProgrammableTransactionBuilder::new();
+        let metadata_args = metadata
+            .into_iter()
+            .map(|item| builder.force_separate_pure(item).context(current_fn!()))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let metadata_vector =
+            builder.command(Command::MakeMoveVec(Some(move_string_type_tag()?), metadata_args));
+        let function = Identifier::from_str("create_delegated_access").context(current_fn!())?;
+        let arguments = vec![
+            builder.pure(activation_key).context(current_fn!())?,
+            builder
+                .input(self.construct_address_id_object_call_arg(false))
+                .context(current_fn!())?,
+            builder
+                .input(self.construct_clock_call_arg())
+                .context(current_fn!())?,
+            builder.pure(delegatee_address).context(current_fn!())?,
+            builder
+                .input(self.construct_hospital_personnel_id_account_object_call_arg(true))
+                .context(current_fn!())?,
+            builder.pure(patient_address).context(current_fn!())?,
+            metadata_vector,
+        ];
+        builder.programmable_move_call(
             self.decmed_package.package_id,
             self.decmed_package.module_hospital_personnel.clone(),
+            function,
             vec![],
-            vec![
-                CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
-                self.construct_address_id_object_call_arg(false),
-                self.construct_clock_call_arg(),
-                CallArg::Pure(bcs::to_bytes(&delegatee_address).context(current_fn!())?),
-                self.construct_hospital_personnel_id_account_object_call_arg(true),
-                CallArg::Pure(bcs::to_bytes(&patient_address).context(current_fn!())?),
-                CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
-            ],
-        )
-        .context(current_fn!())?;
+            arguments,
+        );
+        let pt = builder.finish();
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
@@ -747,7 +818,7 @@ impl MoveCall {
             sender,
             gas_coins,
             pt,
-            GAS_BUDGET,
+            CREATE_DELEGATED_ACCESS_GAS_BUDGET,
             ref_gas_price,
             sponsor_account,
         );
@@ -784,9 +855,10 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
-            .await
-            .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            reserve_gas(NANOS_PER_IOTA, GAS_RESERVATION_DURATION_SECS)
+                .await
+                .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;

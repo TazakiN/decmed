@@ -205,6 +205,11 @@ pub struct CommandGetHospitalPersonnelsResponseData {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct CommandGetDelegateeCandidatesResponseData {
+    pub candidates: Vec<DelegateeCandidate>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CommandGetProfileResponseData {
     pub hospital: String,
     #[serde(rename = "hospitalIdHash")]
@@ -283,6 +288,17 @@ pub struct HospitalPersonnelMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegateeCandidate {
+    pub personnel_id_hash: String,
+    pub name: Option<String>,
+    pub role: HospitalPersonnelRole,
+    pub sub_role: Option<HospitalPersonnelSubRole>,
+    pub iota_address: String,
+    pub pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct KeyNonce {
     pub key: String,
     pub nonce: String,
@@ -351,6 +367,15 @@ pub struct MoveCallHospitalAdminAddActivationKeyPayload {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MoveHospitalPersonnelMetadata {
     pub metadata: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MoveDelegateeCandidate {
+    pub personnel_id_hash: String,
+    pub address: IotaAddress,
+    pub role: HospitalPersonnelRole,
+    pub sub_role: Option<HospitalPersonnelSubRole>,
+    pub public_metadata: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -445,6 +470,12 @@ pub struct ProxyReencryptionSuccessResponse<T> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PublicAdministrativeData {
     pub name: Option<String>,
+    #[serde(
+        rename = "prePublicKey",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pre_public_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -481,4 +512,17 @@ pub struct UtilIpfsAddResponse {
     pub cid: String,
     pub name: String,
     pub size: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PublicAdministrativeData;
+
+    #[test]
+    fn public_administrative_data_allows_missing_pre_public_key() {
+        let data: PublicAdministrativeData = serde_json::from_str(r#"{"name":"Dr Test"}"#).unwrap();
+
+        assert_eq!(data.name.as_deref(), Some("Dr Test"));
+        assert_eq!(data.pre_public_key, None);
+    }
 }

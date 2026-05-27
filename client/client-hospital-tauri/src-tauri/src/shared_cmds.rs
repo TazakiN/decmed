@@ -145,9 +145,15 @@ pub async fn get_profile(
     let private_administrative_metadata: PrivateAdministrativeMetadata =
         serde_deserialize_from_base64(administrative_metadata.private_metadata)
             .context(current_fn!())?;
-    let public_administrative_data: PublicAdministrativeData =
+    let mut public_administrative_data: PublicAdministrativeData =
         serde_deserialize_from_base64(administrative_metadata.public_metadata)
             .context(current_fn!())?;
+    let hospital_personnel_pre_public_key_b64 =
+        serde_serialize_to_base64(&hospital_personnel_pre_public_key).context(current_fn!())?;
+    if public_administrative_data.pre_public_key.is_none() {
+        public_administrative_data.pre_public_key =
+            Some(hospital_personnel_pre_public_key_b64.clone());
+    }
 
     let private_administrative_data_capsule: Capsule =
         serde_deserialize_from_base64(private_administrative_metadata.capsule)
@@ -210,8 +216,7 @@ pub async fn get_profile(
             .encode()
             .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?,
         name: public_administrative_data.name.clone(),
-        pre_public_key: serde_serialize_to_base64(&hospital_personnel_pre_public_key)
-            .context(current_fn!())?,
+        pre_public_key: hospital_personnel_pre_public_key_b64,
         role,
         sub_role,
     };
@@ -319,6 +324,9 @@ pub async fn update_profile(
             .public
             .clone();
         public_administrative_data.name = Some(data.name);
+        public_administrative_data.pre_public_key = Some(
+            serde_serialize_to_base64(&hospital_personnel_pre_public_key).context(current_fn!())?,
+        );
 
         public_administrative_data
     };

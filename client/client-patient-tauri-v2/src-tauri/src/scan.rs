@@ -12,16 +12,16 @@ use crate::{
     patient_error::PatientError,
     types::{
         AppState, CommandProcessQrResponse, HospitalPersonnelPublicAdministrativeData,
-        MoveCreateAccessData, MoveCreateAccessMetadata,
-        ProxyReencryptionErrorResponse, ProxyReencryptionNoncePayload,
-        ProxyReencryptionPostKeysResponseData, ProxyReencryptionSuccessResponse, ResponseStatus,
-        SuccessResponse,
+        MoveCreateAccessData, MoveCreateAccessMetadata, ProxyReencryptionErrorResponse,
+        ProxyReencryptionNoncePayload, ProxyReencryptionPostKeysResponseData,
+        ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
     },
     utils::{
-        compute_pre_keys, decode_hospital_grant_qr, do_http_post_json_request, generate_64_bytes_seed,
-        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
-        get_pre_keys_from_keys_entry, parse_keys_entry, process_qr_image,
-        serde_deserialize_from_base64, serde_serialize_to_base64, sys_time_to_iso,
+        compute_pre_keys, decode_hospital_grant_qr, do_http_post_json_request,
+        generate_64_bytes_seed, get_iota_address_from_keys_entry,
+        get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
+        process_qr_image, serde_deserialize_from_base64, serde_serialize_to_base64,
+        sys_time_to_iso,
     },
 };
 
@@ -158,15 +158,20 @@ pub async fn create_access(
     let encounter_dataset =
         serde_json::from_str::<DatasetCategory>(&json).context(current_fn!())?;
 
+    let enc_data_pre_secret_key_seed_b64 = STANDARD.encode(enc_data_pre_secret_key_seed);
+    let data_pre_secret_key_seed_capsule_b64 =
+        serde_serialize_to_base64(&data_pre_secret_key_seed_capsule).context(current_fn!())?;
+    let patient_pre_public_key_b64 =
+        serde_serialize_to_base64(&patient_pre_public_key).context(current_fn!())?;
+
     let mut payload = json!({
-        "enc_data_pre_secret_key_seed": STANDARD.encode(enc_data_pre_secret_key_seed),
+        "enc_data_pre_secret_key_seed": enc_data_pre_secret_key_seed_b64,
         "hospital_personnel_iota_address": hospital_personnel_iota_address.to_string(),
         "k_frag": serde_serialize_to_base64(&k_frag).context(current_fn!())?,
         "data_pre_public_key": serde_serialize_to_base64(&data_pre_public_key).context(current_fn!())?,
-        "data_pre_secret_key_seed_capsule": serde_serialize_to_base64(&data_pre_secret_key_seed_capsule).context(current_fn!())?,
+        "data_pre_secret_key_seed_capsule": data_pre_secret_key_seed_capsule_b64,
         "patient_iota_address": patient_iota_address.to_string(),
-        "patient_pre_public_key": serde_serialize_to_base64(&patient_pre_public_key)
-            .context(current_fn!())?,
+        "patient_pre_public_key": patient_pre_public_key_b64,
         "signature": signature.encode_base64(),
         "signer_pre_public_key": serde_serialize_to_base64(&signer_public_key)
             .context(current_fn!())?,
@@ -215,6 +220,8 @@ pub async fn create_access(
             patient_iota_address: patient_iota_address.to_string(),
             access_token: access_token.access_token_read,
             patient_pre_public_key: None,
+            enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64.clone()),
+            data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64.clone()),
         };
         let (data_capsule_read, enc_data_read) = encrypt(
             &hospital_personnel_pre_public_key,
@@ -230,9 +237,9 @@ pub async fn create_access(
             access_token: access_token_update,
             patient_name,
             patient_iota_address: patient_iota_address.to_string(),
-            patient_pre_public_key: Some(
-                serde_serialize_to_base64(&patient_pre_public_key).context(current_fn!())?,
-            ),
+            patient_pre_public_key: Some(patient_pre_public_key_b64),
+            enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64),
+            data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64),
         };
 
         let (data_capsule_update, enc_data_update) = encrypt(

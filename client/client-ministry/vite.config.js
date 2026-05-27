@@ -25,9 +25,7 @@ export default defineConfig(async () => ({
 					port: 1425
 				}
 			: undefined,
-		watch: {
-			// 3. tell vite to ignore watching `src-tauri`
-			ignored: ['**/src-tauri/**']
-		}
+		// 3. disable Vite's file watcher while keeping the dev server available for Tauri.
+		watch: null
 	}
 }));

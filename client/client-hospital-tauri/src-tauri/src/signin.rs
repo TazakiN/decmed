@@ -119,7 +119,13 @@ pub async fn signin(
             private: PrivateAdministrativeData {
                 id: keys_entry.id.clone().unwrap(),
             },
-            public: PublicAdministrativeData { name: None },
+            public: PublicAdministrativeData {
+                name: None,
+                pre_public_key: Some(
+                    serde_serialize_to_base64(&hospital_personnel_pre_public_key)
+                        .context(current_fn!())?,
+                ),
+            },
         })
     }
 

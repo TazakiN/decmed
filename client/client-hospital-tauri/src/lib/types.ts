@@ -41,6 +41,15 @@ export type HospitalPersonnel = {
 	sub_role?: MedicalPersonnelSubRole;
 };
 
+export type DelegateeCandidate = {
+	personnelIdHash: string;
+	name?: string | null;
+	role: Role;
+	subRole?: MedicalPersonnelSubRole | null;
+	iotaAddress: string;
+	prePublicKey: string;
+};
+
 export type SuccessResponse<T> = {
 	status: string;
 	data: T;
@@ -75,11 +84,7 @@ export type TauriMedicalData = {
 	therapy: string;
 };
 
-export type DatasetCategory =
-	| 'RAWAT_JALAN'
-	| 'RAWAT_INAP'
-	| 'LABORATORIUM'
-	| 'APOTEK';
+export type DatasetCategory = 'RAWAT_JALAN' | 'RAWAT_INAP' | 'LABORATORIUM' | 'APOTEK';
 
 export type FunctionCategory =
 	| 'ADMINISTRATIVE_GENERAL'

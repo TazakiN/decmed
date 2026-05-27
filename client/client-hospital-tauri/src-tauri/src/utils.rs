@@ -426,8 +426,16 @@ fn map_abort_code_to_message(raw: &str) -> String {
 
 pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), HospitalError> {
     if response.error.is_some() {
+        let raw = response.error.unwrap();
+        let message = if raw.contains("Reservation no longer exist") {
+            "Gas reservation expired before the transaction was executed. Please retry the action."
+                .to_string()
+        } else {
+            raw
+        };
+
         return Err(HospitalError::Anyhow(
-            anyhow!(response.error.unwrap()).context(current_fn!()),
+            anyhow!(message).context(current_fn!()),
         ));
     }
 

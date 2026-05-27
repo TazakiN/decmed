@@ -199,7 +199,8 @@
 										subRole: personnel.sub_role
 									});
 								}}
-								class="cursor-pointer"
+								disabled={adminHomeState.isLoadingUpdateActivationKey}
+								class="cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{#if adminHomeState.isLoadingUpdateActivationKey}
 									<RefreshCcw size={14} class="animate-spin" />

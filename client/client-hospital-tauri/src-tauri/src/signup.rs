@@ -157,7 +157,13 @@ pub async fn signup(
         };
 
         // Construct public administrative data
-        let public_administrative_data = PublicAdministrativeData { name: None };
+        let public_administrative_data = PublicAdministrativeData {
+            name: None,
+            pre_public_key: Some(
+                serde_serialize_to_base64(&hospital_personnel_pre_public_key)
+                    .context(current_fn!())?,
+            ),
+        };
 
         // Encrypt PRE secret key
         let (enc_hospital_personnel_pre_secret_key, hospital_personnel_pre_secret_key_nonce) =

@@ -81,6 +81,16 @@ const EInvalidHospitalPersonnelSubRole: u64 = 2016;
 const ESubRoleRequiredForMedicalPersonnel: u64 = 2017;
 const ESubRoleNotAllowedForNonMedicalPersonnel: u64 = 2018;
 
+// Structs
+
+public struct DelegateeCandidate has copy, drop, store {
+    personnel_id_hash: String,
+    address: address,
+    role: HospitalPersonnelRole,
+    sub_role: Option<HospitalPersonnelSubRole>,
+    public_metadata: String,
+}
+
 // Functions
 
 /// ## Params
@@ -457,6 +467,68 @@ entry fun get_hospital_personnels(
     let (_, personnels) = hospital_admin_personnels.into_keys_values();
 
     personnels
+}
+
+/// ## Params
+/// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)
+/// - `admin_personnel_id`: argon_hash("admin")
+entry fun get_delegatee_candidates(
+    activation_key: String,
+    admin_personnel_id: String,
+    address_id: &AddressId,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    ctx: &TxContext,
+): vector<DelegateeCandidate>
+{
+    let address_id_table = address_id.borrow_table();
+    let caller_personnel_id = *address_id_table.borrow(ctx.sender());
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+    let caller_account = hospital_personnel_id_account_table.borrow(caller_personnel_id);
+
+    require_account_activation(activation_key, caller_account);
+
+    let caller_hospital_id = *caller_account.borrow_hospital_id();
+    let hospital_admin_id = encode_hospital_personnel_id(caller_hospital_id, admin_personnel_id);
+
+    assert!(hospital_personnel_id_account_table.contains(hospital_admin_id), EAccountNotFound);
+
+    let hospital_admin_account = hospital_personnel_id_account_table.borrow(hospital_admin_id);
+    let hospital_admin_personnels = hospital_admin_account.borrow_personnels().borrow();
+    let mut candidates = vector::empty<DelegateeCandidate>();
+    let mut cnt = 0;
+    let len = hospital_admin_personnels.size();
+
+    while (cnt < len) {
+        let (candidate_personnel_id, _) = hospital_admin_personnels.get_entry_by_idx(cnt);
+        let candidate_personnel_id = *candidate_personnel_id;
+
+        if (
+            candidate_personnel_id != caller_personnel_id &&
+            hospital_personnel_id_account_table.contains(candidate_personnel_id)
+        ) {
+            let candidate_account = hospital_personnel_id_account_table.borrow(candidate_personnel_id);
+            if (
+                *candidate_account.borrow_hospital_id() == caller_hospital_id &&
+                candidate_account.borrow_is_activation_key_used() &&
+                candidate_account.borrow_is_profile_completed() &&
+                candidate_account.borrow_address().is_some() &&
+                candidate_account.borrow_administrative_metadata().is_some()
+            ) {
+                let administrative_metadata = candidate_account.borrow_administrative_metadata().borrow();
+                candidates.push_back(DelegateeCandidate {
+                    personnel_id_hash: candidate_personnel_id,
+                    address: *candidate_account.borrow_address().borrow(),
+                    role: *candidate_account.borrow_role(),
+                    sub_role: *candidate_account.borrow_sub_role(),
+                    public_metadata: *administrative_metadata.borrow_public_metadata(),
+                });
+            };
+        };
+
+        cnt = cnt + 1;
+    };
+
+    candidates
 }
 
 /// ## Params

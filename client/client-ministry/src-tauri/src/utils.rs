@@ -10,14 +10,16 @@ use argon2::{
 };
 use iota_json_rpc_types::{
     DevInspectResults, IotaObjectDataOptions, IotaTransactionBlockEffectsAPI,
+    IotaTransactionBlockResponseOptions,
 };
 use iota_sdk::{IotaClient, IotaClientBuilder};
 use iota_types::base_types::{IotaAddress, ObjectID, ObjectRef};
 use iota_types::crypto::{EmptySignInfo, IotaKeyPair};
 use iota_types::message_envelope::Envelope;
 use iota_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
+use iota_types::quorum_driver_types::ExecuteTransactionRequestType;
 use iota_types::transaction::{
-    CallArg, ObjectArg, ProgrammableTransaction, SenderSignedData, TransactionData,
+    CallArg, ObjectArg, ProgrammableTransaction, SenderSignedData, Transaction, TransactionData,
     TransactionDataAPI,
 };
 use iota_types::{Identifier, TypeTag};
@@ -101,6 +103,26 @@ pub async fn execute_tx(
         .context(current_fn!())?)
 }
 
+pub async fn execute_tx_direct(
+    iota_client: &IotaClient,
+    tx: Transaction,
+) -> Result<ExecuteTxResponse, ClientError> {
+    let response = iota_client
+        .quorum_driver_api()
+        .execute_transaction_block(
+            tx,
+            IotaTransactionBlockResponseOptions::new().with_effects(),
+            ExecuteTransactionRequestType::WaitForLocalExecution,
+        )
+        .await
+        .context(current_fn!())?;
+
+    Ok(ExecuteTxResponse {
+        effects: response.effects,
+        error: None,
+    })
+}
+
 pub fn parse_keys_entry(keys_entry: &Vec<u8>) -> Result<KeysEntry, ClientError> {
     Ok(serde_json::from_slice(keys_entry).context(current_fn!())?)
 }
@@ -153,6 +175,27 @@ pub async fn get_ref_gas_price(iota_client: &IotaClient) -> Result<u64, ClientEr
         .get_reference_gas_price()
         .await
         .context(current_fn!())?)
+}
+
+pub async fn select_owned_gas_payment(
+    iota_client: &IotaClient,
+    owner: IotaAddress,
+    gas_budget: u64,
+) -> Result<Vec<ObjectRef>, ClientError> {
+    let gas_coin = iota_client
+        .coin_read_api()
+        .get_coins(owner, None, None, None)
+        .await
+        .context(current_fn!())?
+        .data
+        .into_iter()
+        .find(|coin| coin.balance >= gas_budget)
+        .ok_or_else(|| {
+            anyhow!("No IOTA gas coin with sufficient balance found for ministry admin wallet")
+                .context(current_fn!())
+        })?;
+
+    Ok(vec![gas_coin.object_ref()])
 }
 
 pub async fn construct_capability_call_arg(
@@ -356,9 +399,15 @@ fn map_abort_code_to_message(raw: &str) -> String {
 
 pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<u64, ClientError> {
     if response.error.is_some() {
-        return Err(ClientError::Anyhow(
-            anyhow!(response.error.unwrap()).context(current_fn!()),
-        ));
+        let raw = response.error.unwrap();
+        let message = if raw.contains("Expect 1 signer signatures but got 2") {
+            "Invalid gas station signature count. The transaction sender is also the gas sponsor, so it must be executed with a single signature."
+                .to_string()
+        } else {
+            raw
+        };
+
+        return Err(ClientError::Anyhow(anyhow!(message).context(current_fn!())));
     }
 
     if response.effects.is_some() && response.effects.as_ref().unwrap().status().is_err() {

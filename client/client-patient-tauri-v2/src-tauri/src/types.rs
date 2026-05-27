@@ -195,6 +195,8 @@ pub struct MoveCreateAccessData {
     pub patient_iota_address: String,
     pub patient_name: String,
     pub patient_pre_public_key: Option<String>,
+    pub enc_data_pre_secret_key_seed: Option<String>,
+    pub data_pre_secret_key_seed_capsule: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

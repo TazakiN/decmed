@@ -1,9 +1,9 @@
 pub const IOTA_URL: &str = "https://api.testnet.iota.cafe";
-pub const GAS_STATION_BASE_URL: &str = "http://103.107.4.68:9527/v1";
+pub const GAS_STATION_BASE_URL: &str = "http://103.107.4.62:9527/v1";
 pub const GAS_BUDGET: u64 = 10_000_000;
 pub const _HASH_SALT: &str = "169224A2BE2B267684F93A9CE38080D359BD774741FD3AE738D09B657A1A8104";
-pub const IPFS_BASE_URL: &str = "http://103.107.4.68:9094";
-pub const IPFS_GATEWAY_BASE_URL: &str = "http://103.107.4.68:8080";
+pub const IPFS_BASE_URL: &str = "http://103.107.4.62:9094/api/v0";
+pub const IPFS_GATEWAY_BASE_URL: &str = "http://103.107.4.62:8080";
 /// Duration: 3 minutes
 pub const NONCE_EXP_DUR: u64 = 3 * 60;
 /// Duration: 5 minutes
@@ -21,7 +21,7 @@ pub const DECMED_MODULE_SHARED: &str = "shared";
 pub const DECMED_ORIGINAL_PACKAGE_ID: &str =
     "0xe54e84d676be3d02d2c855971a15bb23884e3dbf01fd7d57faa84da754d1e480";
 pub const DECMED_PACKAGE_ID: &str =
-    "0xe54e84d676be3d02d2c855971a15bb23884e3dbf01fd7d57faa84da754d1e480";
+    "0x643862d2b602df98bde784dd4d1f4b13fb36c6fbfce98edfac6c85a33df0798d";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

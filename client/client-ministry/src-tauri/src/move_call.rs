@@ -2,7 +2,6 @@ use anyhow::Context;
 use iota_types::{
     base_types::IotaAddress,
     crypto::IotaKeyPair,
-    gas_coin::NANOS_PER_IOTA,
     transaction::{CallArg, Transaction},
 };
 
@@ -13,9 +12,9 @@ use crate::{
     types::{DecmedPackage, MoveHospital},
     utils::{
         construct_capability_call_arg, construct_pt, construct_shared_object_call_arg,
-        construct_sponsored_tx_data, execute_tx, get_iota_client, get_ref_gas_price,
+        construct_sponsored_tx_data, execute_tx_direct, get_iota_client, get_ref_gas_price,
         handle_error_execute_tx, handle_error_move_call_read_only, move_call_read_only,
-        parse_move_read_only_result, reserve_gas,
+        parse_move_read_only_result, select_owned_gas_payment,
     },
 };
 
@@ -84,26 +83,20 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
+        let gas_coins = select_owned_gas_payment(&iota_client, sender, GAS_BUDGET)
             .await
             .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
 
-        let tx_data = construct_sponsored_tx_data(
-            sender,
-            gas_coins,
-            pt,
-            GAS_BUDGET,
-            ref_gas_price,
-            sponsor_account,
-        );
+        let tx_data =
+            construct_sponsored_tx_data(sender, gas_coins, pt, GAS_BUDGET, ref_gas_price, sender);
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
 
-        let response = execute_tx(tx, reservation_id)
+        let response = execute_tx_direct(&iota_client, tx)
             .await
             .context(current_fn!())?;
 
@@ -179,26 +172,20 @@ impl MoveCall {
         )
         .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA, 10)
+        let gas_coins = select_owned_gas_payment(&iota_client, sender, GAS_BUDGET)
             .await
             .context(current_fn!())?;
         let ref_gas_price = get_ref_gas_price(&iota_client)
             .await
             .context(current_fn!())?;
 
-        let tx_data = construct_sponsored_tx_data(
-            sender,
-            gas_coins,
-            pt,
-            GAS_BUDGET,
-            ref_gas_price,
-            sponsor_account,
-        );
+        let tx_data =
+            construct_sponsored_tx_data(sender, gas_coins, pt, GAS_BUDGET, ref_gas_price, sender);
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
 
-        let response = execute_tx(tx, reservation_id)
+        let response = execute_tx_direct(&iota_client, tx)
             .await
             .context(current_fn!())?;
 

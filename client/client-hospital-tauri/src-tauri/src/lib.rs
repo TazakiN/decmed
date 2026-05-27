@@ -138,6 +138,7 @@ pub fn run() {
             shared_cmds::update_profile,
             shared_cmds::auth_status,
             admin::get_hospital_personnels,
+            admin::get_delegatee_candidates,
             medical_personnel::new_medical_record,
             rme_segment::new_medical_record_segment,
             macaroon_delegation::delegate_macaroon,

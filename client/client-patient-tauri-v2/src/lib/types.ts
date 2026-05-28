@@ -31,6 +31,8 @@ export type InvokeGetAccessLog = {
 	};
 	index: number;
 	is_revoked: boolean;
+	is_delegated: boolean;
+	delegated_by_address: string | null;
 };
 
 export type InvokeProcessQrResponse = {

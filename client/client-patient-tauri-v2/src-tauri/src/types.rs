@@ -170,6 +170,21 @@ pub struct HospitalPersonnelPublicAdministrativeData {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct CommandGetAccessLogResponse {
+    pub access_data_type: Vec<MoveHospitalPersonnelAccessDataType>,
+    pub access_type: MoveHospitalPersonnelAccessType,
+    pub date: String,
+    pub exp_dur: u64,
+    pub hospital_metadata: MoveHospitalMetadata,
+    pub hospital_personnel_address: String,
+    pub hospital_personnel_metadata: HospitalPersonnelPublicAdministrativeData,
+    pub index: u64,
+    pub is_revoked: bool,
+    pub is_delegated: bool,
+    pub delegated_by_address: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MovePatientAccessLog {
     pub access_data_type: Vec<MoveHospitalPersonnelAccessDataType>,
     pub access_type: MoveHospitalPersonnelAccessType,
@@ -180,6 +195,8 @@ pub struct MovePatientAccessLog {
     pub hospital_personnel_metadata: String,
     pub index: u64,
     pub is_revoked: bool,
+    pub is_delegated: bool,
+    pub delegated_by_address: Option<IotaAddress>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -330,3 +347,73 @@ impl fmt::Display for ProxyReencryptionErrorResponse {
 }
 
 impl std::error::Error for ProxyReencryptionErrorResponse {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[derive(Debug, Serialize)]
+    struct WirePatientAccessLog {
+        access_data_type: Vec<MoveHospitalPersonnelAccessDataType>,
+        access_type: MoveHospitalPersonnelAccessType,
+        date: String,
+        exp_dur: u64,
+        hospital_metadata: MoveHospitalMetadata,
+        hospital_personnel_address: IotaAddress,
+        hospital_personnel_metadata: String,
+        index: u64,
+        is_revoked: bool,
+        is_delegated: bool,
+        delegated_by_address: Option<IotaAddress>,
+    }
+
+    #[test]
+    fn move_patient_access_log_decodes_latest_bcs_layout() {
+        let personnel_address = IotaAddress::from_str(
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .unwrap();
+        let delegated_by_address = IotaAddress::from_str(
+            "0x2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .unwrap();
+
+        let wire = vec![WirePatientAccessLog {
+            access_data_type: vec![
+                MoveHospitalPersonnelAccessDataType::Medical,
+                MoveHospitalPersonnelAccessDataType::Administrative,
+            ],
+            access_type: MoveHospitalPersonnelAccessType::Read,
+            date: "2026-05-28T10:00:00Z".to_string(),
+            exp_dur: 15,
+            hospital_metadata: MoveHospitalMetadata {
+                name: "RS DecMed".to_string(),
+            },
+            hospital_personnel_address: personnel_address,
+            hospital_personnel_metadata: "eyJuYW1lIjoiRG9rdGVyIn0=".to_string(),
+            index: 7,
+            is_revoked: false,
+            is_delegated: true,
+            delegated_by_address: Some(delegated_by_address),
+        }];
+
+        let encoded = bcs::to_bytes(&wire).unwrap();
+        let decoded: Vec<MovePatientAccessLog> = bcs::from_bytes(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 1);
+        let entry = &decoded[0];
+        assert_eq!(entry.access_data_type.len(), 2);
+        assert!(matches!(
+            entry.access_data_type[0],
+            MoveHospitalPersonnelAccessDataType::Medical
+        ));
+        assert!(matches!(
+            entry.access_type,
+            MoveHospitalPersonnelAccessType::Read
+        ));
+        assert_eq!(entry.hospital_personnel_address, personnel_address);
+        assert_eq!(entry.is_delegated, true);
+        assert_eq!(entry.delegated_by_address, Some(delegated_by_address));
+    }
+}

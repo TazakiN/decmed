@@ -2,15 +2,14 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use iota_types::base_types::IotaAddress;
-use serde_json::{json, Value};
 use tauri::{async_runtime::Mutex, State};
 
 use crate::{
     current_fn,
     patient_error::PatientError,
     types::{
-        AppState, HospitalPersonnelPublicAdministrativeData, MovePatientAccessLog, ResponseStatus,
-        SuccessResponse,
+        AppState, CommandGetAccessLogResponse, HospitalPersonnelPublicAdministrativeData,
+        MovePatientAccessLog, ResponseStatus, SuccessResponse,
     },
     utils::{
         get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry, parse_keys_entry,
@@ -21,7 +20,7 @@ use crate::{
 #[tauri::command]
 pub async fn get_access_log(
     state: State<'_, Mutex<AppState>>,
-) -> Result<SuccessResponse<Vec<Value>>, PatientError> {
+) -> Result<SuccessResponse<Vec<CommandGetAccessLogResponse>>, PatientError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
@@ -46,19 +45,23 @@ pub async fn get_access_log(
                 serde_deserialize_from_base64(metadata.hospital_personnel_metadata)
                     .context(current_fn!())?;
 
-            Ok(json!({
-                "access_data_type": metadata.access_data_type,
-                "access_type": metadata.access_type,
-                "date": metadata.date,
-                "exp_dur": metadata.exp_dur,
-                "hospital_metadata": metadata.hospital_metadata,
-                "hospital_personnel_address": metadata.hospital_personnel_address,
-                "hospital_personnel_metadata": hospital_personnel_metadata,
-                "index": metadata.index,
-                "is_revoked": metadata.is_revoked,
-            }))
+            Ok(CommandGetAccessLogResponse {
+                access_data_type: metadata.access_data_type,
+                access_type: metadata.access_type,
+                date: metadata.date,
+                exp_dur: metadata.exp_dur,
+                hospital_metadata: metadata.hospital_metadata,
+                hospital_personnel_address: metadata.hospital_personnel_address.to_string(),
+                hospital_personnel_metadata,
+                index: metadata.index,
+                is_revoked: metadata.is_revoked,
+                is_delegated: metadata.is_delegated,
+                delegated_by_address: metadata
+                    .delegated_by_address
+                    .map(|address| address.to_string()),
+            })
         })
-        .collect::<Result<Vec<Value>, PatientError>>()?;
+        .collect::<Result<Vec<CommandGetAccessLogResponse>, PatientError>>()?;
 
     Ok(SuccessResponse {
         data: access_log,

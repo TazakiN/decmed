@@ -13,14 +13,13 @@ use crate::{
     current_fn,
     patient_error::PatientError,
     types::{
-        DecmedPackage, MovePatientAccessLog,
-        MovePatientAdministrativeMetadata, MovePatientMedicalMetadata,
+        DecmedPackage, MovePatientAccessLog, MovePatientAdministrativeMetadata,
+        MovePatientMedicalMetadata,
     },
     utils::{
         construct_pt, construct_shared_object_call_arg, construct_sponsored_tx_data, execute_tx,
         get_iota_client, get_ref_gas_price, handle_error_execute_tx,
-        handle_error_move_call_read_only, move_call_read_only,
-        parse_move_read_only_result,
+        handle_error_move_call_read_only, move_call_read_only, parse_move_read_only_result,
         reserve_gas,
     },
 };

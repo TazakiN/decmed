@@ -8,7 +8,7 @@ use iota_types::{
 use r2d2::Pool;
 use redis::Client;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::move_call::MoveCall;
 use decmed_macaroon_auth::VerifiedDecmedToken;
@@ -234,8 +234,55 @@ where
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UtilIpfsAddResponse {
+    #[serde(default)]
     pub allocations: Vec<String>,
+    #[serde(alias = "Hash")]
     pub cid: String,
+    #[serde(default, alias = "Name")]
     pub name: String,
+    #[serde(default, alias = "Size", deserialize_with = "deserialize_ipfs_size")]
     pub size: u64,
+}
+
+fn deserialize_ipfs_size<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(0),
+        Some(serde_json::Value::Number(number)) => number
+            .as_u64()
+            .ok_or_else(|| de::Error::custom("IPFS size must be an unsigned integer")),
+        Some(serde_json::Value::String(value)) => value
+            .parse::<u64>()
+            .map_err(|err| de::Error::custom(format!("Invalid IPFS size: {err}"))),
+        Some(_) => Err(de::Error::custom("IPFS size must be a number or string")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UtilIpfsAddResponse;
+
+    #[test]
+    fn ipfs_add_response_accepts_cluster_shape_without_allocations() {
+        let response: UtilIpfsAddResponse =
+            serde_json::from_str(r#"{"cid":"bafy123","name":"segment","size":126}"#).unwrap();
+
+        assert_eq!(response.cid, "bafy123");
+        assert!(response.allocations.is_empty());
+        assert_eq!(response.size, 126);
+    }
+
+    #[test]
+    fn ipfs_add_response_accepts_kubo_shape() {
+        let response: UtilIpfsAddResponse =
+            serde_json::from_str(r#"{"Name":"segment","Hash":"Qm123","Size":"126"}"#).unwrap();
+
+        assert_eq!(response.cid, "Qm123");
+        assert_eq!(response.name, "segment");
+        assert_eq!(response.size, 126);
+    }
 }

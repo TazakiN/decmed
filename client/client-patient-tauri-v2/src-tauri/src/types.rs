@@ -10,7 +10,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::move_call::MoveCall;
-pub use decmed_rme_segment::{DatasetCategory, FunctionCategory};
+pub use decmed_rme_segment::{
+    DatasetCategory, FunctionCategory, RmeSegmentData, RmeSegmentMetadata,
+};
 
 // Enum.
 
@@ -68,10 +70,18 @@ pub struct AuthState {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandGetMedicalRecordsResponseData {
+    #[serde(rename = "authorAddress")]
+    pub author_address: String,
     pub cid: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
+    #[serde(rename = "datasetCategory")]
+    pub dataset_category: DatasetCategory,
+    #[serde(rename = "functionCategory")]
+    pub function_category: FunctionCategory,
     pub index: u64,
+    #[serde(rename = "relatedRmeId")]
+    pub related_rme_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -157,23 +167,6 @@ pub struct KeysEntry {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HospitalPersonnelPublicAdministrativeData {
     pub name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MedicalData {
-    pub anamnesis: String,
-    pub physical_check: String,
-    pub psychological_check: String,
-    pub diagnose: String,
-    pub therapy: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MedicalMetadata {
-    pub capsule: String,
-    pub cid: String,
-    pub created_at: String,
-    pub enc_key_and_nonce: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

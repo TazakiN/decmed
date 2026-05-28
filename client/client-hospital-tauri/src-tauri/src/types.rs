@@ -188,6 +188,7 @@ pub struct AppState {
     pub auth_state: AuthState,
     pub keys_entry: Entry,
     pub move_call: MoveCall,
+    pub profile_id: String,
     pub signin_state: SignInState,
     pub signup_state: SignUpState,
 }

@@ -23,15 +23,8 @@ use crate::constants::{
 };
 use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
-use decmed_macaroon_auth::{
-    verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
-};
 use crate::middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER};
 use crate::proxy_error::{ProxyError, ResultExt};
-use decmed_macaroon_auth::{
-    issue_admin_personnel_token, issue_initial_token, AccessMode, AdminTokenKind,
-    InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
-};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
@@ -42,6 +35,13 @@ use crate::types::{
     PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
 };
 use crate::utils::Utils;
+use decmed_macaroon_auth::{
+    issue_admin_personnel_token, issue_initial_token, AccessMode, AdminTokenKind,
+    InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+};
+use decmed_macaroon_auth::{
+    verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
+};
 
 pub struct Handlers {}
 
@@ -99,13 +99,10 @@ fn issue_legacy_role_macaroons(
         .as_secs()
         + read_keys_duration;
 
-    let mut read_macaroon = macaroon::Macaroon::create(
-        Some("proxy-reencryption".into()),
-        root_key,
-        subject.into(),
-    )
-    .map_err(|_| anyhow!("Failed to create macaroon"))
-    .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut read_macaroon =
+        macaroon::Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
+            .map_err(|_| anyhow!("Failed to create macaroon"))
+            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
     read_macaroon.add_first_party_caveat("purpose = Read".into());
@@ -127,13 +124,10 @@ fn issue_legacy_role_macaroons(
             .as_secs()
             + update_keys_duration;
 
-        let mut update_macaroon = macaroon::Macaroon::create(
-            Some("proxy-reencryption".into()),
-            root_key,
-            subject.into(),
-        )
-        .map_err(|_| anyhow!("Failed to create macaroon"))
-        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut update_macaroon =
+            macaroon::Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
+                .map_err(|_| anyhow!("Failed to create macaroon"))
+                .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
         update_macaroon.add_first_party_caveat("purpose = Update".into());
@@ -308,10 +302,9 @@ impl Handlers {
         };
 
         let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
-        let segment_metadata_preview = encrypted_segment.clone().into_metadata(
-            String::new(),
-            created_at.clone(),
-        );
+        let segment_metadata_preview = encrypted_segment
+            .clone()
+            .into_metadata(String::new(), created_at.clone());
         if current_user.decmed_token.is_some() {
             let wallet_sig = headers
                 .get(WALLET_SIGNATURE_HEADER)
@@ -319,8 +312,8 @@ impl Handlers {
             let wallet_timestamp = headers
                 .get(WALLET_TIMESTAMP_HEADER)
                 .and_then(|v| v.to_str().ok());
-            let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
-                .map_err(|_| {
+            let mac =
+                macaroon::Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
                     ProxyError::Anyhow {
                         source: anyhow!("Invalid access token"),
                         code: StatusCode::UNAUTHORIZED,
@@ -589,6 +582,18 @@ impl Handlers {
             });
         }
 
+        if current_user
+            .decmed_token
+            .as_ref()
+            .and_then(|token| token.effective.proof_required)
+            .is_some()
+            && headers.get(WALLET_SIGNATURE_HEADER).is_none()
+        {
+            return Err(map_caveat_error(
+                CaveatVerificationError::WalletSignatureRequired,
+            ));
+        }
+
         let (hospital_personnel_iota_address, patient_iota_address, proxy_iota_address) = {
             let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
                 .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
@@ -683,11 +688,6 @@ impl Handlers {
                             verifier,
                         ) {
                             Ok(_) => break record,
-                            Err(CaveatVerificationError::WalletSignatureRequired)
-                                if wallet_sig.is_none() =>
-                            {
-                                break record
-                            }
                             Err(
                                 CaveatVerificationError::DatasetCategoryNotAllowed
                                 | CaveatVerificationError::FunctionCategoryNotAllowed
@@ -1062,10 +1062,7 @@ impl Handlers {
             .clone()
             .unwrap_or_else(|| hospital_personnel_iota_address.to_string());
 
-        let hospital_id_opt = payload
-            .hospital_id
-            .as_deref()
-            .filter(|id| !id.is_empty());
+        let hospital_id_opt = payload.hospital_id.as_deref().filter(|id| !id.is_empty());
 
         let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
             match hospital_personnel_role {
@@ -1164,10 +1161,12 @@ impl Handlers {
                             read_params.hospital_id = Some(hospital_id);
                         }
 
-                        let read_token = issue_initial_token(&root_key, &read_params)
-                            .map_err(|e| ProxyError::Caveat {
-                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                                error: e.to_string(),
+                        let read_token =
+                            issue_initial_token(&root_key, &read_params).map_err(|e| {
+                                ProxyError::Caveat {
+                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                    error: e.to_string(),
+                                }
                             })?;
 
                         let update_token = if let Some(update_keys_duration) = update_keys_duration
@@ -1177,14 +1176,12 @@ impl Handlers {
                             let mut update_params = read_params.clone();
                             update_params.expires_before = update_expires;
                             update_params.purpose = Some("Update".into());
-                            Some(
-                                issue_initial_token(&root_key, &update_params).map_err(|e| {
-                                    ProxyError::Caveat {
-                                        code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                                        error: e.to_string(),
-                                    }
-                                })?,
-                            )
+                            Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
+                                ProxyError::Caveat {
+                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                    error: e.to_string(),
+                                }
+                            })?)
                         } else {
                             None
                         };

@@ -4,6 +4,8 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { createMedicalRecordSchema } from '$lib/schema';
 
+export const prerender = false;
+
 export const load: PageLoad = async ({ parent, params, url }) => {
 	await parent();
 

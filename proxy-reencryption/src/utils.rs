@@ -63,11 +63,19 @@ impl Utils {
             .send()
             .await
             .context(current_fn!())?;
+        let status = res.status();
+        let body = res.text().await.context(current_fn!())?;
 
-        let res = res
-            .json::<UtilIpfsAddResponse>()
-            .await
-            .context(current_fn!())?;
+        if !status.is_success() {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("IPFS add failed with status {status}: {body}")
+                    .context(current_fn!()),
+                code: StatusCode::INTERNAL_SERVER_ERROR,
+            });
+        }
+
+        let res: UtilIpfsAddResponse = serde_json::from_str(&body)
+            .with_context(|| format!("Failed to decode IPFS add response body: {body}"))?;
 
         Ok(res.cid)
     }

@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use crate::{
     macaroon_auth::map_caveat_error,
     proxy_error::{ProxyError, ResultExt},
-    types::{AppState, AuthRole, CurrentUser, ReencryptionPurposeType},
+    types::{AppState, AuthRole, CurrentUser, MoveHospitalPersonnelRole, ReencryptionPurposeType},
     utils::Utils,
 };
 use anyhow::anyhow;
@@ -17,6 +17,7 @@ use decmed_macaroon_auth::{
     verify_macaroon_signature, DelegationChain, EffectiveCapability, ParsedCaveats,
     VerifiedDecmedToken,
 };
+use iota_types::base_types::IotaAddress;
 
 pub const WALLET_SIGNATURE_HEADER: &str = "x-decmed-wallet-signature";
 pub const WALLET_TIMESTAMP_HEADER: &str = "x-decmed-wallet-timestamp";
@@ -47,7 +48,25 @@ pub async fn auth_middleware(
         let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
         let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
 
-        let (role, purpose) = legacy_role_purpose_from_parsed(&parsed)?;
+        let active_subject = delegation.active_subject.clone();
+        let active_subject_address = IotaAddress::from_str(&active_subject)
+            .map_err(|_| anyhow!("Invalid active subject address"))
+            .code(StatusCode::UNAUTHORIZED)?;
+        let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
+            .map_err(|_| anyhow!("Invalid proxy IOTA address"))
+            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // DecMed token caveat role is legacy/deprecated for delegated tokens.
+        // Identity role must come from on-chain registry for the active subject.
+        // TODO: resolve sub_role, hospital_id, and activation status here when
+        // proxy.move exposes a compact auth-info helper.
+        let role = auth_role_from_move_role(
+            state
+                .move_call
+                .get_hospital_personnel_role(&active_subject_address, proxy_iota_address)
+                .await?,
+        )?;
+        let (_, purpose) = legacy_role_purpose_from_parsed(&parsed)?;
 
         let verified = VerifiedDecmedToken {
             parsed,
@@ -61,7 +80,7 @@ pub async fn auth_middleware(
         };
 
         let current_user = CurrentUser {
-            iota_address: delegation.active_subject,
+            iota_address: active_subject,
             purpose,
             role,
             decmed_token: Some(verified),
@@ -205,4 +224,15 @@ fn legacy_role_purpose_from_parsed(
     };
 
     Ok((role, purpose))
+}
+
+fn auth_role_from_move_role(role: MoveHospitalPersonnelRole) -> Result<AuthRole, ProxyError> {
+    match role {
+        MoveHospitalPersonnelRole::AdministrativePersonnel => Ok(AuthRole::AdministrativePersonnel),
+        MoveHospitalPersonnelRole::MedicalPersonnel => Ok(AuthRole::MedicalPersonnel),
+        MoveHospitalPersonnelRole::Admin => Err(ProxyError::Anyhow {
+            source: anyhow!("Invalid personnel account"),
+            code: StatusCode::UNAUTHORIZED,
+        }),
+    }
 }

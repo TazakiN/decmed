@@ -8,9 +8,13 @@ export type Account = {
 export type CompleteProfileSchema = typeof completeProfileSchema;
 
 export type InvokeGetMedicalRecordsResponse = {
+	authorAddress: string;
 	cid: string;
 	createdAt: string;
-	index: string;
+	datasetCategory: DatasetCategory;
+	functionCategory: FunctionCategory;
+	index: number;
+	relatedRmeId: string;
 };
 
 export type InvokeGetAccessLog = {
@@ -36,7 +40,7 @@ export type InvokeProcessQrResponse = {
 
 export type InvokeGetMedicalRecordResponse = {
 	createdAt: string;
-	medicalData: TauriMedicalData;
+	segmentData: RmeSegmentData;
 };
 
 export type TauriAdministrativeData = {
@@ -54,16 +58,7 @@ export type TauriAdministrativeData = {
 	maritalStatus: string | null;
 };
 
-export type TauriMedicalData = {
-	anamnesis: string;
-	physical_check: string;
-	psychological_check: string;
-	diagnose: string;
-	therapy: string;
-};
-
 export type DatasetCategory =
-	| 'ADMINISTRATIVE'
 	| 'RAWAT_JALAN'
 	| 'RAWAT_INAP'
 	| 'LABORATORIUM'
@@ -82,22 +77,9 @@ export type FunctionCategory =
 	| 'DIAGNOSIS'
 	| 'INFORMED_CONSENT'
 	| 'TERAPI'
-	| 'PERMINTAAN_PEMERIKSAAN'
-	| 'SPESIMEN_KLINIS'
-	| 'PENGOLAHAN_SPESIMEN'
-	| 'HASIL_PEMERIKSAAN'
-	| 'VALIDASI_HASIL'
-	| 'DISTRIBUSI_HASIL'
-	| 'DATA_RESEP_DAN_OBAT'
-	| 'RIWAYAT_ALERGI'
-	| 'ASAL_RESEP'
-	| 'DOKTER_PENULIS_RESEP'
-	| 'STATUS_DAN_PENGKAJIAN_RESEP'
-	| 'STATUS_RESEP'
-	| 'WAKTU_PENYIAPAN_OBAT'
-	| 'WAKTU_PENYERAHAN_OBAT'
-	| 'PETUGAS_DISPENSING'
-	| 'ETIKET';
+	| 'LABORATORIUM'
+	| 'PERESEPAN'
+	| 'DISPENSING';
 
 export type RmeSegmentAttachment = {
 	cid: string;

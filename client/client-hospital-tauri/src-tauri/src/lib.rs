@@ -9,6 +9,7 @@ mod macaroon_delegation;
 mod macros;
 mod medical_personnel;
 mod move_call;
+mod profile;
 mod rme_segment;
 mod shared_cmds;
 mod signin;
@@ -28,12 +29,18 @@ use constants::{
 use iota_types::{base_types::ObjectID, Identifier};
 use keyring::Entry;
 use move_call::MoveCall;
+use profile::{
+    keyring_service_for_profile, migrate_legacy_default_profile_if_needed, resolve_profile_id,
+    KEYRING_ACCOUNT,
+};
 use std::str::FromStr;
 use tauri::{async_runtime::Mutex, Manager};
 use types::{AppState, AuthState, DecmedPackage, KeysEntry, SignInState, SignUpState};
 
 fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let keys_entry = Entry::new("decmed_service_keys", "decmed_user")?;
+    let profile_id = resolve_profile_id()?;
+    let keyring_service = keyring_service_for_profile(&profile_id);
+    let keys_entry = Entry::new(&keyring_service, KEYRING_ACCOUNT)?;
     let decmed_package = DecmedPackage {
         package_id: ObjectID::from_str(DECMED_PACKAGE_ID)?,
         module_hospital_personnel: Identifier::from_str(DECMED_MODULE_HOSPITAL_PERSONNEL)?,
@@ -86,6 +93,9 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         decmed_package: decmed_package.clone(),
     };
 
+    let migrated_legacy_default_profile =
+        migrate_legacy_default_profile_if_needed(&keys_entry, &profile_id)?;
+
     match keys_entry.get_secret() {
         Ok(_) => {
             // let new_keys_entry = serde_json::to_vec(&new_keys_entry).unwrap();
@@ -102,11 +112,17 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         }
     }
 
+    if migrated_legacy_default_profile {
+        println!("Migrated legacy keyring entry into default profile");
+    }
+    println!("Using DecMed hospital profile: {profile_id}");
+
     app.manage(Mutex::new(AppState {
         administrative_data: None,
         auth_state,
         keys_entry,
         move_call,
+        profile_id,
         signin_state,
         signup_state,
     }));
@@ -132,6 +148,7 @@ pub fn run() {
             signout::signout,
             signout::reset,
             signin::signin,
+            profile::get_profile_id,
             shared_cmds::validate_pin,
             shared_cmds::validate_confirm_pin,
             shared_cmds::get_profile,

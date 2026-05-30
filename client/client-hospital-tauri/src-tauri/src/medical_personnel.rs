@@ -2,8 +2,12 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use decmed_rme_segment::RmeSegmentData;
-use iota_types::base_types::IotaAddress;
+use iota_types::{
+    base_types::IotaAddress,
+    crypto::{EncodeDecodeBase64, IotaKeyPair, Signature},
+};
 use serde_json::{json, Value};
+use shared_crypto::intent::{Intent, IntentMessage};
 use tauri::{async_runtime::Mutex, http::StatusCode, State};
 use tauri_plugin_http::reqwest;
 use umbral_pre::{decrypt_original, decrypt_reencrypted, encrypt, Capsule, CapsuleFrag, PublicKey};
@@ -103,6 +107,67 @@ pub async fn new_medical_record(
     })
 }
 
+fn proxy_error_to_hospital(error: ProxyReencryptionErrorResponse) -> HospitalError {
+    HospitalError::Anyhow(anyhow!(format!("{:#?}", error)).context(current_fn!()))
+}
+
+fn sign_wallet_proof_context(
+    context: &decmed_macaroon_auth::WalletProofContext,
+    iota_key_pair: &IotaKeyPair,
+) -> Result<String, HospitalError> {
+    let canonical = context
+        .canonical_message()
+        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
+    let intent_message = IntentMessage::new(Intent::personal_message(), canonical);
+
+    Ok(Signature::new_secure(&intent_message, iota_key_pair).encode_base64())
+}
+
+async fn request_medical_record_from_proxy(
+    req_client: &reqwest::Client,
+    access_token: &str,
+    index: u64,
+    patient_iota_address: &str,
+    wallet_signature: Option<&str>,
+    wallet_timestamp: Option<&str>,
+) -> Result<
+    Result<
+        ProxyReencryptionSuccessResponse<ProxyReencryptionGetMedicalRecordResponseData>,
+        ProxyReencryptionErrorResponse,
+    >,
+    HospitalError,
+> {
+    let mut request = req_client
+        .get(format!(
+            "{}/medical-record?index={}&patient_iota_address={}",
+            PROXY_BASE_URL, index, patient_iota_address
+        ))
+        .bearer_auth(access_token);
+
+    if let Some(signature) = wallet_signature {
+        request = request.header("x-decmed-wallet-signature", signature);
+    }
+    if let Some(timestamp) = wallet_timestamp {
+        request = request.header("x-decmed-wallet-timestamp", timestamp);
+    }
+
+    let response = request.send().await.context(current_fn!())?;
+    let status = response.status();
+    let body = response.bytes().await.context(current_fn!())?;
+
+    if status != StatusCode::OK {
+        let error = serde_json::from_slice::<ProxyReencryptionErrorResponse>(&body)
+            .context(current_fn!())?;
+        return Ok(Err(error));
+    }
+
+    let data = serde_json::from_slice::<
+        ProxyReencryptionSuccessResponse<ProxyReencryptionGetMedicalRecordResponseData>,
+    >(&body)
+    .context(current_fn!())?;
+    Ok(Ok(data))
+}
+
 #[tauri::command]
 pub async fn get_medical_record(
     state: State<'_, Mutex<AppState>>,
@@ -117,37 +182,63 @@ pub async fn get_medical_record(
         .context(current_fn!())?;
     let req_client = reqwest::Client::new();
 
-    let hospital_personnel_pre_secret_key = {
+    let (hospital_personnel_pre_secret_key, hospital_personnel_iota_key_pair) = {
         let pin = state
             .auth_state
             .session_pin
             .clone()
             .ok_or(anyhow!("Session PIN not found"))?;
+        let iota_key_pair =
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
         let (hospital_personnel_pre_secret_key, _) =
             get_pre_keys_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
 
-        hospital_personnel_pre_secret_key
+        (hospital_personnel_pre_secret_key, iota_key_pair)
     };
 
-    let res = do_http_get_request_json::<
-        ProxyReencryptionSuccessResponse<ProxyReencryptionGetMedicalRecordResponseData>,
-        ProxyReencryptionErrorResponse,
-        _,
-    >(
-        Some(access_token),
-        None,
-        None,
+    let request_index = index.unwrap_or(0);
+    let res = match request_medical_record_from_proxy(
         &req_client,
-        StatusCode::OK,
-        format!(
-            "{}/medical-record?index={}&patient_iota_address={}",
-            PROXY_BASE_URL,
-            index.unwrap_or(0),
-            patient_iota_address
-        ),
+        &access_token,
+        request_index,
+        &patient_iota_address,
+        None,
+        None,
     )
     .await
-    .context(current_fn!())?;
+    .context(current_fn!())?
+    {
+        Ok(response) => response,
+        Err(error_response) => {
+            if error_response.status_code == StatusCode::UNAUTHORIZED.as_u16() {
+                if let Some(proof_context) = error_response.proof_context.clone() {
+                    let wallet_signature = sign_wallet_proof_context(
+                        &proof_context,
+                        &hospital_personnel_iota_key_pair,
+                    )
+                    .context(current_fn!())?;
+                    match request_medical_record_from_proxy(
+                        &req_client,
+                        &access_token,
+                        request_index,
+                        &patient_iota_address,
+                        Some(&wallet_signature),
+                        Some(&proof_context.timestamp),
+                    )
+                    .await
+                    .context(current_fn!())?
+                    {
+                        Ok(response) => response,
+                        Err(error_response) => return Err(proxy_error_to_hospital(error_response)),
+                    }
+                } else {
+                    return Err(proxy_error_to_hospital(error_response));
+                }
+            } else {
+                return Err(proxy_error_to_hospital(error_response));
+            }
+        }
+    };
 
     let (medical_data, administrative_data) = {
         let patient_pre_public_key: PublicKey =

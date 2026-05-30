@@ -71,6 +71,7 @@ entry fun create_access(
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    administrative_access_exp_dur_minutes: u64,
     metadata: vector<String>,
     patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
@@ -103,7 +104,7 @@ entry fun create_access(
 
     if (hospital_personnel_role == hospital_personnel_role_administrative_personnel()) {
         let (read_access, access_data_type_read, update_access, access_data_type_update, exp_dur_read, exp_dur_update) =
-            create_access_administrative_personnel(clock, metadata);
+            create_access_administrative_personnel(clock, metadata, administrative_access_exp_dur_minutes);
 
         let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
 
@@ -197,6 +198,7 @@ public(package) fun create_access_test(
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    administrative_access_exp_dur_minutes: u64,
     metadata: vector<String>,
     patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
@@ -208,6 +210,7 @@ public(package) fun create_access_test(
         hospital_id_metadata,
         hospital_personnel_address,
         hospital_personnel_id_account,
+        administrative_access_exp_dur_minutes,
         metadata,
         patient_id_account,
         ctx
@@ -223,6 +226,7 @@ public(package) fun create_access_test(
 fun create_access_administrative_personnel(
     clock: &Clock,
     metadata: vector<String>,
+    access_exp_dur_minutes: u64,
 ): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>,
     HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64, u64)
 {
@@ -233,10 +237,10 @@ fun create_access_administrative_personnel(
     let mut hospital_personnel_access_data_types_update = vector::empty<HospitalPersonnelAccessDataType>();
     hospital_personnel_access_data_types_update.push_back(hospital_personnel_access_data_type_administrative());
 
-    let exp_dur_read = 15;
-    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000); // 15 minutes
-    let exp_dur_update = 2 * 60;
-    let exp_update = clock.timestamp_ms() + (exp_dur_update * 60 * 1000); // 2 hours
+    let exp_dur_read = access_exp_dur_minutes;
+    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000);
+    let exp_dur_update = access_exp_dur_minutes;
+    let exp_update = clock.timestamp_ms() + (exp_dur_update * 60 * 1000);
 
     let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
         hospital_personnel_access_data_types_read,

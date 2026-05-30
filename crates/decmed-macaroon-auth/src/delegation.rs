@@ -18,7 +18,9 @@ impl DelegationChain {
     pub fn from_parsed(parsed: &ParsedCaveats) -> Result<Self, CaveatVerificationError> {
         let root_entries = parsed.all(CaveatKey::RootSubject);
         if root_entries.len() != 1 {
-            return Err(CaveatVerificationError::MissingRequiredCaveat("root_subject"));
+            return Err(CaveatVerificationError::MissingRequiredCaveat(
+                "root_subject",
+            ));
         }
         let root_subject = match &root_entries[0].value {
             CaveatValue::Text(s) => s.clone(),

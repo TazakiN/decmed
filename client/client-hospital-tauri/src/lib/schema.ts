@@ -58,8 +58,12 @@ export const allowedSegmentFunctionCategories = {
 		'INFORMED_CONSENT',
 		'TERAPI'
 	],
-	LABORATORIUM: ['ADMINISTRATIVE_GENERAL', 'LABORATORIUM'],
-	APOTEK: ['ADMINISTRATIVE_GENERAL', 'PERESEPAN', 'DISPENSING']
+	LABORATORIUM: [
+		'ADMINISTRATIVE_GENERAL',
+		'PEMERIKSAAN_PENUNJANG',
+		'LABORATORIUM'
+	],
+	APOTEK: ['ADMINISTRATIVE_GENERAL', 'TERAPI', 'PERESEPAN', 'DISPENSING']
 } as const satisfies Record<
 	(typeof datasetCategories)[number],
 	readonly (typeof functionCategories)[number][]

@@ -6,7 +6,9 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::{Extension, Json};
-use decmed_rme_segment::{ClientEncryptedRmeSegment, CreateRmeSegmentResponse, RmeSegmentMetadata};
+use decmed_rme_segment::{
+    ClientEncryptedRmeSegment, CreateRmeSegmentResponse, DatasetCategory, RmeSegmentMetadata,
+};
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{
     EncodeDecodeBase64, IotaKeyPair, IotaSignature, Signature, SignatureScheme,
@@ -18,7 +20,7 @@ use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
 
 use crate::constants::{
-    ADMINISTRATIVE_KEYS_READ_DUR, ADMINISTRATIVE_KEYS_UPDATE_DUR, MEDICAL_KEYS_READ_DUR,
+    ADMINISTRATIVE_RAWAT_INAP_KEYS_DUR, ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR, MEDICAL_KEYS_READ_DUR,
     MEDICAL_KEYS_UPDATE_DUR, NONCE_EXP_DUR,
 };
 use crate::current_fn;
@@ -41,6 +43,7 @@ use decmed_macaroon_auth::{
 };
 use decmed_macaroon_auth::{
     verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
+    WalletProofContext,
 };
 
 pub struct Handlers {}
@@ -82,6 +85,55 @@ fn deserialize_stored_medical_metadata(
         cid: segment_metadata.ipfs_cid,
         created_at: segment_metadata.created_at,
         enc_key_and_nonce: segment_metadata.enc_key_and_nonce,
+    })
+}
+
+fn access_key_subject_candidates(current_user: &CurrentUser) -> Vec<String> {
+    let mut candidates = vec![current_user.iota_address.clone()];
+
+    if let Some(verified) = current_user.decmed_token.as_ref() {
+        for step in verified.delegation.steps.iter().rev() {
+            candidates.push(step.delegated_by.clone());
+        }
+        candidates.push(verified.delegation.root_subject.clone());
+    }
+
+    let mut unique = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        if !unique.iter().any(|seen| seen == &candidate) {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+fn administrative_keys_duration(encounter_dataset: DatasetCategory) -> u64 {
+    match encounter_dataset {
+        DatasetCategory::RAWAT_JALAN => ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR,
+        DatasetCategory::RAWAT_INAP => ADMINISTRATIVE_RAWAT_INAP_KEYS_DUR,
+        _ => 0,
+    }
+}
+
+fn get_access_keys_for_current_user(
+    conn: &mut redis::Connection,
+    current_user: &CurrentUser,
+    patient_iota_address: &str,
+) -> Result<AccessKeys, ProxyError> {
+    for subject in access_key_subject_candidates(current_user) {
+        let stored_access_keys: redis::RedisResult<String> =
+            conn.get(format!("keys:{}@{}", subject, patient_iota_address));
+
+        if let Ok(stored_access_keys) = stored_access_keys {
+            let access_keys =
+                Utils::serde_deserialize_from_base64(stored_access_keys).context(current_fn!())?;
+            return Ok(access_keys);
+        }
+    }
+
+    Err(ProxyError::Anyhow {
+        source: anyhow!("Keys not found"),
+        code: StatusCode::BAD_REQUEST,
     })
 }
 
@@ -483,16 +535,11 @@ impl Handlers {
         ) = {
             let mut conn = state.redis_pool.get().context(current_fn!())?;
 
-            let access_keys: String = conn
-                .get(format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
-                ))
-                .map_err(|_| anyhow!("Keys not found"))
-                .code(StatusCode::BAD_REQUEST)?;
-
-            let access_keys: AccessKeys =
-                Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
+            let access_keys = get_access_keys_for_current_user(
+                &mut conn,
+                &current_user,
+                &query.patient_iota_address,
+            )?;
 
             let patient_administrative_metadata = state
                 .move_call
@@ -582,18 +629,6 @@ impl Handlers {
             });
         }
 
-        if current_user
-            .decmed_token
-            .as_ref()
-            .and_then(|token| token.effective.proof_required)
-            .is_some()
-            && headers.get(WALLET_SIGNATURE_HEADER).is_none()
-        {
-            return Err(map_caveat_error(
-                CaveatVerificationError::WalletSignatureRequired,
-            ));
-        }
-
         let (hospital_personnel_iota_address, patient_iota_address, proxy_iota_address) = {
             let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
                 .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
@@ -628,16 +663,11 @@ impl Handlers {
         ) = {
             let mut conn = state.redis_pool.get().context(current_fn!())?;
 
-            let access_keys: String = conn
-                .get(format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
-                ))
-                .map_err(|_| anyhow!("Keys not found"))
-                .code(StatusCode::BAD_REQUEST)?;
-
-            let access_keys: AccessKeys =
-                Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
+            let access_keys = get_access_keys_for_current_user(
+                &mut conn,
+                &current_user,
+                &query.patient_iota_address,
+            )?;
 
             let mut scan_index = query.index.unwrap_or(0);
             let (medical_metadata, administrative_metadata, current_index, prev_index, next_index) = loop {
@@ -660,6 +690,9 @@ impl Handlers {
                         let wallet_sig = headers
                             .get(WALLET_SIGNATURE_HEADER)
                             .and_then(|v| v.to_str().ok());
+                        let wallet_timestamp = headers
+                            .get(WALLET_TIMESTAMP_HEADER)
+                            .and_then(|v| v.to_str().ok());
                         let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
                             .map_err(|_| ProxyError::Anyhow {
                                 source: anyhow!("Invalid access token"),
@@ -675,15 +708,19 @@ impl Handlers {
                         };
                         let verifier: Option<&dyn decmed_macaroon_auth::WalletSignatureVerifier> =
                             Some(&IotaWalletVerifier);
+                        let now = chrono::Utc::now();
+                        let proof_timestamp = wallet_timestamp
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| now.to_rfc3339());
                         match verify_decmed_token(
                             &mac,
                             &root_key,
                             &TokenVerificationContext {
                                 operation: AccessMode::Read,
-                                segment,
+                                segment: segment.clone(),
                                 wallet_signature_b64: wallet_sig.map(|s| s.to_string()),
-                                wallet_timestamp: None,
-                                now: chrono::Utc::now(),
+                                wallet_timestamp: Some(proof_timestamp.clone()),
+                                now,
                             },
                             verifier,
                         ) {
@@ -700,6 +737,23 @@ impl Handlers {
                                 return Err(ProxyError::Anyhow {
                                     source: anyhow!("No accessible medical record found"),
                                     code: StatusCode::NOT_FOUND,
+                                });
+                            }
+                            Err(CaveatVerificationError::WalletSignatureRequired) => {
+                                return Err(ProxyError::WalletProofChallenge {
+                                    code: StatusCode::UNAUTHORIZED.as_u16(),
+                                    error: CaveatVerificationError::WalletSignatureRequired
+                                        .to_string(),
+                                    proof_context: WalletProofContext {
+                                        token_id: mac.identifier().to_string(),
+                                        patient_address: segment.patient_address.clone(),
+                                        related_rme_id: segment.related_rme_id.clone(),
+                                        operation: AccessMode::Read,
+                                        segment_id: segment.segment_id.clone(),
+                                        dataset_category: segment.dataset_category,
+                                        function_category: segment.function_category,
+                                        timestamp: proof_timestamp,
+                                    },
                                 });
                             }
                             Err(err) => return Err(map_caveat_error(err)),
@@ -845,16 +899,11 @@ impl Handlers {
         ) = {
             let mut conn = state.redis_pool.get().context(current_fn!())?;
 
-            let access_keys: String = conn
-                .get(format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
-                ))
-                .map_err(|_| anyhow!("Keys not found"))
-                .code(StatusCode::BAD_REQUEST)?;
-
-            let access_keys: AccessKeys =
-                Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
+            let access_keys = get_access_keys_for_current_user(
+                &mut conn,
+                &current_user,
+                &query.patient_iota_address,
+            )?;
 
             let (medical_metadata, administrative_metadata) = state
                 .move_call
@@ -1030,11 +1079,9 @@ impl Handlers {
             u64,
             Option<u64>,
         ) = match role {
-            MoveHospitalPersonnelRole::AdministrativePersonnel => (
-                AuthRole::AdministrativePersonnel,
-                ADMINISTRATIVE_KEYS_READ_DUR,
-                Some(ADMINISTRATIVE_KEYS_UPDATE_DUR),
-            ),
+            MoveHospitalPersonnelRole::AdministrativePersonnel => {
+                (AuthRole::AdministrativePersonnel, 0, None)
+            }
             MoveHospitalPersonnelRole::MedicalPersonnel => (
                 AuthRole::MedicalPersonnel,
                 MEDICAL_KEYS_READ_DUR,
@@ -1063,6 +1110,7 @@ impl Handlers {
             .unwrap_or_else(|| hospital_personnel_iota_address.to_string());
 
         let hospital_id_opt = payload.hospital_id.as_deref().filter(|id| !id.is_empty());
+        let mut access_keys_duration = update_keys_duration.unwrap_or(read_keys_duration);
 
         let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
             match hospital_personnel_role {
@@ -1076,20 +1124,25 @@ impl Handlers {
                         });
                     }
                     if let Some(encounter_dataset) = payload.encounter_dataset {
-                        let read_expires = chrono::Utc::now()
-                            + chrono::Duration::seconds(read_keys_duration as i64);
-                        let update_expires = chrono::Utc::now()
-                            + chrono::Duration::seconds(
-                                update_keys_duration.unwrap_or(ADMINISTRATIVE_KEYS_UPDATE_DUR)
-                                    as i64,
-                            );
+                        let keys_duration = administrative_keys_duration(encounter_dataset);
+                        if keys_duration == 0 {
+                            return Err(ProxyError::Anyhow {
+                                source: anyhow!(
+                                    "encounter_dataset (RAWAT_JALAN or RAWAT_INAP) is required for administrative personnel access grant"
+                                ),
+                                code: StatusCode::BAD_REQUEST,
+                            });
+                        }
+                        access_keys_duration = keys_duration;
+                        let expires_before =
+                            chrono::Utc::now() + chrono::Duration::seconds(keys_duration as i64);
 
                         let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
                             &patient_iota_address.to_string(),
                             &root_subject,
                             encounter_dataset,
                             AdminTokenKind::Read,
-                            read_expires,
+                            expires_before,
                         )
                         .map_err(|e| ProxyError::Caveat {
                             code: StatusCode::BAD_REQUEST.as_u16(),
@@ -1105,7 +1158,7 @@ impl Handlers {
                             &root_subject,
                             encounter_dataset,
                             AdminTokenKind::Write,
-                            update_expires,
+                            expires_before,
                         )
                         .map_err(|e| ProxyError::Caveat {
                             code: StatusCode::BAD_REQUEST.as_u16(),
@@ -1222,9 +1275,7 @@ impl Handlers {
                     patient_iota_address.to_string()
                 ),
                 Utils::serde_serialize_to_base64(&access_keys).context(current_fn!())?,
-                SetOptions::default().with_expiration(SetExpiry::EX(
-                    update_keys_duration.unwrap_or(read_keys_duration),
-                )),
+                SetOptions::default().with_expiration(SetExpiry::EX(access_keys_duration)),
             )
             .context(current_fn!())?;
 

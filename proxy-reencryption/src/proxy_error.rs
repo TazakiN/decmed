@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use decmed_macaroon_auth::WalletProofContext;
 use serde_json::json;
 use thiserror::Error;
 
@@ -14,22 +15,41 @@ pub enum ProxyError {
     },
     #[error("{error}")]
     Caveat { code: u16, error: String },
+    #[error("{error}")]
+    WalletProofChallenge {
+        code: u16,
+        error: String,
+        proof_context: WalletProofContext,
+    },
 }
 
 impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
-        let (error_message, code) = match self {
-            ProxyError::Anyhow { source, code } => (format!("{:?}", source), code),
+        let (error_message, code, proof_context) = match self {
+            ProxyError::Anyhow { source, code } => (format!("{:?}", source), code, None),
             ProxyError::Caveat { code, error } => (
                 error.clone(),
                 StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
+                None,
+            ),
+            ProxyError::WalletProofChallenge {
+                code,
+                error,
+                proof_context,
+            } => (
+                error.clone(),
+                StatusCode::from_u16(code).unwrap_or(StatusCode::UNAUTHORIZED),
+                Some(proof_context),
             ),
         };
 
-        let error_response = json!({
+        let mut error_response = json!({
             "status_code": code.as_u16(),
             "error": error_message,
         });
+        if let Some(proof_context) = proof_context {
+            error_response["proof_context"] = json!(proof_context);
+        }
 
         (code, Json(error_response)).into_response()
     }

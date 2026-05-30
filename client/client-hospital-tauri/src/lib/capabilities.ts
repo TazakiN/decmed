@@ -41,15 +41,11 @@ export function functionsForDataset(dataset: DatasetCategory) {
 }
 
 export function sortDatasets(values: DatasetCategory[]) {
-	return [...values].sort(
-		(a, b) => datasetCategories.indexOf(a) - datasetCategories.indexOf(b)
-	);
+	return [...values].sort((a, b) => datasetCategories.indexOf(a) - datasetCategories.indexOf(b));
 }
 
 export function sortFunctions(values: FunctionCategory[]) {
-	return [...values].sort(
-		(a, b) => functionCategories.indexOf(a) - functionCategories.indexOf(b)
-	);
+	return [...values].sort((a, b) => functionCategories.indexOf(a) - functionCategories.indexOf(b));
 }
 
 export function intersect<T>(left: readonly T[], right: readonly T[]) {
@@ -80,48 +76,50 @@ export function presetScope({
 	readCapability?: AccessCapabilityData;
 	writeCapability?: AccessCapabilityData;
 }) {
-	const rawDatasets =
-		preset === 'lab'
-			? (['LABORATORIUM'] as DatasetCategory[])
-			: preset === 'apotek'
-				? (['APOTEK'] as DatasetCategory[])
-				: preset === 'doctor'
-					? ([encounterDataset, 'LABORATORIUM', 'APOTEK'] as DatasetCategory[])
-					: ([encounterDataset] as DatasetCategory[]);
+	let rawReadDatasets: DatasetCategory[];
+	let rawWriteDatasets: DatasetCategory[];
+	let rawReadFunctions: FunctionCategory[];
+	let rawWriteFunctions: FunctionCategory[];
 
-	const rawFunctions =
-		preset === 'lab'
-			? (['LABORATORIUM'] as FunctionCategory[])
-			: preset === 'apotek'
-				? (['PERESEPAN', 'DISPENSING'] as FunctionCategory[])
-				: preset === 'doctor'
-					? ([
-							'ANAMNESIS',
-							'PEMERIKSAAN_FISIK',
-							'DIAGNOSIS',
-							'TERAPI',
-							'LABORATORIUM',
-							'PERESEPAN',
-							'DISPENSING'
-						] as FunctionCategory[])
-					: ([
-							'ANAMNESIS',
-							'PEMERIKSAAN_FISIK',
-							'PEMERIKSAAN_PSIKOLOGIS'
-						] as FunctionCategory[]);
+	if (preset === 'doctor') {
+		rawReadDatasets = [...datasetCategories];
+		rawWriteDatasets = [...datasetCategories];
+		rawReadFunctions = [...functionCategories];
+		rawWriteFunctions = [...functionCategories];
+	} else if (preset === 'lab') {
+		rawReadDatasets = [encounterDataset, 'LABORATORIUM'];
+		rawWriteDatasets = ['LABORATORIUM'];
+		rawReadFunctions = ['ADMINISTRATIVE_GENERAL', 'PEMERIKSAAN_PENUNJANG', 'LABORATORIUM'];
+		rawWriteFunctions = ['LABORATORIUM'];
+	} else if (preset === 'apotek') {
+		rawReadDatasets = [encounterDataset, 'APOTEK'];
+		rawWriteDatasets = ['APOTEK'];
+		rawReadFunctions = ['ADMINISTRATIVE_GENERAL', 'TERAPI', 'PERESEPAN', 'DISPENSING'];
+		rawWriteFunctions = ['PERESEPAN', 'DISPENSING'];
+	} else {
+		rawReadDatasets = [encounterDataset];
+		rawWriteDatasets = [encounterDataset];
+		rawReadFunctions = functionsForDataset(encounterDataset);
+		rawWriteFunctions = [
+			'ADMINISTRATIVE_GENERAL',
+			'ANAMNESIS',
+			'PEMERIKSAAN_FISIK',
+			'PEMERIKSAAN_PSIKOLOGIS'
+		];
+	}
 
 	const readDatasets = readCapability
-		? intersect(rawDatasets, readCapability.readDatasets)
-		: rawDatasets;
+		? intersect(rawReadDatasets, readCapability.readDatasets)
+		: rawReadDatasets;
 	const writeDatasets = writeCapability
-		? intersect(rawDatasets, writeCapability.writeDatasets)
-		: rawDatasets;
+		? intersect(rawWriteDatasets, writeCapability.writeDatasets)
+		: rawWriteDatasets;
 	const readFunctions = readCapability
-		? intersect(rawFunctions, readCapability.readFunctions)
-		: rawFunctions;
+		? intersect(rawReadFunctions, readCapability.readFunctions)
+		: rawReadFunctions;
 	const writeFunctions = writeCapability
-		? intersect(rawFunctions, writeCapability.writeFunctions)
-		: rawFunctions;
+		? intersect(rawWriteFunctions, writeCapability.writeFunctions)
+		: rawWriteFunctions;
 
 	return {
 		readDatasets: sortDatasets(unique(readDatasets)),
@@ -130,4 +128,3 @@ export function presetScope({
 		writeFunctions: sortFunctions(unique(writeFunctions))
 	};
 }
-

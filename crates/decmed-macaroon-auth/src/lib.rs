@@ -15,11 +15,11 @@ mod wallet_proof;
 
 pub use attenuation::{attenuate_macaroon, DelegationAttenuationParams};
 pub use caveats::{
-    add_caveat_to_macaroon, caveat_line, format_dataset_list, format_function_list, parse_caveat_line,
-    CaveatKey, CaveatValue, DecmedCaveat, ParsedCaveats, ProofKind,
+    add_caveat_to_macaroon, caveat_line, format_dataset_list, format_function_list,
+    parse_caveat_line, CaveatKey, CaveatValue, DecmedCaveat, ParsedCaveats, ProofKind,
 };
-pub use delegation_proof::{hash_macaroon_token, DelegationProofContext, scope_fingerprint};
 pub use delegation::{DelegationChain, DelegationStep};
+pub use delegation_proof::{hash_macaroon_token, scope_fingerprint, DelegationProofContext};
 pub use effective::{AccessMode, EffectiveCapability};
 pub use errors::CaveatVerificationError;
 pub use issuance::{

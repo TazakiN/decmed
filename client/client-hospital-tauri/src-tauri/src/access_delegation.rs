@@ -632,24 +632,27 @@ pub async fn create_delegated_access(
         .map(related_rme_from_token)
         .transpose()?
         .flatten();
-    let final_related_rme_id = payload
-        .related_rme_id
+    let generated_write_related_rme_id = if matches!(mode, "write" | "read_write")
+        && payload.related_rme_id.is_none()
+        && write_parent_related.is_none()
+        && read_parent_related.is_none()
+    {
+        Some(generate_related_rme_id(Utc::now()))
+    } else {
+        None
+    };
+    let read_effective_related_rme_id = read_parent_related
         .clone()
-        .or_else(|| write_parent_related.clone())
+        .or_else(|| payload.related_rme_id.clone());
+    let write_effective_related_rme_id = write_parent_related
+        .clone()
+        .or_else(|| payload.related_rme_id.clone())
         .or_else(|| read_parent_related.clone())
-        .or_else(|| {
-            if matches!(mode, "write" | "read_write") {
-                Some(generate_related_rme_id(Utc::now()))
-            } else {
-                None
-            }
-        });
-
-    let metadata_input = DelegatedAccessMetadataInput {
-        patient_iota_address: payload.patient_iota_address,
-        patient_name: payload.patient_name,
-        patient_pre_public_key: payload.patient_pre_public_key,
-        related_rme_id: final_related_rme_id.clone(),
+        .or_else(|| generated_write_related_rme_id.clone());
+    let response_related_rme_id = if matches!(mode, "write" | "read_write") {
+        write_effective_related_rme_id.clone()
+    } else {
+        read_effective_related_rme_id.clone()
     };
 
     let delegator = delegator_iota_address.to_string();
@@ -675,7 +678,7 @@ pub async fn create_delegated_access(
             if read_parent_related.is_some() {
                 None
             } else {
-                final_related_rme_id.clone()
+                read_effective_related_rme_id.clone()
             },
         );
         let token = attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {
@@ -683,10 +686,16 @@ pub async fn create_delegated_access(
         })?;
         let signature = sign_delegation_proof(
             &token,
-            final_related_rme_id.as_deref().unwrap_or_default(),
+            read_effective_related_rme_id.as_deref().unwrap_or_default(),
             &read_params,
             &delegator_iota_key_pair,
         )?;
+        let metadata_input = DelegatedAccessMetadataInput {
+            patient_iota_address: payload.patient_iota_address.clone(),
+            patient_name: payload.patient_name.clone(),
+            patient_pre_public_key: payload.patient_pre_public_key.clone(),
+            related_rme_id: read_effective_related_rme_id.clone(),
+        };
         let metadata = build_delegated_access_metadata(
             token.clone(),
             &metadata_input,
@@ -722,7 +731,7 @@ pub async fn create_delegated_access(
             if write_parent_related.is_some() {
                 None
             } else {
-                final_related_rme_id.clone()
+                write_effective_related_rme_id.clone()
             },
         );
         let token = attenuate_macaroon(parent_write_token, &update_params).map_err(|e| {
@@ -730,10 +739,18 @@ pub async fn create_delegated_access(
         })?;
         let signature = sign_delegation_proof(
             &token,
-            final_related_rme_id.as_deref().unwrap_or_default(),
+            write_effective_related_rme_id
+                .as_deref()
+                .unwrap_or_default(),
             &update_params,
             &delegator_iota_key_pair,
         )?;
+        let metadata_input = DelegatedAccessMetadataInput {
+            patient_iota_address: payload.patient_iota_address.clone(),
+            patient_name: payload.patient_name.clone(),
+            patient_pre_public_key: payload.patient_pre_public_key.clone(),
+            related_rme_id: write_effective_related_rme_id.clone(),
+        };
         let metadata = build_delegated_access_metadata(
             token.clone(),
             &metadata_input,
@@ -773,7 +790,7 @@ pub async fn create_delegated_access(
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
         data: CreateDelegatedAccessResponse {
-            related_rme_id: final_related_rme_id,
+            related_rme_id: response_related_rme_id,
             delegated_read_token,
             delegated_update_token,
         },

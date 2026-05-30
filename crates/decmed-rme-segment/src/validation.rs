@@ -1,15 +1,11 @@
 use serde_json::Value;
 
 use crate::category::{
-    DatasetCategory,
-    FunctionCategory,
-    APOTEK_FUNCTIONS,
-    LABORATORIUM_FUNCTIONS,
-    RAWAT_INAP_FUNCTIONS,
-    RAWAT_JALAN_FUNCTIONS,
+    DatasetCategory, FunctionCategory, APOTEK_FUNCTIONS, LABORATORIUM_FUNCTIONS,
+    RAWAT_INAP_FUNCTIONS, RAWAT_JALAN_FUNCTIONS,
 };
 use crate::error::SegmentValidationError;
-use crate::types::{ RmeSegmentData, RmeSegmentMetadata };
+use crate::types::{RmeSegmentData, RmeSegmentMetadata};
 
 pub fn get_allowed_function_categories(dataset_category: DatasetCategory) -> Vec<FunctionCategory> {
     allowed_function_categories_slice(dataset_category).to_vec()
@@ -17,14 +13,14 @@ pub fn get_allowed_function_categories(dataset_category: DatasetCategory) -> Vec
 
 pub fn is_valid_segment_category(
     dataset_category: DatasetCategory,
-    function_category: FunctionCategory
+    function_category: FunctionCategory,
 ) -> bool {
     allowed_function_categories_slice(dataset_category).contains(&function_category)
 }
 
 pub fn assert_valid_segment_category(
     dataset_category: DatasetCategory,
-    function_category: FunctionCategory
+    function_category: FunctionCategory,
 ) -> Result<(), SegmentValidationError> {
     if is_valid_segment_category(dataset_category, function_category) {
         Ok(())
@@ -38,7 +34,7 @@ pub fn assert_valid_segment_category(
 
 pub fn assert_segment_pair_consistent(
     off_chain: &RmeSegmentData,
-    on_chain: &RmeSegmentMetadata
+    on_chain: &RmeSegmentMetadata,
 ) -> Result<(), SegmentValidationError> {
     if off_chain.segment_id != on_chain.segment_id {
         return Err(SegmentValidationError::InconsistentField("segment_id"));
@@ -47,10 +43,14 @@ pub fn assert_segment_pair_consistent(
         return Err(SegmentValidationError::InconsistentField("related_rme_id"));
     }
     if off_chain.dataset_category != on_chain.dataset_category {
-        return Err(SegmentValidationError::InconsistentField("dataset_category"));
+        return Err(SegmentValidationError::InconsistentField(
+            "dataset_category",
+        ));
     }
     if off_chain.function_category != on_chain.function_category {
-        return Err(SegmentValidationError::InconsistentField("function_category"));
+        return Err(SegmentValidationError::InconsistentField(
+            "function_category",
+        ));
     }
 
     off_chain.validate()?;
@@ -102,7 +102,7 @@ pub(crate) fn is_empty_payload(payload: &Value) -> bool {
 }
 
 fn allowed_function_categories_slice(
-    dataset_category: DatasetCategory
+    dataset_category: DatasetCategory,
 ) -> &'static [FunctionCategory] {
     match dataset_category {
         DatasetCategory::RAWAT_JALAN => &RAWAT_JALAN_FUNCTIONS,

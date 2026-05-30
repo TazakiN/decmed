@@ -27,7 +27,10 @@ impl DelegationProofContext {
             delegated_by: params.delegated_by.clone(),
             delegated_to: params.delegated_to.clone(),
             related_rme_id: related_rme_id.to_string(),
-            expires_before: params.expires_before.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            expires_before: params
+                .expires_before
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
             scope_fingerprint: scope_fingerprint(params),
         }
     }

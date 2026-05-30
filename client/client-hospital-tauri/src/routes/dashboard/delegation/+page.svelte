@@ -22,7 +22,7 @@
 	} from '$lib/types';
 	import { tryCatchAsVal } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
-	import { Loader2 } from '@lucide/svelte';
+	import { Loader2, LucideInfo } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 
 	let { data } = $props();
@@ -35,7 +35,7 @@
 	};
 
 	let accesses = $state<PatientAccess[]>([]);
-	let selectedPatientAddress = $state(data.patientAddress ?? '');
+	let selectedPatientAddress = $state('');
 	let mode = $state<DelegationMode>('read_write');
 	let preset = $state<DelegationPreset>('nurse');
 	let encounterDataset = $state<DatasetCategory>('RAWAT_JALAN');
@@ -46,6 +46,7 @@
 	let delegateeCandidates = $state<DelegateeCandidate[]>([]);
 	let selectedDelegateeAddress = $state('');
 	let isSubmitting = $state(false);
+	let visiblePatientInfo = $state<Record<string, boolean>>({});
 
 	const DEFAULT_DELEGATION_DURATION_MS = 24 * 60 * 60 * 1000;
 	const EXPIRY_SAFETY_WINDOW_MS = 1000;
@@ -149,7 +150,7 @@
 		}
 		accesses = groupAccesses(res.data.data);
 		if (!selectedPatientAddress) {
-			selectedPatientAddress = accesses[0]?.patientIotaAddress ?? '';
+			selectedPatientAddress = data.patientAddress ?? accesses[0]?.patientIotaAddress ?? '';
 		}
 		applyPreset();
 		return accesses;
@@ -212,6 +213,13 @@
 
 	const toggleFunction = (values: FunctionCategory[], value: FunctionCategory) => {
 		return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+	};
+
+	const togglePatientInfo = (patientIotaAddress: string) => {
+		visiblePatientInfo = {
+			...visiblePatientInfo,
+			[patientIotaAddress]: !visiblePatientInfo[patientIotaAddress]
+		};
 	};
 
 	const submitDelegation = async () => {
@@ -281,7 +289,10 @@
 					parentEncDataPreSecretKeySeed,
 					parentDataPreSecretKeySeedCapsule,
 					expiresBefore,
-					relatedRmeId: activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null,
+					relatedRmeId:
+						mode === 'read'
+							? activeRead?.relatedRmeId ?? null
+							: activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null,
 					readDatasets: mode === 'write' ? [] : previewReadDatasets,
 					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
 					readFunctions: mode === 'write' ? [] : previewReadFunctions,
@@ -323,12 +334,25 @@
 				<div class="grid gap-3">
 					{#each delegationData.loadedAccesses as access (access.patientIotaAddress)}
 						<div class="border border-zinc-200 rounded-md p-3">
-							<p class="font-medium">{access.patientName}</p>
-							<p class="text-xs text-zinc-500 break-all">{access.patientIotaAddress}</p>
-							<div class="mt-2 grid gap-1 text-sm">
-								<p>Read: {access.read ? access.read.readFunctions.length : 0} functions</p>
-								<p>Write: {access.write ? access.write.writeFunctions.length : 0} functions</p>
+							<div class="flex items-start justify-between gap-3">
+								<p class="font-medium">{access.patientName}</p>
+								<button
+									type="button"
+									class="rounded-full p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
+									onclick={() => togglePatientInfo(access.patientIotaAddress)}
+									aria-label={`Toggle info for ${access.patientName}`}
+									aria-expanded={Boolean(visiblePatientInfo[access.patientIotaAddress])}
+								>
+									<LucideInfo size={16} />
+								</button>
 							</div>
+							{#if visiblePatientInfo[access.patientIotaAddress]}
+								<div class="mt-2 grid gap-1 text-sm">
+									<p class="text-xs text-zinc-500 break-all">{access.patientIotaAddress}</p>
+									<p>Read: {access.read ? access.read.readFunctions.length : 0} functions</p>
+									<p>Write: {access.write ? access.write.writeFunctions.length : 0} functions</p>
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>

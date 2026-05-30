@@ -94,35 +94,35 @@ mod tests {
     fn valid_combinations_are_accepted() {
         assert!(is_valid_segment_category(
             DatasetCategory::RAWAT_JALAN,
-            FunctionCategory::ANAMNESIS,
+            FunctionCategory::ANAMNESIS
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::RAWAT_JALAN,
-            FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN,
+            FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::LABORATORIUM,
+            FunctionCategory::LABORATORIUM
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::APOTEK,
-            FunctionCategory::PERESEPAN,
+            FunctionCategory::PERESEPAN
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::RAWAT_JALAN,
-            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::APOTEK,
-            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
         ));
         assert!(is_valid_segment_category(
             DatasetCategory::RAWAT_INAP,
-            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
         ));
     }
 
@@ -130,17 +130,17 @@ mod tests {
     fn invalid_combinations_are_rejected() {
         assert!(assert_valid_segment_category(
             DatasetCategory::APOTEK,
-            FunctionCategory::ANAMNESIS,
+            FunctionCategory::ANAMNESIS
         )
         .is_err());
         assert!(assert_valid_segment_category(
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::PERESEPAN,
+            FunctionCategory::PERESEPAN
         )
         .is_err());
         assert!(assert_valid_segment_category(
             DatasetCategory::RAWAT_JALAN,
-            FunctionCategory::DISPENSING,
+            FunctionCategory::DISPENSING
         )
         .is_err());
     }
@@ -159,9 +159,12 @@ mod tests {
         assert!(rawat_jalan.contains(&FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN));
         assert_eq!(
             get_allowed_function_categories(DatasetCategory::LABORATORIUM).len(),
-            2
+            3
         );
-        assert_eq!(get_allowed_function_categories(DatasetCategory::APOTEK).len(), 3);
+        assert_eq!(
+            get_allowed_function_categories(DatasetCategory::APOTEK).len(),
+            4
+        );
         assert!(get_allowed_function_categories(DatasetCategory::RAWAT_INAP)
             .contains(&FunctionCategory::PERENCANAAN_PEMULANGAN));
     }

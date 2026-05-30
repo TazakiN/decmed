@@ -157,6 +157,17 @@ pub async fn create_access(
     let json = format!("\"{}\"", raw.trim_matches('"'));
     let encounter_dataset =
         serde_json::from_str::<DatasetCategory>(&json).context(current_fn!())?;
+    let administrative_access_exp_dur_minutes = match encounter_dataset {
+        DatasetCategory::RAWAT_JALAN => 24 * 60,
+        DatasetCategory::RAWAT_INAP => 3 * 24 * 60,
+        _ => {
+            return Err(anyhow!(
+                "encounter_dataset must be RAWAT_JALAN or RAWAT_INAP for administrative access"
+            )
+            .context(current_fn!())
+            .into())
+        }
+    };
 
     let enc_data_pre_secret_key_seed_b64 = STANDARD.encode(enc_data_pre_secret_key_seed);
     let data_pre_secret_key_seed_capsule_b64 =
@@ -268,6 +279,7 @@ pub async fn create_access(
             date,
             &hospital_personnel_iota_address,
             metadata,
+            administrative_access_exp_dur_minutes,
             patient_iota_address,
             patient_iota_key_pair,
         )

@@ -6,10 +6,10 @@ pub const IPFS_BASE_URL: &str = "http://103.107.4.62:9094/api/v0";
 pub const IPFS_GATEWAY_BASE_URL: &str = "http://103.107.4.62:8080";
 /// Duration: 3 minutes
 pub const NONCE_EXP_DUR: u64 = 3 * 60;
-/// Duration: 5 minutes
-pub const ADMINISTRATIVE_KEYS_READ_DUR: u64 = 5 * 60;
-/// Duration: 2 hours (write/delegation parent token)
-pub const ADMINISTRATIVE_KEYS_UPDATE_DUR: u64 = 2 * 60 * 60;
+/// Duration: 1 day
+pub const ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR: u64 = 24 * 60 * 60;
+/// Duration: 3 days
+pub const ADMINISTRATIVE_RAWAT_INAP_KEYS_DUR: u64 = 3 * 24 * 60 * 60;
 /// Duration: 15 minutes
 pub const MEDICAL_KEYS_READ_DUR: u64 = 15 * 60;
 /// Duration: 2 hours

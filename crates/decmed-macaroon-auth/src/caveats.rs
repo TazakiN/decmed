@@ -128,9 +128,9 @@ pub fn parse_caveat_line(raw: &str) -> Result<DecmedCaveat, CaveatVerificationEr
 
 fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVerificationError> {
     match key {
-        CaveatKey::ReadDatasetIn | CaveatKey::WriteDatasetIn => {
-            Ok(CaveatValue::DatasetList(parse_bracket_list(value_str, parse_dataset)?))
-        }
+        CaveatKey::ReadDatasetIn | CaveatKey::WriteDatasetIn => Ok(CaveatValue::DatasetList(
+            parse_bracket_list(value_str, parse_dataset)?,
+        )),
         CaveatKey::ReadFunctionIn | CaveatKey::WriteFunctionIn => Ok(CaveatValue::FunctionList(
             parse_bracket_list(value_str, parse_function)?,
         )),
@@ -166,7 +166,10 @@ fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVer
     }
 }
 
-fn parse_bracket_list<T, E, F>(value_str: &str, mut parse_item: F) -> Result<HashSet<T>, CaveatVerificationError>
+fn parse_bracket_list<T, E, F>(
+    value_str: &str,
+    mut parse_item: F,
+) -> Result<HashSet<T>, CaveatVerificationError>
 where
     T: Eq + std::hash::Hash,
     E: std::error::Error,
@@ -184,9 +187,9 @@ where
         if item.is_empty() {
             continue;
         }
-        set.insert(parse_item(item).map_err(|e| {
-            CaveatVerificationError::ParseError(e.to_string())
-        })?);
+        set.insert(
+            parse_item(item).map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?,
+        );
     }
     if set.is_empty() {
         return Err(CaveatVerificationError::ParseError(
@@ -209,7 +212,12 @@ fn parse_function(name: &str) -> Result<FunctionCategory, serde_json::Error> {
 pub fn format_dataset_list(categories: &[DatasetCategory]) -> String {
     let names: Vec<String> = categories
         .iter()
-        .map(|c| serde_json::to_string(c).unwrap_or_default().trim_matches('"').to_string())
+        .map(|c| {
+            serde_json::to_string(c)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string()
+        })
         .collect();
     format!("[{}]", names.join(", "))
 }
@@ -217,7 +225,12 @@ pub fn format_dataset_list(categories: &[DatasetCategory]) -> String {
 pub fn format_function_list(categories: &[FunctionCategory]) -> String {
     let names: Vec<String> = categories
         .iter()
-        .map(|c| serde_json::to_string(c).unwrap_or_default().trim_matches('"').to_string())
+        .map(|c| {
+            serde_json::to_string(c)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string()
+        })
         .collect();
     format!("[{}]", names.join(", "))
 }

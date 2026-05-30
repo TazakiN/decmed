@@ -3,7 +3,7 @@ use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 use macaroon::{Format, Macaroon};
 
 use crate::caveats::{
-    add_caveat_to_macaroon, format_dataset_list, format_function_list, ParsedCaveats, CaveatKey,
+    add_caveat_to_macaroon, format_dataset_list, format_function_list, CaveatKey, ParsedCaveats,
 };
 use crate::effective::EffectiveCapability;
 use crate::errors::CaveatVerificationError;
@@ -27,14 +27,16 @@ pub struct DelegationAttenuationParams {
 impl DelegationAttenuationParams {
     pub fn example_lab_delegation(delegator: &str, lab_address: &str) -> Self {
         use DatasetCategory::LABORATORIUM as LabDataset;
-        use FunctionCategory::{ADMINISTRATIVE_GENERAL, LABORATORIUM as LabFunction};
+        use FunctionCategory::{
+            ADMINISTRATIVE_GENERAL, LABORATORIUM as LabFunction, PEMERIKSAAN_PENUNJANG,
+        };
         Self {
             delegated_by: delegator.to_string(),
             delegated_to: lab_address.to_string(),
             read_datasets: vec![LabDataset],
             write_datasets: vec![LabDataset],
-            read_functions: vec![ADMINISTRATIVE_GENERAL, LabFunction],
-            write_functions: vec![ADMINISTRATIVE_GENERAL, LabFunction],
+            read_functions: vec![ADMINISTRATIVE_GENERAL, PEMERIKSAAN_PENUNJANG, LabFunction],
+            write_functions: vec![LabFunction],
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
                 .unwrap()
                 .with_timezone(&Utc),
@@ -65,14 +67,14 @@ impl DelegationAttenuationParams {
 
     pub fn example_apotek_delegation(delegator: &str, apotek_address: &str) -> Self {
         use DatasetCategory::APOTEK;
-        use FunctionCategory::{ADMINISTRATIVE_GENERAL, DISPENSING, PERESEPAN};
+        use FunctionCategory::{ADMINISTRATIVE_GENERAL, DISPENSING, PERESEPAN, TERAPI};
         Self {
             delegated_by: delegator.to_string(),
             delegated_to: apotek_address.to_string(),
             read_datasets: vec![APOTEK],
             write_datasets: vec![APOTEK],
-            read_functions: vec![ADMINISTRATIVE_GENERAL, PERESEPAN, DISPENSING],
-            write_functions: vec![ADMINISTRATIVE_GENERAL, PERESEPAN, DISPENSING],
+            read_functions: vec![ADMINISTRATIVE_GENERAL, TERAPI, PERESEPAN, DISPENSING],
+            write_functions: vec![PERESEPAN, DISPENSING],
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
                 .unwrap()
                 .with_timezone(&Utc),
@@ -89,33 +91,15 @@ impl DelegationAttenuationParams {
         related_rme_id: &str,
         encounter: DatasetCategory,
     ) -> Self {
-        use FunctionCategory::{
-            ADMINISTRATIVE_GENERAL, ANAMNESIS, DIAGNOSIS, DISPENSING,
-            LABORATORIUM as LabFunction, PEMERIKSAAN_FISIK, PERESEPAN, TERAPI,
-        };
         let datasets = crate::issuance::admin_write_datasets(encounter);
+        let functions = crate::issuance::admin_write_functions(encounter);
         Self {
             delegated_by: delegated_by.to_string(),
             delegated_to: doctor_address.to_string(),
             read_datasets: datasets.clone(),
             write_datasets: datasets,
-            read_functions: vec![
-                ADMINISTRATIVE_GENERAL,
-                ANAMNESIS,
-                PEMERIKSAAN_FISIK,
-                DIAGNOSIS,
-                TERAPI,
-                LabFunction,
-                PERESEPAN,
-            ],
-            write_functions: vec![
-                ADMINISTRATIVE_GENERAL,
-                DIAGNOSIS,
-                TERAPI,
-                LabFunction,
-                PERESEPAN,
-                DISPENSING,
-            ],
+            read_functions: functions.clone(),
+            write_functions: functions,
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T17:00:00+00:00")
                 .unwrap()
                 .with_timezone(&Utc),
@@ -168,7 +152,10 @@ pub fn attenuate_macaroon(
     add_caveat_to_macaroon(
         &mut mac,
         CaveatKey::ExpiresBefore,
-        &params.expires_before.format("%Y-%m-%dT%H:%M:%S").to_string(),
+        &params
+            .expires_before
+            .format("%Y-%m-%dT%H:%M:%S")
+            .to_string(),
     );
     add_caveat_to_macaroon(
         &mut mac,
@@ -205,7 +192,11 @@ fn validate_attenuation(
         }
     }
 
-    if !params.read_datasets.iter().all(|d| parent.read_datasets.contains(d)) {
+    if !params
+        .read_datasets
+        .iter()
+        .all(|d| parent.read_datasets.contains(d))
+    {
         return Err(CaveatVerificationError::DelegationExpandsAccess(
             "read_dataset_in".into(),
         ));
@@ -228,16 +219,10 @@ fn validate_attenuation(
             "read_function_in".into(),
         ));
     }
-    let allowed_write_functions: std::collections::HashSet<_> = parent
-        .write_functions
-        .iter()
-        .chain(parent.read_functions.iter())
-        .copied()
-        .collect();
     if !params
         .write_functions
         .iter()
-        .all(|f| allowed_write_functions.contains(f))
+        .all(|f| parent.write_functions.contains(f))
     {
         return Err(CaveatVerificationError::DelegationExpandsAccess(
             "write_function_in".into(),

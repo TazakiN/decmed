@@ -74,6 +74,7 @@ impl MoveCall {
         date: String,
         hospital_personnel_address: &IotaAddress,
         metadata: Vec<String>,
+        administrative_access_exp_dur_minutes: u64,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), PatientError> {
@@ -98,6 +99,9 @@ impl MoveCall {
                 self.construct_hospital_id_metadata_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(
+                    bcs::to_bytes(&administrative_access_exp_dur_minutes).context(current_fn!())?,
+                ),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
             ],

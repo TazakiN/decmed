@@ -1,3 +1,4 @@
+use decmed_macaroon_auth::WalletProofContext;
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
 use iota_types::{
     base_types::{IotaAddress, ObjectID},
@@ -404,10 +405,12 @@ pub struct PrivateAdministrativeMetadata {
     pub enc_key_nonce: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionErrorResponse {
     pub error: String,
     pub status_code: u16,
+    #[serde(default)]
+    pub proof_context: Option<WalletProofContext>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

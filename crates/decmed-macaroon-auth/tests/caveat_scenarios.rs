@@ -70,13 +70,13 @@ fn verify_ctx(
     verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: op,
             segment,
             wallet_signature_b64: sig,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
+        }),
         wallet_verifier.map(|v| v as &dyn WalletSignatureVerifier),
     )
     .map(|_| ())
@@ -90,7 +90,7 @@ fn doctor_read_allowed_segment() {
         DatasetCategory::LABORATORIUM,
         FunctionCategory::LABORATORIUM,
         None,
-        None,
+        None
     )
     .is_ok());
 }
@@ -143,7 +143,7 @@ fn admin_read_without_rme_reads_any_episode() {
         DatasetCategory::RAWAT_INAP,
         FunctionCategory::ANAMNESIS,
         None,
-        None,
+        None
     )
     .is_ok());
 
@@ -151,7 +151,7 @@ fn admin_read_without_rme_reads_any_episode() {
     assert!(verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Read,
             segment: SegmentAccessContext {
                 segment_id: "seg".into(),
@@ -163,8 +163,8 @@ fn admin_read_without_rme_reads_any_episode() {
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
-        None,
+        }),
+        None
     )
     .is_ok());
 }
@@ -184,7 +184,7 @@ fn admin_write_parent_assigns_rme_on_delegate() {
     assert!(verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Write,
             segment: SegmentAccessContext {
                 segment_id: "seg-1".into(),
@@ -196,15 +196,15 @@ fn admin_write_parent_assigns_rme_on_delegate() {
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
-        None,
+        }),
+        None
     )
     .is_ok());
 
     let rme_err = verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Write,
             segment: SegmentAccessContext {
                 segment_id: "seg".into(),
@@ -216,7 +216,7 @@ fn admin_write_parent_assigns_rme_on_delegate() {
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
+        }),
         None,
     )
     .unwrap_err();
@@ -236,13 +236,13 @@ fn doctor_patient_mismatch() {
     let err = verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
+        }),
         None,
     )
     .unwrap_err();
@@ -262,13 +262,13 @@ fn doctor_rme_mismatch() {
     let err = verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: Utc::now(),
-        },
+        }),
         None,
     )
     .unwrap_err();
@@ -291,13 +291,13 @@ fn expired_token_rejected() {
     let err = verify_decmed_token(
         &mac,
         &root_key(),
-        &TokenVerificationContext {
+        &(TokenVerificationContext {
             operation: AccessMode::Read,
             segment,
             wallet_signature_b64: None,
             wallet_timestamp: None,
             now: future,
-        },
+        }),
         None,
     )
     .unwrap_err();
@@ -324,7 +324,7 @@ fn lab_read_permintaan_ok() {
         DatasetCategory::LABORATORIUM,
         FunctionCategory::LABORATORIUM,
         None,
-        None,
+        None
     )
     .is_ok());
 }
@@ -337,9 +337,116 @@ fn lab_write_hasil_ok() {
         DatasetCategory::LABORATORIUM,
         FunctionCategory::LABORATORIUM,
         None,
-        None,
+        None
     )
     .is_ok());
+}
+
+#[test]
+fn lab_read_penunjang_ok() {
+    assert!(verify_ctx(
+        &lab_token(&doctor_token()),
+        AccessMode::Read,
+        DatasetCategory::LABORATORIUM,
+        FunctionCategory::PEMERIKSAAN_PENUNJANG,
+        None,
+        None
+    )
+    .is_ok());
+}
+
+#[test]
+fn apotek_read_therapy_ok() {
+    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    p.require_wallet_proof = false;
+    let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
+    assert!(verify_ctx(
+        &token,
+        AccessMode::Read,
+        DatasetCategory::APOTEK,
+        FunctionCategory::TERAPI,
+        None,
+        None
+    )
+    .is_ok());
+}
+
+#[test]
+fn lab_denied_write_administrative_general() {
+    let err = verify_ctx(
+        &lab_token(&doctor_token()),
+        AccessMode::Write,
+        DatasetCategory::LABORATORIUM,
+        FunctionCategory::ADMINISTRATIVE_GENERAL,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(err, CaveatVerificationError::FunctionCategoryNotAllowed);
+}
+
+#[test]
+fn lab_denied_write_penunjang() {
+    let err = verify_ctx(
+        &lab_token(&doctor_token()),
+        AccessMode::Write,
+        DatasetCategory::LABORATORIUM,
+        FunctionCategory::PEMERIKSAAN_PENUNJANG,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(err, CaveatVerificationError::FunctionCategoryNotAllowed);
+}
+
+#[test]
+fn apotek_denied_write_administrative_general() {
+    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    p.require_wallet_proof = false;
+    let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
+    let err = verify_ctx(
+        &token,
+        AccessMode::Write,
+        DatasetCategory::APOTEK,
+        FunctionCategory::ADMINISTRATIVE_GENERAL,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(err, CaveatVerificationError::FunctionCategoryNotAllowed);
+}
+
+#[test]
+fn apotek_denied_write_therapy() {
+    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    p.require_wallet_proof = false;
+    let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
+    let err = verify_ctx(
+        &token,
+        AccessMode::Write,
+        DatasetCategory::APOTEK,
+        FunctionCategory::TERAPI,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(err, CaveatVerificationError::FunctionCategoryNotAllowed);
+}
+
+#[test]
+fn cannot_delegate_write_function_from_parent_read_only_scope() {
+    let mut parent_params = doctor_token_params();
+    parent_params
+        .write_functions
+        .retain(|function| *function != FunctionCategory::PERESEPAN);
+    let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
+    let mut params = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    params.require_wallet_proof = false;
+    let err = attenuate_macaroon(&parent, &params).unwrap_err();
+    assert_eq!(
+        err,
+        CaveatVerificationError::DelegationExpandsAccess("write_function_in".into())
+    );
 }
 
 #[test]
@@ -385,7 +492,7 @@ fn invalid_wallet_signature_rejected() {
         DatasetCategory::LABORATORIUM,
         FunctionCategory::LABORATORIUM,
         Some("valid-sig".into()),
-        Some(&verifier),
+        Some(&verifier)
     )
     .is_ok());
 }

@@ -75,9 +75,7 @@ impl EffectiveCapability {
     }
 
     pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
-        self.expires_before
-            .map(|exp| now >= exp)
-            .unwrap_or(false)
+        self.expires_before.map(|exp| now >= exp).unwrap_or(false)
     }
 }
 
@@ -93,11 +91,17 @@ fn intersect_datasets(
     let first = iter.next().unwrap();
     let mut acc = match &first.value {
         CaveatValue::DatasetList(s) => s.clone(),
-        _ => return Err(CaveatVerificationError::ParseError("dataset list expected".into())),
+        _ => {
+            return Err(CaveatVerificationError::ParseError(
+                "dataset list expected".into(),
+            ))
+        }
     };
     for entry in iter {
         let CaveatValue::DatasetList(set) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError("dataset list expected".into()));
+            return Err(CaveatVerificationError::ParseError(
+                "dataset list expected".into(),
+            ));
         };
         acc = acc.intersection(set).copied().collect();
     }
@@ -116,11 +120,17 @@ fn intersect_functions(
     let first = iter.next().unwrap();
     let mut acc = match &first.value {
         CaveatValue::FunctionList(s) => s.clone(),
-        _ => return Err(CaveatVerificationError::ParseError("function list expected".into())),
+        _ => {
+            return Err(CaveatVerificationError::ParseError(
+                "function list expected".into(),
+            ))
+        }
     };
     for entry in iter {
         let CaveatValue::FunctionList(set) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError("function list expected".into()));
+            return Err(CaveatVerificationError::ParseError(
+                "function list expected".into(),
+            ));
         };
         acc = acc.intersection(set).copied().collect();
     }
@@ -137,7 +147,9 @@ fn earliest_expiry(
     let mut earliest: Option<DateTime<Utc>> = None;
     for entry in entries {
         let CaveatValue::Expiry(dt) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError("expiry expected".into()));
+            return Err(CaveatVerificationError::ParseError(
+                "expiry expected".into(),
+            ));
         };
         earliest = Some(match earliest {
             None => *dt,
@@ -178,9 +190,7 @@ fn delegation_depth_limits(
     Ok((root, remaining))
 }
 
-fn proof_from_parsed(
-    parsed: &ParsedCaveats,
-) -> Result<Option<ProofKind>, CaveatVerificationError> {
+fn proof_from_parsed(parsed: &ParsedCaveats) -> Result<Option<ProofKind>, CaveatVerificationError> {
     let entries = parsed.all(CaveatKey::ProofRequired);
     if entries.is_empty() {
         return Ok(None);
@@ -188,7 +198,9 @@ fn proof_from_parsed(
     let mut kinds = HashSet::new();
     for entry in entries {
         let CaveatValue::ProofKind(k) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError("proof kind expected".into()));
+            return Err(CaveatVerificationError::ParseError(
+                "proof kind expected".into(),
+            ));
         };
         kinds.insert(*k);
     }

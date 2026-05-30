@@ -1,4 +1,4 @@
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -104,13 +104,15 @@ pub(crate) const RAWAT_INAP_FUNCTIONS: [FunctionCategory; 12] = [
     FunctionCategory::TERAPI,
 ];
 
-pub(crate) const LABORATORIUM_FUNCTIONS: [FunctionCategory; 2] = [
+pub(crate) const LABORATORIUM_FUNCTIONS: [FunctionCategory; 3] = [
     FunctionCategory::ADMINISTRATIVE_GENERAL,
+    FunctionCategory::PEMERIKSAAN_PENUNJANG,
     FunctionCategory::LABORATORIUM,
 ];
 
-pub(crate) const APOTEK_FUNCTIONS: [FunctionCategory; 3] = [
+pub(crate) const APOTEK_FUNCTIONS: [FunctionCategory; 4] = [
     FunctionCategory::ADMINISTRATIVE_GENERAL,
+    FunctionCategory::TERAPI,
     FunctionCategory::PERESEPAN,
     FunctionCategory::DISPENSING,
 ];

@@ -1,237 +1,92 @@
 <script lang="ts">
-	import { EmrReadState } from './state.svelte.js';
+	import { datasetLabels } from '$lib/capabilities';
+	import { EmrMetadataListState, emrAccessQueryString } from './metadata-state.svelte.js';
+	import { ChevronRight, Loader2 } from '@lucide/svelte';
 
 	let { data } = $props();
 
-	let emrReadState = new EmrReadState({
+	const metadataState = new EmrMetadataListState({
 		accessToken: data.accessToken,
-		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule,
-		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
-		index: data.index,
 		patientIotaAddress: data.patientIotaAddress
 	});
 
-	const segmentPayloadText = (payload: Record<string, unknown> | undefined) => {
-		if (!payload) return '';
-		return typeof payload.text === 'string' ? payload.text : JSON.stringify(payload, null, 2);
+	const accessQuery = emrAccessQueryString({
+		accessToken: data.accessToken,
+		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
+		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
+	});
+
+	const formatDate = (value: string) => {
+		const parsed = new Date(value);
+		if (Number.isNaN(parsed.getTime())) return value;
+		return parsed.toLocaleDateString('id-ID', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit',
+			hourCycle: 'h24'
+		});
 	};
+
+	const segmentCount = (encounter: {
+		datasets: { segments: unknown[] }[];
+	}) => encounter.datasets.reduce((sum, ds) => sum + ds.segments.length, 0);
 </script>
 
-<h2 class="text-lg font-montserrat font-semibold">EMR of</h2>
+<h2 class="text-lg font-montserrat font-semibold">Rekam Medis</h2>
+<p class="text-sm text-zinc-500 my-2 break-all">{data.patientIotaAddress}</p>
 
 {#if data.accessToken}
-	{#await emrReadState.fetchMedicalRecord}
-		Loading...
-	{:then record}
-		<h3 class="font-medium text-md my-4">Administrative Data</h3>
-		<div class="grid grid-cols-[150px_1fr] items-center mb-4">
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>NIK</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.id}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Name</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.name}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Birth Place</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.birth_place}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Date of Birth</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.date_of_birth}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Gender</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.gender}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Religion</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.religion}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Education</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.education}</span>
-			</div>
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Occupation</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.administrativeData.occupation}</span>
-			</div>
-			<div class="p-2 bg-white border border-zinc-200">
-				<span>Marital Status</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-l-0">
-				<span>{record.administrativeData.marital_status}</span>
+	{#await metadataState.fetchMetadata}
+		<div class="p-4">
+			<div
+				class="animate-pulse bg-zinc-100 w-full shadow h-20 flex items-center justify-center rounded-md"
+			>
+				<Loader2 class="animate-spin" />
 			</div>
 		</div>
-		<h3 class="font-medium text-md my-4">Medical Data</h3>
-		<div class="grid grid-cols-[150px_1fr] items-center">
-			<div class="p-2 bg-white border border-b-0 border-zinc-200">
-				<span>Index</span>
+	{:then encounters}
+		{#if encounters.length > 0}
+			<div class="bg-white border border-zinc-200 rounded-md mt-4">
+				{#each encounters as encounter (encounter.related_rme_id)}
+					<a
+						href={`/dashboard/emr/${data.patientIotaAddress}/${encodeURIComponent(encounter.related_rme_id)}?${accessQuery}`}
+						class="p-4 [&:not(:last-child)]:border-b border-zinc-200 flex flex-col gap-2 hover:bg-zinc-50"
+					>
+						<div class="flex items-center gap-2">
+							<div class="flex-1 min-w-0">
+								<p class="font-medium truncate">{encounter.related_rme_id}</p>
+								<p class="text-sm text-zinc-500">{formatDate(encounter.created_at)}</p>
+							</div>
+							<ChevronRight class="shrink-0" />
+						</div>
+						<div class="flex flex-wrap gap-2">
+							{#each encounter.datasets as dataset (dataset.dataset_category)}
+								<span
+									class="text-xs px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200"
+								>
+									{datasetLabels[dataset.dataset_category]}
+								</span>
+							{/each}
+						</div>
+						<p class="text-xs text-zinc-500">
+							{segmentCount(encounter)} segment
+						</p>
+					</a>
+				{/each}
 			</div>
-			<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-				<span>{record.currentIndex}</span>
-			</div>
-			<div class="p-2 bg-white border border-zinc-200">
-				<span>Created At</span>
-			</div>
-			<div class="p-2 border border-zinc-200 border-l-0">
-				<span
-					>{new Date(record.createdAt).toLocaleDateString('id-ID', {
-						year: 'numeric',
-						month: 'short',
-						day: 'numeric',
-						hour: '2-digit',
-						minute: '2-digit',
-						hourCycle: 'h24'
-					})}</span
-				>
-			</div>
-		</div>
-
-		{#if record.recordKind === 'segment' && record.segment}
-			<div class="grid grid-cols-[150px_1fr] items-center mt-4">
-				<div class="p-2 bg-white border border-b-0 border-zinc-200">
-					<span>Dataset</span>
-				</div>
-				<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-					<span>{record.segment.dataset_category}</span>
-				</div>
-				<div class="p-2 bg-white border border-b-0 border-zinc-200">
-					<span>Function</span>
-				</div>
-				<div class="p-2 border border-zinc-200 border-b-0 border-l-0">
-					<span>{record.segment.function_category}</span>
-				</div>
-				<div class="p-2 bg-white border border-zinc-200">
-					<span>Author</span>
-				</div>
-				<div class="p-2 border border-zinc-200 border-l-0">
-					<span class="break-all">{record.segment.author_address}</span>
-				</div>
-			</div>
-			<div class="flex flex-col gap-1 mt-4">
-				<label for="segmentPayload" class="font-medium text-sm py-2">Payload</label>
-				<textarea
-					id="segmentPayload"
-					disabled
-					value={segmentPayloadText(record.segment.payload)}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md min-h-28"
-				></textarea>
-			</div>
-		{:else if record.medicalData}
-			<div class="flex flex-col gap-1">
-				<label for="anamnesis" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-					>Anamnesis</label
-				>
-				<textarea
-					id="anamnesis"
-					name="anamnesis"
-					disabled
-					value={record.medicalData.anamnesis}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-				></textarea>
-			</div>
-			<div class="flex flex-col gap-1">
-				<label
-					for="physicalCheck"
-					class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-					>Physical Check</label
-				>
-				<textarea
-					id="physicalCheck"
-					name="physicalCheck"
-					disabled
-					value={record.medicalData.physical_check}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-				></textarea>
-			</div>
-			<div class="flex flex-col gap-1">
-				<label
-					for="psychologicalCheck"
-					class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-					>Psychological Check</label
-				>
-				<textarea
-					id="psychologicalCheck"
-					name="psychologicalCheck"
-					disabled
-					value={record.medicalData.psychological_check}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-				></textarea>
-			</div>
-			<div class="flex flex-col gap-1">
-				<label for="diagnose" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-					>Diagnose</label
-				>
-				<textarea
-					id="diagnose"
-					name="diagnose"
-					disabled
-					value={record.medicalData.diagnose}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-				></textarea>
-			</div>
-			<div class="flex flex-col gap-1">
-				<label for="therapy" class="font-medium text-sm after:content-['*'] after:text-red-500 py-2"
-					>Therapy</label
-				>
-				<textarea
-					id="therapy"
-					name="therapy"
-					disabled
-					value={record.medicalData.therapy}
-					class="border border-zinc-300 p-2 focus:outline-none focus:ring-3 ring-zinc-500 rounded-md"
-				></textarea>
+		{:else}
+			<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500 mt-4">
+				<p>Tidak ada RME yang dapat diakses.</p>
 			</div>
 		{/if}
-
-		<div class="flex items-center mt-4">
-			{#if record.prevIndex !== null && record.prevIndex !== undefined}
-				<div class="flex-1 justify-start flex items-center">
-					<a
-						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${encodeURIComponent(data.accessToken)}&index=${record.prevIndex}&encDataPreSecretKeySeed=${encodeURIComponent(data.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(data.dataPreSecretKeySeedCapsule ?? '')}`}
-						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
-						onclick={() => {
-							emrReadState.index = record.prevIndex as number;
-						}}>Prev</a
-					>
-				</div>
-			{/if}
-			{#if record.nextIndex !== null && record.nextIndex !== undefined}
-				<div class="flex-1 justify-end flex items-center">
-					<a
-						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${encodeURIComponent(data.accessToken)}&index=${record.nextIndex}&encDataPreSecretKeySeed=${encodeURIComponent(data.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(data.dataPreSecretKeySeedCapsule ?? '')}`}
-						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
-						onclick={() => {
-							emrReadState.index = record.nextIndex as number;
-						}}>Next</a
-					>
-				</div>
+	{:catch err}
+		<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500 mt-4">
+			<p>Gagal memuat daftar RME.</p>
+			{#if err instanceof Error}
+				<p class="text-sm mt-1">{err.message}</p>
 			{/if}
 		</div>
-	{:catch}
-		<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500">
-			<p>No EMR found</p>
-		</div>
-		<!-- <Error error={e} /> -->
 	{/await}
-{:else}
-	nothing
 {/if}

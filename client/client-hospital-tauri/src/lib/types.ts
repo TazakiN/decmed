@@ -214,6 +214,26 @@ export type GetProfileData = {
 	subRole?: MedicalPersonnelSubRole;
 };
 
+export type RmeSegmentListItem = {
+	index: number;
+	segment_id: string;
+	function_category: FunctionCategory;
+	created_at: string;
+	author_address: string;
+	list_index: number;
+};
+
+export type RmeDatasetGroup = {
+	dataset_category: DatasetCategory;
+	segments: RmeSegmentListItem[];
+};
+
+export type RmeEncounterGroup = {
+	related_rme_id: string;
+	created_at: string;
+	datasets: RmeDatasetGroup[];
+};
+
 export type InvokeGetMedicalRecordResponseData = {
 	administrativeData: TauriPatientPrivateAdministrativeData;
 	createdAt: string;

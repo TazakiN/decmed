@@ -416,6 +416,54 @@ impl MoveCall {
         ))
     }
 
+    pub async fn get_medical_records(
+        &self,
+        hospital_personnel_address: &IotaAddress,
+        patient_address: &IotaAddress,
+        cursor: u64,
+        size: u64,
+        sender: IotaAddress,
+    ) -> Result<Vec<MovePatientMedicalMetadata>, ProxyError> {
+        let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
+        let pt = Utils::construct_pt(
+            "get_medical_records",
+            self.decmed_package.package_id,
+            self.decmed_package.module_proxy.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                self.construct_clock_call_arg(),
+                CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&cursor).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&size).context(current_fn!())?),
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+
+        Utils::handle_error_move_call_read_only(response.clone())
+            .context(current_fn!())
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        let medical_metadata: Vec<MovePatientMedicalMetadata> =
+            Utils::parse_move_read_only_result(response, 0).context(current_fn!())?;
+
+        Ok(medical_metadata)
+    }
+
     pub async fn get_medical_record_update(
         &self,
         hospital_personnel_address: &IotaAddress,

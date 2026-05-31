@@ -37,7 +37,7 @@
 				{#if readAccess && readAccess.length > 0}
 					{#each readAccess as capability, i (i)}
 						<a
-							href={`/dashboard/emr/${capability.access.patientIotaAddress}?accessToken=${encodeURIComponent(capability.access.accessToken)}&index=0&encDataPreSecretKeySeed=${encodeURIComponent(capability.access.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(capability.access.dataPreSecretKeySeedCapsule ?? '')}`}
+							href={`/dashboard/emr/${capability.access.patientIotaAddress}?accessToken=${encodeURIComponent(capability.access.accessToken)}&encDataPreSecretKeySeed=${encodeURIComponent(capability.access.encDataPreSecretKeySeed ?? '')}&dataPreSecretKeySeedCapsule=${encodeURIComponent(capability.access.dataPreSecretKeySeedCapsule ?? '')}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div

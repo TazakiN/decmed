@@ -1,21 +1,18 @@
 use anyhow::{anyhow, Context};
 use serde_json::{json, Value};
-use tauri::{async_runtime::Mutex, http::StatusCode, State};
+use tauri::{async_runtime::Mutex, State};
 use tauri_plugin_http::reqwest;
-use umbral_pre::{decrypt_original, decrypt_reencrypted, Capsule, CapsuleFrag, PublicKey};
+use umbral_pre::decrypt_original;
 
 use crate::{
-    constants::PROXY_BASE_URL,
+    administrative_fetch::fetch_patient_administrative_data,
     current_fn,
     hospital_error::HospitalError,
     types::{
-        AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, KeyNonce,
-        PatientPrivateAdministrativeData, ProxyReencryptionErrorResponse,
-        ProxyReencryptionGetPatientAdministrativeDataResponseData,
-        ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
+        AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, ResponseStatus,
+        SuccessResponse,
     },
     utils::{
-        aes_decrypt, compute_pre_keys, do_http_get_request_json,
         encode_activation_key_from_keys_entry, get_iota_address_from_keys_entry,
         get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
         serde_deserialize_from_base64,
@@ -34,97 +31,21 @@ pub async fn get_administrative_data(
         .context(current_fn!())?;
     let req_client = reqwest::Client::new();
 
-    let hospital_personnel_pre_secret_key = {
-        let pin = state
-            .auth_state
-            .session_pin
-            .clone()
-            .ok_or(anyhow!("Session PIN not found"))?;
-        let (hospital_personnel_pre_secret_key, _) =
-            get_pre_keys_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+    let pin = state
+        .auth_state
+        .session_pin
+        .clone()
+        .ok_or(anyhow!("Session PIN not found"))?;
 
-        hospital_personnel_pre_secret_key
-    };
-
-    let res = do_http_get_request_json::<
-        ProxyReencryptionSuccessResponse<ProxyReencryptionGetPatientAdministrativeDataResponseData>,
-        ProxyReencryptionErrorResponse,
-        _,
-    >(
-        Some(access_token),
-        None,
-        None,
+    let administrative_data = fetch_patient_administrative_data(
+        &access_token,
+        &patient_iota_address,
+        &keys_entry,
+        &pin,
         &req_client,
-        StatusCode::OK,
-        format!(
-            "{}/administrative?patient_iota_address={}",
-            PROXY_BASE_URL, patient_iota_address
-        ),
     )
     .await
     .context(current_fn!())?;
-
-    let administrative_data = {
-        let patient_pre_public_key: PublicKey =
-            serde_deserialize_from_base64(res.data.patient_pre_public_key)
-                .context(current_fn!())?;
-        let data_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.data_pre_secret_key_seed_capsule)
-                .context(current_fn!())?;
-        let data_pre_secret_key_seed = decrypt_original(
-            &hospital_personnel_pre_secret_key,
-            &data_pre_secret_key_seed_capsule,
-            STANDARD
-                .decode(res.data.enc_data_pre_secret_key_seed)
-                .context(current_fn!())?,
-        )
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-        let (data_pre_secret_key, data_pre_public_key) =
-            compute_pre_keys(&data_pre_secret_key_seed).context(current_fn!())?;
-        let signer_pre_public_key: PublicKey =
-            serde_deserialize_from_base64(res.data.signer_pre_public_key).context(current_fn!())?;
-        let c_frag: CapsuleFrag =
-            serde_deserialize_from_base64(res.data.c_frag).context(current_fn!())?;
-        let administrative_data_capsule: Capsule =
-            serde_deserialize_from_base64(res.data.patient_private_adm_data_capsule)
-                .context(current_fn!())?;
-        let verified_cfrag = c_frag
-            .verify(
-                &administrative_data_capsule,
-                &signer_pre_public_key,
-                &patient_pre_public_key,
-                &data_pre_public_key,
-            )
-            .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
-        let administrative_data_key_nonce = decrypt_reencrypted(
-            &data_pre_secret_key,
-            &patient_pre_public_key,
-            &administrative_data_capsule,
-            [verified_cfrag],
-            STANDARD
-                .decode(res.data.enc_patient_private_adm_data_key_nonce)
-                .context(current_fn!())?,
-        )
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-        let administrative_data_key_nonce: KeyNonce =
-            serde_json::from_slice(&administrative_data_key_nonce).context(current_fn!())?;
-        let administrative_data = aes_decrypt(
-            &STANDARD
-                .decode(res.data.enc_patient_private_adm_data)
-                .context(current_fn!())?,
-            &STANDARD
-                .decode(administrative_data_key_nonce.key)
-                .context(current_fn!())?,
-            &STANDARD
-                .decode(administrative_data_key_nonce.nonce)
-                .context(current_fn!())?,
-        )
-        .context(current_fn!())?;
-        let administrative_data: PatientPrivateAdministrativeData =
-            serde_json::from_slice(&administrative_data).context(current_fn!())?;
-
-        administrative_data
-    };
 
     let res_data = json!({
         "administrativeData": administrative_data

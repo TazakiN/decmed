@@ -6,11 +6,12 @@ pub const HASH_SALT: &str = "169224A2BE2B267684F93A9CE38080D359BD774741FD3AE738D
 pub const DECMED_MODULE_HOSPITAL_PERSONNEL: &str = "hospital_personnel";
 
 pub const DECMED_PACKAGE_ID: &str =
-    "0x643862d2b602df98bde784dd4d1f4b13fb36c6fbfce98edfac6c85a33df0798d";
+    "0xfb5a04e9efcc775a5d7509cca214a06951ca4baf700f7e4d3045869b0693ff03";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =
     "0xc27c0272f5004e65d1eb8276a27b82c87cfdc24c06a79c85386adefa480f13f3";
+/// `initial_shared_version` for shared objects (NOT the object's current on-chain version).
 pub const DECMED_ADDRESS_ID_OBJECT_VERSION: u64 = 807447986;
 pub const DECMED_HOSPITAL_ID_METADATA_OBJECT_ID: &str =
     "0x73655ff01e728a096f1087f6b6ebb5437749191f8b2404b66208c557605d3916";

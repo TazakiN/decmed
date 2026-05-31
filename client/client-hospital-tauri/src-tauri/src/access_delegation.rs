@@ -258,14 +258,6 @@ fn build_delegation_params(
     }
 }
 
-fn normalize_scope_pair<T: Clone>(primary: &[T], fallback: &[T]) -> Vec<T> {
-    if primary.is_empty() {
-        fallback.to_vec()
-    } else {
-        primary.to_vec()
-    }
-}
-
 #[command]
 pub async fn get_current_access_capabilities(
     state: State<'_, Mutex<AppState>>,
@@ -499,6 +491,8 @@ fn admin_delegation_params(
 #[serde(rename_all = "camelCase")]
 pub struct CreateAdminDelegatedAccessPayload {
     pub parent_write_token: String,
+    #[serde(default)]
+    pub parent_read_token: Option<String>,
     pub delegatee_iota_address: String,
     pub delegatee_pre_public_key: String,
     pub patient_iota_address: String,
@@ -517,6 +511,8 @@ pub struct CreateAdminDelegatedAccessResponse {
     pub related_rme_id: String,
     pub delegated_read_token: String,
     pub delegated_update_token: String,
+    pub administrative_segments_seeded: u32,
+    pub seed_warnings: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -551,6 +547,8 @@ pub struct CreateDelegatedAccessResponse {
     pub related_rme_id: Option<String>,
     pub delegated_read_token: Option<String>,
     pub delegated_update_token: Option<String>,
+    pub administrative_segments_seeded: u32,
+    pub seed_warnings: Vec<String>,
 }
 
 #[command]
@@ -571,7 +569,7 @@ pub async fn create_delegated_access(
         let delegator_iota_address =
             get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
         let delegator_iota_key_pair =
-            get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
         (
             delegator_pre_secret_key,
             delegator_iota_address,
@@ -643,7 +641,14 @@ pub async fn create_delegated_access(
     };
     let read_effective_related_rme_id = read_parent_related
         .clone()
-        .or_else(|| payload.related_rme_id.clone());
+        .or_else(|| payload.related_rme_id.clone())
+        .or_else(|| {
+            if matches!(mode, "read_write") {
+                generated_write_related_rme_id.clone()
+            } else {
+                None
+            }
+        });
     let write_effective_related_rme_id = write_parent_related
         .clone()
         .or_else(|| payload.related_rme_id.clone())
@@ -671,9 +676,9 @@ pub async fn create_delegated_access(
             &delegator,
             &delegatee,
             read_datasets.clone(),
-            normalize_scope_pair(&write_datasets, &read_datasets),
+            Vec::new(),
             read_functions.clone(),
-            normalize_scope_pair(&write_functions, &read_functions),
+            Vec::new(),
             expires_before,
             if read_parent_related.is_some() {
                 None
@@ -723,9 +728,9 @@ pub async fn create_delegated_access(
         let update_params = build_delegation_params(
             &delegator,
             &delegatee,
-            normalize_scope_pair(&read_datasets, &write_datasets),
+            Vec::new(),
             write_datasets.clone(),
-            normalize_scope_pair(&read_functions, &write_functions),
+            Vec::new(),
             write_functions.clone(),
             expires_before,
             if write_parent_related.is_some() {
@@ -771,6 +776,45 @@ pub async fn create_delegated_access(
         delegated_update_token = Some(token);
     }
 
+    let seed_outcome = if let Some(ref new_rme_id) = generated_write_related_rme_id {
+        if let Some(parent_write_token) = payload.parent_write_token.as_deref() {
+            match payload.patient_pre_public_key.as_deref() {
+                Some(patient_pre_public_key) => {
+                    crate::rme_admin_seed::seed_administrative_general_segments(
+                        parent_write_token,
+                        payload.parent_read_token.as_deref(),
+                        new_rme_id,
+                        &payload.patient_iota_address,
+                        patient_pre_public_key,
+                        &delegator_iota_address.to_string(),
+                        &keys_entry,
+                        &pin,
+                        &delegator_iota_key_pair,
+                        expires_before,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        crate::rme_admin_seed::SeedAdministrativeGeneralResult {
+                            seeded: 0,
+                            warnings: vec![format!("Administrative segment seed failed: {e}")],
+                        }
+                    })
+                }
+                None => crate::rme_admin_seed::SeedAdministrativeGeneralResult {
+                    seeded: 0,
+                    warnings: vec![
+                        "Administrative segment seed skipped: patient_pre_public_key missing."
+                            .into(),
+                    ],
+                },
+            }
+        } else {
+            crate::rme_admin_seed::SeedAdministrativeGeneralResult::default()
+        }
+    } else {
+        crate::rme_admin_seed::SeedAdministrativeGeneralResult::default()
+    };
+
     let activation_key =
         encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
 
@@ -793,6 +837,8 @@ pub async fn create_delegated_access(
             related_rme_id: response_related_rme_id,
             delegated_read_token,
             delegated_update_token,
+            administrative_segments_seeded: seed_outcome.seeded,
+            seed_warnings: seed_outcome.warnings,
         },
     })
 }
@@ -815,7 +861,7 @@ pub async fn create_admin_delegated_access(
         let delegator_iota_address =
             get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
         let delegator_iota_key_pair =
-            get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+            get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
         (
             delegator_pre_secret_key,
             delegator_iota_address,
@@ -862,28 +908,44 @@ pub async fn create_admin_delegated_access(
         &related_rme_id,
         expires_before,
     )?;
+    let mut read_params = params.clone();
+    read_params.write_datasets.clear();
+    read_params.write_functions.clear();
+    let mut update_params = params;
+    update_params.read_datasets.clear();
+    update_params.read_functions.clear();
+
+    let parent_read_token = payload.parent_read_token.as_ref().ok_or_else(|| {
+        HospitalError::Anyhow(
+            anyhow::anyhow!("Parent read token is required for admin delegation")
+                .context(current_fn!()),
+        )
+    })?;
 
     let delegated_read_token =
-        attenuate_macaroon(&payload.parent_write_token, &params).map_err(|e| {
+        attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {
             HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
         })?;
-    let delegated_update_token =
-        attenuate_macaroon(&payload.parent_write_token, &params).map_err(|e| {
+    let delegated_update_token = attenuate_macaroon(&payload.parent_write_token, &update_params)
+        .map_err(|e| {
             HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
         })?;
 
     let read_delegation_signature = sign_delegation_proof(
         &delegated_read_token,
         &related_rme_id,
-        &params,
+        &read_params,
         &delegator_iota_key_pair,
     )?;
     let update_delegation_signature = sign_delegation_proof(
         &delegated_update_token,
         &related_rme_id,
-        &params,
+        &update_params,
         &delegator_iota_key_pair,
     )?;
+
+    let patient_iota_address_for_seed = payload.patient_iota_address.clone();
+    let patient_pre_public_key_for_seed = payload.patient_pre_public_key.clone();
 
     let metadata_input = DelegatedAccessMetadataInput {
         patient_iota_address: payload.patient_iota_address,
@@ -895,7 +957,7 @@ pub async fn create_admin_delegated_access(
     let read_metadata = build_delegated_access_metadata(
         delegated_read_token.clone(),
         &metadata_input,
-        &params,
+        &read_params,
         Some(read_delegation_signature),
         Some(rewrap_enc_b64.clone()),
         Some(rewrap_capsule_b64.clone()),
@@ -905,7 +967,7 @@ pub async fn create_admin_delegated_access(
     let update_metadata = build_delegated_access_metadata(
         delegated_update_token.clone(),
         &metadata_input,
-        &params,
+        &update_params,
         Some(update_delegation_signature),
         Some(rewrap_enc_b64),
         Some(rewrap_capsule_b64),
@@ -916,6 +978,36 @@ pub async fn create_admin_delegated_access(
         serde_serialize_to_base64(&enc_read).context(current_fn!())?,
         serde_serialize_to_base64(&enc_update).context(current_fn!())?,
     ];
+
+    let seed_outcome = match patient_pre_public_key_for_seed.as_deref() {
+        Some(patient_pre_public_key) => {
+            crate::rme_admin_seed::seed_administrative_general_segments(
+                &payload.parent_write_token,
+                payload.parent_read_token.as_deref(),
+                &related_rme_id,
+                &patient_iota_address_for_seed,
+                patient_pre_public_key,
+                &delegator_iota_address.to_string(),
+                &keys_entry,
+                &pin,
+                &delegator_iota_key_pair,
+                expires_before,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                crate::rme_admin_seed::SeedAdministrativeGeneralResult {
+                    seeded: 0,
+                    warnings: vec![format!("Administrative segment seed failed: {e}")],
+                }
+            })
+        }
+        None => crate::rme_admin_seed::SeedAdministrativeGeneralResult {
+            seeded: 0,
+            warnings: vec![
+                "Administrative segment seed skipped: patient_pre_public_key missing.".into(),
+            ],
+        },
+    };
 
     let activation_key =
         encode_activation_key_from_keys_entry(&keys_entry).context(current_fn!())?;
@@ -939,6 +1031,8 @@ pub async fn create_admin_delegated_access(
             related_rme_id,
             delegated_read_token,
             delegated_update_token,
+            administrative_segments_seeded: seed_outcome.seeded,
+            seed_warnings: seed_outcome.warnings,
         },
     })
 }

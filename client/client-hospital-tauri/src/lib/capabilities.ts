@@ -53,6 +53,13 @@ export function intersect<T>(left: readonly T[], right: readonly T[]) {
 	return left.filter((value) => rightSet.has(value));
 }
 
+/** Read scope for clinical delegates must always include administrative snapshot segments. */
+export function withMandatoryAdministrativeRead(functions: FunctionCategory[]) {
+	const set = new Set<FunctionCategory>(functions);
+	set.add('ADMINISTRATIVE_GENERAL');
+	return sortFunctions([...set]);
+}
+
 export function unique<T>(values: readonly T[]) {
 	return [...new Set(values)];
 }

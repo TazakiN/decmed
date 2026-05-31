@@ -34,7 +34,6 @@ pub struct InitialAdminPersonnelTokenParams {
     pub max_delegation_depth: u32,
     pub require_wallet_proof: bool,
     pub hospital_id: Option<String>,
-    pub role: Option<String>,
     pub purpose: Option<String>,
 }
 
@@ -59,12 +58,12 @@ impl InitialAdminPersonnelTokenParams {
             AdminTokenKind::Read => {
                 let datasets = admin_all_datasets();
                 let functions = admin_all_functions();
-                (datasets.clone(), datasets, functions.clone(), functions)
+                (datasets, Vec::new(), functions, Vec::new())
             }
             AdminTokenKind::Write => {
                 let datasets = admin_write_datasets(encounter_dataset);
                 let functions = admin_write_functions(encounter_dataset);
-                (datasets.clone(), datasets, functions.clone(), functions)
+                (Vec::new(), datasets, Vec::new(), functions)
             }
         };
 
@@ -83,10 +82,9 @@ impl InitialAdminPersonnelTokenParams {
             read_functions,
             write_functions,
             expires_before,
-            max_delegation_depth: 2,
+            max_delegation_depth: 3,
             require_wallet_proof: true,
             hospital_id: None,
-            role: Some("AdministrativePersonnel".into()),
             purpose: Some(purpose.into()),
         })
     }
@@ -140,7 +138,6 @@ pub struct InitialDoctorTokenParams {
     pub max_delegation_depth: u32,
     pub require_wallet_proof: bool,
     pub hospital_id: Option<String>,
-    pub role: Option<String>,
     pub purpose: Option<String>,
 }
 
@@ -164,7 +161,6 @@ impl InitialDoctorTokenParams {
             max_delegation_depth: 1,
             require_wallet_proof: true,
             hospital_id: None,
-            role: Some("MedicalPersonnel".into()),
             purpose: None,
         }
     }
@@ -210,12 +206,25 @@ impl InitialDoctorTokenParams {
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
                 .unwrap()
                 .with_timezone(&Utc),
-            max_delegation_depth: 2,
+            max_delegation_depth: 3,
             require_wallet_proof: true,
             hospital_id: None,
-            role: Some("MedicalPersonnel".into()),
             purpose: Some("Read".into()),
         }
+    }
+
+    pub fn into_read_only(mut self) -> Self {
+        self.write_datasets.clear();
+        self.write_functions.clear();
+        self.purpose = Some("Read".into());
+        self
+    }
+
+    pub fn into_update_only(mut self) -> Self {
+        self.read_datasets.clear();
+        self.read_functions.clear();
+        self.purpose = Some("Update".into());
+        self
     }
 }
 
@@ -231,7 +240,6 @@ struct DecmedTokenFields<'a> {
     max_delegation_depth: u32,
     require_wallet_proof: bool,
     hospital_id: Option<&'a str>,
-    role: Option<&'a str>,
     purpose: Option<&'a str>,
 }
 
@@ -239,6 +247,17 @@ fn issue_decmed_token(
     root_key: &MacaroonKey,
     fields: DecmedTokenFields<'_>,
 ) -> Result<String, CaveatVerificationError> {
+    validate_scope_pair(
+        "read",
+        fields.read_datasets.is_empty(),
+        fields.read_functions.is_empty(),
+    )?;
+    validate_scope_pair(
+        "write",
+        fields.write_datasets.is_empty(),
+        fields.write_functions.is_empty(),
+    )?;
+
     let mut mac = Macaroon::create(
         Some("proxy-reencryption".into()),
         root_key,
@@ -251,26 +270,36 @@ fn issue_decmed_token(
         add_caveat_to_macaroon(&mut mac, CaveatKey::RelatedRmeId, rme_id);
     }
     add_caveat_to_macaroon(&mut mac, CaveatKey::RootSubject, fields.root_subject);
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::ReadDatasetIn,
-        &format_dataset_list(fields.read_datasets),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::WriteDatasetIn,
-        &format_dataset_list(fields.write_datasets),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::ReadFunctionIn,
-        &format_function_list(fields.read_functions),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::WriteFunctionIn,
-        &format_function_list(fields.write_functions),
-    );
+    let include_read_scope = fields.purpose != Some("Update");
+    let include_write_scope = fields.purpose != Some("Read");
+    if include_read_scope && !fields.read_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::ReadDatasetIn,
+            &format_dataset_list(fields.read_datasets),
+        );
+    }
+    if include_write_scope && !fields.write_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::WriteDatasetIn,
+            &format_dataset_list(fields.write_datasets),
+        );
+    }
+    if include_read_scope && !fields.read_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::ReadFunctionIn,
+            &format_function_list(fields.read_functions),
+        );
+    }
+    if include_write_scope && !fields.write_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::WriteFunctionIn,
+            &format_function_list(fields.write_functions),
+        );
+    }
     add_caveat_to_macaroon(
         &mut mac,
         CaveatKey::ExpiresBefore,
@@ -290,15 +319,25 @@ fn issue_decmed_token(
     if let Some(hospital_id) = fields.hospital_id {
         add_caveat_to_macaroon(&mut mac, CaveatKey::HospitalId, hospital_id);
     }
-    if let Some(role) = fields.role {
-        add_caveat_to_macaroon(&mut mac, CaveatKey::Role, role);
-    }
     if let Some(purpose) = fields.purpose {
         add_caveat_to_macaroon(&mut mac, CaveatKey::Purpose, purpose);
     }
 
     mac.serialize(Format::V2)
         .map_err(|e| CaveatVerificationError::ParseError(e.to_string()))
+}
+
+fn validate_scope_pair(
+    mode: &str,
+    datasets_empty: bool,
+    functions_empty: bool,
+) -> Result<(), CaveatVerificationError> {
+    if datasets_empty != functions_empty {
+        return Err(CaveatVerificationError::ParseError(format!(
+            "{mode} datasets/functions must both be empty or both be present"
+        )));
+    }
+    Ok(())
 }
 
 pub fn issue_admin_personnel_token(
@@ -319,7 +358,6 @@ pub fn issue_admin_personnel_token(
             max_delegation_depth: params.max_delegation_depth,
             require_wallet_proof: params.require_wallet_proof,
             hospital_id: params.hospital_id.as_deref(),
-            role: params.role.as_deref(),
             purpose: params.purpose.as_deref(),
         },
     )
@@ -343,7 +381,6 @@ pub fn issue_initial_token(
             max_delegation_depth: params.max_delegation_depth,
             require_wallet_proof: params.require_wallet_proof,
             hospital_id: params.hospital_id.as_deref(),
-            role: params.role.as_deref(),
             purpose: params.purpose.as_deref(),
         },
     )

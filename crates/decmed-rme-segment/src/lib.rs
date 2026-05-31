@@ -1,3 +1,4 @@
+mod administrative_payload;
 mod category;
 mod crypto;
 mod error;
@@ -5,6 +6,10 @@ mod types;
 mod validation;
 
 // Re-export everything at the crate root to preserve the original public API.
+pub use administrative_payload::{
+    administrative_general_payload_from_fields, administrative_general_payload_from_value,
+    AdministrativeGeneralPayload,
+};
 pub use category::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
 };

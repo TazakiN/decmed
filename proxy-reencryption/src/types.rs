@@ -12,7 +12,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::move_call::MoveCall;
 use decmed_macaroon_auth::VerifiedDecmedToken;
-use decmed_rme_segment::DatasetCategory;
+use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthRole {
@@ -153,6 +153,34 @@ pub struct HandlerCreateMedicalRecordSegmentPayload {
 #[derive(Debug, Deserialize)]
 pub struct HandlerGetAdministrativeDataQueryParams {
     pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HandlerListMedicalRecordsQueryParams {
+    pub patient_iota_address: String,
+    #[serde(default)]
+    pub cursor: Option<u64>,
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MedicalRecordMetadataItem {
+    pub index: u64,
+    pub segment_id: String,
+    pub related_rme_id: String,
+    pub patient_address: String,
+    pub dataset_category: DatasetCategory,
+    pub function_category: FunctionCategory,
+    pub ipfs_cid: String,
+    pub created_at: String,
+    pub author_address: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ListMedicalRecordsResponse {
+    pub items: Vec<MedicalRecordMetadataItem>,
+    pub next_cursor: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

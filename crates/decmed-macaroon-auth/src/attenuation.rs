@@ -129,26 +129,34 @@ pub fn attenuate_macaroon(
 
     add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedBy, &params.delegated_by);
     add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedTo, &params.delegated_to);
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::ReadDatasetIn,
-        &format_dataset_list(&params.read_datasets),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::WriteDatasetIn,
-        &format_dataset_list(&params.write_datasets),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::ReadFunctionIn,
-        &format_function_list(&params.read_functions),
-    );
-    add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::WriteFunctionIn,
-        &format_function_list(&params.write_functions),
-    );
+    if !params.read_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::ReadDatasetIn,
+            &format_dataset_list(&params.read_datasets),
+        );
+    }
+    if !params.write_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::WriteDatasetIn,
+            &format_dataset_list(&params.write_datasets),
+        );
+    }
+    if !params.read_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::ReadFunctionIn,
+            &format_function_list(&params.read_functions),
+        );
+    }
+    if !params.write_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            CaveatKey::WriteFunctionIn,
+            &format_function_list(&params.write_functions),
+        );
+    }
     add_caveat_to_macaroon(
         &mut mac,
         CaveatKey::ExpiresBefore,
@@ -191,6 +199,17 @@ fn validate_attenuation(
             return Err(CaveatVerificationError::ExpiryNotMonotonic);
         }
     }
+
+    validate_scope_pair(
+        "read",
+        params.read_datasets.is_empty(),
+        params.read_functions.is_empty(),
+    )?;
+    validate_scope_pair(
+        "write",
+        params.write_datasets.is_empty(),
+        params.write_functions.is_empty(),
+    )?;
 
     if !params
         .read_datasets
@@ -238,5 +257,18 @@ fn validate_attenuation(
         }
     }
 
+    Ok(())
+}
+
+fn validate_scope_pair(
+    mode: &str,
+    datasets_empty: bool,
+    functions_empty: bool,
+) -> Result<(), CaveatVerificationError> {
+    if datasets_empty != functions_empty {
+        return Err(CaveatVerificationError::ParseError(format!(
+            "{mode} datasets/functions must both be empty or both be present"
+        )));
+    }
     Ok(())
 }

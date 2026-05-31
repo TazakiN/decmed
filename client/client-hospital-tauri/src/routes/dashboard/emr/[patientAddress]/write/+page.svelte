@@ -35,7 +35,11 @@
 	);
 	const allowedFunctions = $derived(
 		selectedDataset
-			? sortFunctions(intersect(functionsForDataset(selectedDataset), capability?.writeFunctions ?? []))
+			? sortFunctions(
+					intersect(functionsForDataset(selectedDataset), capability?.writeFunctions ?? []).filter(
+						(fn) => fn !== 'ADMINISTRATIVE_GENERAL'
+					)
+				)
 			: []
 	);
 

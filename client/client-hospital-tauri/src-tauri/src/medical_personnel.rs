@@ -107,11 +107,11 @@ pub async fn new_medical_record(
     })
 }
 
-fn proxy_error_to_hospital(error: ProxyReencryptionErrorResponse) -> HospitalError {
+pub(crate) fn proxy_error_to_hospital(error: ProxyReencryptionErrorResponse) -> HospitalError {
     HospitalError::Anyhow(anyhow!(format!("{:#?}", error)).context(current_fn!()))
 }
 
-fn sign_wallet_proof_context(
+pub(crate) fn sign_wallet_proof_context(
     context: &decmed_macaroon_auth::WalletProofContext,
     iota_key_pair: &IotaKeyPair,
 ) -> Result<String, HospitalError> {

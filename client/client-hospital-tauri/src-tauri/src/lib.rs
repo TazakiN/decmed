@@ -1,6 +1,7 @@
 mod access_delegation;
 mod activation;
 mod admin;
+mod administrative_fetch;
 mod administrative_personnel;
 mod constants;
 mod hospital_error;
@@ -10,6 +11,8 @@ mod macros;
 mod medical_personnel;
 mod move_call;
 mod profile;
+mod rme_admin_seed;
+mod rme_metadata;
 mod rme_segment;
 mod shared_cmds;
 mod signin;
@@ -160,6 +163,7 @@ pub fn run() {
             rme_segment::new_medical_record_segment,
             macaroon_delegation::delegate_macaroon,
             medical_personnel::get_medical_record,
+            rme_metadata::get_accessible_medical_record_metadata,
             medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,
             medical_personnel::get_update_access_medical_personnel,

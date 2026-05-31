@@ -9,6 +9,7 @@
 		presetScope,
 		sortDatasets,
 		sortFunctions,
+		withMandatoryAdministrativeRead,
 		type DelegationMode,
 		type DelegationPreset
 	} from '$lib/capabilities';
@@ -95,8 +96,8 @@
 		address.length > 18 ? `${address.slice(0, 10)}...${address.slice(-8)}` : address;
 
 	const delegateeLabel = (candidate: DelegateeCandidate) => {
-		const role = candidate.subRole ? `${candidate.role}/${candidate.subRole}` : candidate.role;
-		return `${candidate.name ? `${candidate.name} - ` : ''}${role} - ${shortAddress(candidate.iotaAddress)}`;
+		const roleDescr = candidate.subRole ? `${candidate.role}/${candidate.subRole}` : candidate.role;
+		return `${candidate.name ? `${candidate.name} - ` : ''}${roleDescr} - ${shortAddress(candidate.iotaAddress)}`;
 	};
 
 	const parseUtcExpiry = (value?: string | null) => {
@@ -203,7 +204,7 @@
 		});
 		previewReadDatasets = scope.readDatasets;
 		previewWriteDatasets = scope.writeDatasets;
-		previewReadFunctions = scope.readFunctions;
+		previewReadFunctions = withMandatoryAdministrativeRead(scope.readFunctions);
 		previewWriteFunctions = scope.writeFunctions;
 	};
 
@@ -240,6 +241,7 @@
 			toast.error('Write access parent tidak tersedia');
 			return;
 		}
+
 		const source = mode === 'read' ? activeRead : activeWrite;
 		if (!source) {
 			toast.error('Akses parent tidak tersedia');
@@ -295,10 +297,17 @@
 							: activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null,
 					readDatasets: mode === 'write' ? [] : previewReadDatasets,
 					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
-					readFunctions: mode === 'write' ? [] : previewReadFunctions,
+					readFunctions:
+						mode === 'write'
+							? []
+							: withMandatoryAdministrativeRead(previewReadFunctions),
 					writeFunctions: mode === 'read' ? [] : previewWriteFunctions
 				}
-			})) as SuccessResponse<{ relatedRmeId?: string | null }>;
+			})) as SuccessResponse<{
+				relatedRmeId?: string | null;
+				administrativeSegmentsSeeded?: number;
+				seedWarnings?: string[];
+			}>;
 		});
 		isSubmitting = false;
 
@@ -306,13 +315,25 @@
 			toast.error(res.error);
 			return;
 		}
-		toast.success('Delegasi berhasil dibuat');
+		const seeded = res.data.data.administrativeSegmentsSeeded ?? 0;
+		const warnings = res.data.data.seedWarnings ?? [];
+		if (seeded > 0) {
+			toast.success(
+				`Delegasi berhasil. ${seeded} segment data administratif diisi otomatis.`
+			);
+		} else {
+			toast.success('Delegasi berhasil dibuat');
+		}
+		for (const warning of warnings) {
+			toast.warning(warning);
+		}
 	};
 
 	$effect(() => {
 		void selectedPatientAddress;
 		void preset;
 		void encounterDataset;
+		void mode;
 		applyPreset();
 	});
 </script>
@@ -402,67 +423,75 @@
 				</div>
 
 				<div class="grid md:grid-cols-2 gap-4">
-					<div class="border border-zinc-200 rounded-md p-3">
-						<p class="font-medium mb-2">Read preview</p>
-						{#each sortDatasets(activeRead?.readDatasets ?? []) as dataset (dataset)}
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									checked={previewReadDatasets.includes(dataset)}
-									onchange={() =>
-										(previewReadDatasets = toggleDataset(previewReadDatasets, dataset))}
-								/>
-								{datasetLabels[dataset]}
-							</label>
-						{/each}
-						<div class="mt-3 grid gap-1">
-							{#each sortFunctions(activeRead?.readFunctions ?? []) as functionCategory (functionCategory)}
+					{#if mode === 'read' || mode === 'read_write'}
+						<div class="border border-zinc-200 rounded-md p-3">
+							<p class="font-medium mb-2">Read preview</p>
+							{#each sortDatasets(activeRead?.readDatasets ?? []) as dataset (dataset)}
 								<label class="flex items-center gap-2 text-sm">
 									<input
 										type="checkbox"
-										checked={previewReadFunctions.includes(functionCategory)}
+										checked={previewReadDatasets.includes(dataset)}
 										onchange={() =>
-											(previewReadFunctions = toggleFunction(
-												previewReadFunctions,
-												functionCategory
-											))}
+											(previewReadDatasets = toggleDataset(previewReadDatasets, dataset))}
 									/>
-									{functionLabels[functionCategory]}
+									{datasetLabels[dataset]}
 								</label>
 							{/each}
+							<div class="mt-3 grid gap-1">
+								{#each sortFunctions(activeRead?.readFunctions ?? []) as functionCategory (functionCategory)}
+									{@const mandatoryAdmin = functionCategory === 'ADMINISTRATIVE_GENERAL'}
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											checked={previewReadFunctions.includes(functionCategory)}
+											disabled={mandatoryAdmin}
+											onchange={() =>
+												(previewReadFunctions = withMandatoryAdministrativeRead(
+													toggleFunction(previewReadFunctions, functionCategory)
+												))}
+										/>
+										{functionLabels[functionCategory]}
+										{#if mandatoryAdmin}
+											<span class="text-xs text-zinc-500">(wajib)</span>
+										{/if}
+									</label>
+								{/each}
+							</div>
 						</div>
-					</div>
+					{/if}
 
-					<div class="border border-zinc-200 rounded-md p-3">
-						<p class="font-medium mb-2">Write preview</p>
-						{#each sortDatasets(activeWrite?.writeDatasets ?? []) as dataset (dataset)}
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									checked={previewWriteDatasets.includes(dataset)}
-									onchange={() =>
-										(previewWriteDatasets = toggleDataset(previewWriteDatasets, dataset))}
-								/>
-								{datasetLabels[dataset]}
-							</label>
-						{/each}
-						<div class="mt-3 grid gap-1">
-							{#each sortFunctions(activeWrite?.writeFunctions ?? []) as functionCategory (functionCategory)}
+					{#if mode === 'write' || mode === 'read_write'}
+						<div class="border border-zinc-200 rounded-md p-3">
+							<p class="font-medium mb-2">Write preview</p>
+							{#each sortDatasets(activeWrite?.writeDatasets ?? []) as dataset (dataset)}
 								<label class="flex items-center gap-2 text-sm">
 									<input
 										type="checkbox"
-										checked={previewWriteFunctions.includes(functionCategory)}
+										checked={previewWriteDatasets.includes(dataset)}
 										onchange={() =>
-											(previewWriteFunctions = toggleFunction(
-												previewWriteFunctions,
-												functionCategory
-											))}
+											(previewWriteDatasets = toggleDataset(previewWriteDatasets, dataset))}
 									/>
-									{functionLabels[functionCategory]}
+									{datasetLabels[dataset]}
 								</label>
 							{/each}
+							<div class="mt-3 grid gap-1">
+								{#each sortFunctions(activeWrite?.writeFunctions ?? []) as functionCategory (functionCategory)}
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											checked={previewWriteFunctions.includes(functionCategory)}
+											onchange={() =>
+												(previewWriteFunctions = toggleFunction(
+													previewWriteFunctions,
+													functionCategory
+												))}
+										/>
+										{functionLabels[functionCategory]}
+									</label>
+								{/each}
+							</div>
 						</div>
-					</div>
+					{/if}
 				</div>
 
 				<label class="flex flex-col gap-1">

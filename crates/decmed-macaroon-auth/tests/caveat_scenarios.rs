@@ -135,6 +135,69 @@ fn admin_write_token() -> String {
     issue_admin_personnel_token(&root_key(), &params).unwrap()
 }
 
+fn rm_read_token() -> String {
+    let mut p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
+        .into_read_only();
+    p.require_wallet_proof = false;
+    issue_initial_token(&root_key(), &p).unwrap()
+}
+
+fn rm_update_token() -> String {
+    let mut p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
+        .into_update_only();
+    p.require_wallet_proof = false;
+    issue_initial_token(&root_key(), &p).unwrap()
+}
+
+#[test]
+fn admin_tokens_are_single_purpose_without_role() {
+    use decmed_macaroon_auth::CaveatKey;
+
+    let read_mac = macaroon::Macaroon::deserialize(&admin_read_token()).unwrap();
+    let read_parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&read_mac).unwrap();
+    let read_effective =
+        decmed_macaroon_auth::EffectiveCapability::from_parsed(&read_parsed).unwrap();
+    assert!(!read_effective.read_datasets.is_empty());
+    assert!(read_effective.write_datasets.is_empty());
+    assert!(read_parsed.all(CaveatKey::Role).is_empty());
+
+    let write_mac = macaroon::Macaroon::deserialize(&admin_write_token()).unwrap();
+    let write_parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&write_mac).unwrap();
+    let write_effective =
+        decmed_macaroon_auth::EffectiveCapability::from_parsed(&write_parsed).unwrap();
+    assert!(write_effective.read_datasets.is_empty());
+    assert!(!write_effective.write_datasets.is_empty());
+    assert!(write_parsed.all(CaveatKey::Role).is_empty());
+}
+
+#[test]
+fn medical_single_purpose_tokens_deny_opposite_mode() {
+    let write_err = verify_ctx(
+        &rm_read_token(),
+        AccessMode::Write,
+        DatasetCategory::RAWAT_JALAN,
+        FunctionCategory::ANAMNESIS,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        write_err,
+        CaveatVerificationError::DatasetCategoryNotAllowed
+    );
+
+    let read_err = verify_ctx(
+        &rm_update_token(),
+        AccessMode::Read,
+        DatasetCategory::RAWAT_JALAN,
+        FunctionCategory::ANAMNESIS,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(read_err, CaveatVerificationError::DatasetCategoryNotAllowed);
+}
+
 #[test]
 fn admin_read_without_rme_reads_any_episode() {
     assert!(verify_ctx(
@@ -179,6 +242,8 @@ fn admin_write_parent_assigns_rme_on_delegate() {
         DatasetCategory::RAWAT_JALAN,
     );
     params.require_wallet_proof = false;
+    params.read_datasets.clear();
+    params.read_functions.clear();
     let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
     let mac = macaroon::Macaroon::deserialize(&delegated).unwrap();
     assert!(verify_decmed_token(
@@ -596,4 +661,129 @@ fn holder_address_forbidden() {
     use decmed_macaroon_auth::parse_caveat_line;
     let err = parse_caveat_line("holder_address = 0x1").unwrap_err();
     assert_eq!(err, CaveatVerificationError::HolderAddressForbidden);
+}
+
+#[test]
+fn admin_write_delegates_doctor_preset_succeeds() {
+    let mut params = DelegationAttenuationParams::example_admin_delegate_to_doctor(
+        ADMIN,
+        DOCTOR,
+        "RME-DOC-001",
+        DatasetCategory::RAWAT_JALAN,
+    );
+    params.require_wallet_proof = false;
+    params.read_datasets.clear();
+    params.read_functions.clear();
+    let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
+    let mac = macaroon::Macaroon::deserialize(&delegated).unwrap();
+    let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac).unwrap();
+    let effective = decmed_macaroon_auth::EffectiveCapability::from_parsed(&parsed).unwrap();
+    assert!(effective.read_datasets.is_empty());
+    assert!(effective
+        .write_datasets
+        .contains(&DatasetCategory::RAWAT_JALAN));
+    assert!(effective
+        .write_datasets
+        .contains(&DatasetCategory::LABORATORIUM));
+    assert!(effective.write_datasets.contains(&DatasetCategory::APOTEK));
+    assert!(!effective
+        .write_datasets
+        .contains(&DatasetCategory::RAWAT_INAP));
+}
+
+#[test]
+fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
+    const DELEGATED_RME: &str = "RME-2026-seed00001";
+    for dataset in [
+        DatasetCategory::RAWAT_JALAN,
+        DatasetCategory::LABORATORIUM,
+        DatasetCategory::APOTEK,
+    ] {
+        let params = DelegationAttenuationParams {
+            delegated_by: ADMIN.to_string(),
+            delegated_to: ADMIN.to_string(),
+            read_datasets: vec![],
+            write_datasets: vec![dataset],
+            read_functions: vec![],
+            write_functions: vec![FunctionCategory::ADMINISTRATIVE_GENERAL],
+            expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            max_delegation_depth: 0,
+            require_wallet_proof: false,
+            related_rme_id: Some(DELEGATED_RME.into()),
+        };
+        let seed_token = attenuate_macaroon(&admin_write_token(), &params).unwrap();
+        let mac = macaroon::Macaroon::deserialize(&seed_token).unwrap();
+        let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+        let effective = decmed_macaroon_auth::EffectiveCapability::from_parsed(&parsed).unwrap();
+        assert!(effective.read_datasets.is_empty());
+        assert!(effective.read_functions.is_empty());
+        assert!(effective.write_functions.contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
+        assert!(verify_decmed_token(
+            &mac,
+            &root_key(),
+            &(TokenVerificationContext {
+                operation: AccessMode::Write,
+                segment: SegmentAccessContext {
+                    segment_id: "seg-seed".into(),
+                    patient_address: PATIENT.into(),
+                    related_rme_id: DELEGATED_RME.into(),
+                    dataset_category: dataset,
+                    function_category: FunctionCategory::ADMINISTRATIVE_GENERAL,
+                },
+                wallet_signature_b64: None,
+                wallet_timestamp: None,
+                now: Utc::now(),
+            }),
+            None,
+        )
+        .is_ok());
+    }
+}
+
+#[test]
+fn admin_write_rejects_delegation_with_scope_beyond_write_parent() {
+    let params = DelegationAttenuationParams {
+        delegated_by: ADMIN.to_string(),
+        delegated_to: DOCTOR.to_string(),
+        read_datasets: vec![DatasetCategory::RAWAT_INAP],
+        write_datasets: vec![DatasetCategory::RAWAT_JALAN],
+        read_functions: vec![FunctionCategory::ANAMNESIS],
+        write_functions: vec![FunctionCategory::DIAGNOSIS],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        require_wallet_proof: false,
+        related_rme_id: Some("RME-REJECT".into()),
+    };
+    let err = attenuate_macaroon(&admin_write_token(), &params).unwrap_err();
+    assert_eq!(
+        err,
+        CaveatVerificationError::DelegationExpandsAccess("read_dataset_in".into())
+    );
+}
+
+#[test]
+fn admin_write_true_expansion_still_fails() {
+    let params = DelegationAttenuationParams {
+        delegated_by: ADMIN.to_string(),
+        delegated_to: DOCTOR.to_string(),
+        read_datasets: vec![],
+        write_datasets: vec![DatasetCategory::RAWAT_INAP],
+        read_functions: vec![],
+        write_functions: vec![FunctionCategory::DIAGNOSIS],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        require_wallet_proof: false,
+        related_rme_id: Some("RME-EXPAND".into()),
+    };
+    let err = attenuate_macaroon(&admin_write_token(), &params).unwrap_err();
+    assert_eq!(
+        err,
+        CaveatVerificationError::DelegationExpandsAccess("write_dataset_in".into())
+    );
 }

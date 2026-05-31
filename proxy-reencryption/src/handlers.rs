@@ -25,6 +25,7 @@ use crate::constants::{
 };
 use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
+use crate::segment_authorization::authorize_create_rme_segment;
 use crate::middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER};
 use crate::proxy_error::{ProxyError, ResultExt};
 use crate::types::{
@@ -32,8 +33,9 @@ use crate::types::{
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
     HandlerCreateMedicalRecordPayload, HandlerCreateMedicalRecordSegmentPayload,
     HandlerGetAdministrativeDataQueryParams, HandlerGetMedicalRecordQueryParams,
-    HandlerGetMedicalRecordUpdateQueryParams, HandlerStoreKeysPayload,
-    HandlerUpdateMedicalRecordPayload, MedicalMetadata, MoveHospitalPersonnelRole,
+    HandlerGetMedicalRecordUpdateQueryParams, HandlerListMedicalRecordsQueryParams,
+    HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, ListMedicalRecordsResponse,
+    MedicalMetadata, MedicalRecordMetadataItem, MoveHospitalPersonnelRole,
     PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
 };
 use crate::utils::Utils;
@@ -286,20 +288,6 @@ impl Handlers {
         headers: HeaderMap,
         Json(payload): Json<HandlerCreateMedicalRecordSegmentPayload>,
     ) -> Result<Response, ProxyError> {
-        if current_user.role != AuthRole::MedicalPersonnel {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Illegal action. Invalid role"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-
-        if current_user.purpose != ReencryptionPurposeType::Update {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Illegal action. Invalid purpose"),
-                code: StatusCode::BAD_REQUEST,
-            });
-        }
-
         let (
             encrypted_segment,
             hospital_personnel_iota_address,
@@ -352,6 +340,12 @@ impl Handlers {
                 patient_iota_address,
             )
         };
+
+        authorize_create_rme_segment(
+            current_user.role,
+            current_user.purpose,
+            encrypted_segment.function_category,
+        )?;
 
         let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
         let segment_metadata_preview = encrypted_segment
@@ -849,6 +843,133 @@ impl Handlers {
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
     }
 
+    pub async fn list_medical_records(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        headers: HeaderMap,
+        Query(query): Query<HandlerListMedicalRecordsQueryParams>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.role != AuthRole::MedicalPersonnel {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid role"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+
+        if current_user.purpose != ReencryptionPurposeType::Read {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid purpose"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        const DEFAULT_LIMIT: u64 = 50;
+        const MAX_LIMIT: u64 = 100;
+        const CHAIN_PAGE_SIZE: u64 = 10;
+
+        let cursor = query.cursor.unwrap_or(0);
+        let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+
+        let (hospital_personnel_iota_address, patient_iota_address, proxy_iota_address) = {
+            let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
+                .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
+                .code(StatusCode::BAD_REQUEST)?;
+            let patient_iota_address = IotaAddress::from_str(&query.patient_iota_address)
+                .map_err(|_| anyhow!("Invalid patient IOTA address"))
+                .code(StatusCode::UNAUTHORIZED)?;
+            let proxy_iota_address =
+                IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+
+            (
+                hospital_personnel_iota_address,
+                patient_iota_address,
+                proxy_iota_address,
+            )
+        };
+
+        if let Some(verified) = current_user.decmed_token.as_ref() {
+            let mac =
+                macaroon::Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
+                    ProxyError::Anyhow {
+                        source: anyhow!("Invalid access token"),
+                        code: StatusCode::UNAUTHORIZED,
+                    }
+                })?;
+            crate::metadata_list::verify_decmed_token_patient_for_list(
+                verified,
+                &query.patient_iota_address,
+            )?;
+            crate::metadata_list::verify_list_wallet_proof_if_required(
+                verified,
+                &mac,
+                &query.patient_iota_address,
+                &headers,
+            )?;
+        }
+
+        let mut filtered: Vec<MedicalRecordMetadataItem> = Vec::new();
+        let mut chain_cursor = 0u64;
+
+        loop {
+            let page = state
+                .move_call
+                .get_medical_records(
+                    &hospital_personnel_iota_address,
+                    &patient_iota_address,
+                    chain_cursor,
+                    CHAIN_PAGE_SIZE,
+                    proxy_iota_address,
+                )
+                .await
+                .context(current_fn!())?;
+
+            if page.is_empty() {
+                break;
+            }
+
+            chain_cursor += page.len() as u64;
+
+            for record in page {
+                let Some(segment) =
+                    crate::metadata_list::decode_rme_segment_metadata(&record.metadata)
+                else {
+                    continue;
+                };
+
+                if segment.patient_address != query.patient_iota_address {
+                    continue;
+                }
+
+                let include = if let Some(verified) = current_user.decmed_token.as_ref() {
+                    crate::metadata_list::segment_allowed_for_list(
+                        verified,
+                        &segment,
+                        &query.patient_iota_address,
+                    )
+                } else {
+                    true
+                };
+
+                if include {
+                    filtered.push(crate::metadata_list::to_metadata_item(
+                        record.index,
+                        &segment,
+                    ));
+                }
+            }
+        }
+
+        let total = filtered.len() as u64;
+        let start = cursor.min(total);
+        let end = (cursor.saturating_add(limit)).min(total);
+        let items: Vec<MedicalRecordMetadataItem> = filtered[start as usize..end as usize].to_vec();
+        let next_cursor = if end < total { Some(end) } else { None };
+
+        let res_data = ListMedicalRecordsResponse { items, next_cursor };
+
+        Ok(Utils::build_success_response(res_data, StatusCode::OK))
+    }
+
     pub async fn get_medical_record_update(
         State(state): State<Arc<AppState>>,
         Extension(current_user): Extension<CurrentUser>,
@@ -1205,10 +1326,9 @@ impl Handlers {
                             &patient_iota_address.to_string(),
                             &related_rme_id,
                             &root_subject,
-                        );
+                        )
+                        .into_read_only();
                         read_params.expires_before = expires_before;
-                        read_params.purpose = Some("Read".into());
-                        read_params.role = Some(role_str.to_string());
                         read_params.require_wallet_proof = true;
                         if let Some(hospital_id) = payload.hospital_id.clone() {
                             read_params.hospital_id = Some(hospital_id);
@@ -1226,9 +1346,18 @@ impl Handlers {
                         {
                             let update_expires = chrono::Utc::now()
                                 + chrono::Duration::seconds(update_keys_duration as i64);
-                            let mut update_params = read_params.clone();
+                            let mut update_params =
+                                InitialDoctorTokenParams::example_rm_initial_token(
+                                    &patient_iota_address.to_string(),
+                                    &related_rme_id,
+                                    &root_subject,
+                                )
+                                .into_update_only();
                             update_params.expires_before = update_expires;
-                            update_params.purpose = Some("Update".into());
+                            update_params.require_wallet_proof = true;
+                            if let Some(hospital_id) = payload.hospital_id.clone() {
+                                update_params.hospital_id = Some(hospital_id);
+                            }
                             Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
                                 ProxyError::Caveat {
                                     code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),

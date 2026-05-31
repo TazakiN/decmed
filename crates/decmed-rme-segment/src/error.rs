@@ -7,6 +7,7 @@ pub enum SegmentValidationError {
     EmptyPayload,
     ForbiddenOnChainField(String),
     InconsistentField(&'static str),
+    InvalidAdministrativePayload(String),
     InvalidCategoryCombination {
         dataset_category: DatasetCategory,
         function_category: FunctionCategory,
@@ -31,6 +32,9 @@ impl fmt::Display for SegmentValidationError {
                     f,
                     "off-chain segment and on-chain metadata differ on `{field}`"
                 )
+            }
+            Self::InvalidAdministrativePayload(message) => {
+                write!(f, "invalid administrative general payload: {message}")
             }
             Self::InvalidCategoryCombination {
                 dataset_category,

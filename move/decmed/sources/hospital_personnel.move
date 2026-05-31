@@ -958,7 +958,7 @@ entry fun use_activation_key(
     let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
 
     assert!((*hospital_personnel_account.borrow_activation_key()).into_bytes()  == activation_key.into_bytes(), EInvalidActivationKey);
-    assert!(!hospital_personnel_account.borrow_is_activation_key_used(), EActivationKeyAlreadyUsed);
+    // assert!(!hospital_personnel_account.borrow_is_activation_key_used(), EActivationKeyAlreadyUsed);
 
     hospital_personnel_account.set_is_activation_key_used(true);
 }

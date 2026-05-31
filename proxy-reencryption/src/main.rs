@@ -1,7 +1,9 @@
 mod constants;
 mod handlers;
 mod macaroon_auth;
+mod segment_authorization;
 mod macros;
+mod metadata_list;
 mod middlewares;
 mod move_call;
 mod proxy_error;
@@ -85,6 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let protected_routes = Router::new()
         .route("/", get(|| async { "Hello, world!" }))
+        .route("/medical-records", get(Handlers::list_medical_records))
         .route("/medical-record", get(Handlers::get_medical_record))
         .route("/medical-record", post(Handlers::create_medical_record))
         .route("/medical-record", put(Handlers::update_medical_record))

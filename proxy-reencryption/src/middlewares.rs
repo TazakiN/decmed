@@ -66,7 +66,7 @@ pub async fn auth_middleware(
                 .get_hospital_personnel_role(&active_subject_address, proxy_iota_address)
                 .await?,
         )?;
-        let (_, purpose) = legacy_role_purpose_from_parsed(&parsed)?;
+        let purpose = decmed_purpose_from_parsed(&parsed)?;
 
         let verified = VerifiedDecmedToken {
             parsed,
@@ -176,22 +176,13 @@ pub async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-fn legacy_role_purpose_from_parsed(
+fn decmed_purpose_from_parsed(
     parsed: &ParsedCaveats,
-) -> Result<(AuthRole, ReencryptionPurposeType), ProxyError> {
+) -> Result<ReencryptionPurposeType, ProxyError> {
     use decmed_macaroon_auth::{CaveatKey, CaveatValue};
 
-    let role_caveats = parsed.all(CaveatKey::Role);
     let purpose_caveats = parsed.all(CaveatKey::Purpose);
-    let role_entry = role_caveats.first();
     let purpose_entry = purpose_caveats.first();
-
-    let role_str = role_entry
-        .and_then(|c| match &c.value {
-            CaveatValue::Text(s) => Some(s.as_str()),
-            _ => None,
-        })
-        .unwrap_or("MedicalPersonnel");
 
     let purpose_str = purpose_entry
         .and_then(|c| match &c.value {
@@ -199,18 +190,6 @@ fn legacy_role_purpose_from_parsed(
             _ => None,
         })
         .unwrap_or("Read");
-
-    let role = match role_str {
-        "AdministrativePersonnel" => AuthRole::AdministrativePersonnel,
-        "MedicalPersonnel" => AuthRole::MedicalPersonnel,
-        "Patient" => AuthRole::Patient,
-        _ => {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Invalid role in token"),
-                code: StatusCode::UNAUTHORIZED,
-            })
-        }
-    };
 
     let purpose = match purpose_str {
         "Read" => ReencryptionPurposeType::Read,
@@ -223,7 +202,7 @@ fn legacy_role_purpose_from_parsed(
         }
     };
 
-    Ok((role, purpose))
+    Ok(purpose)
 }
 
 fn auth_role_from_move_role(role: MoveHospitalPersonnelRole) -> Result<AuthRole, ProxyError> {

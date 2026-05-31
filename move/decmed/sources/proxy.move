@@ -3,6 +3,7 @@ module decmed::proxy;
 use decmed::std_enum_hospital_personnel_access_data_type::{
     administrative as hospital_personnel_access_data_type_administrative,
     medical as hospital_personnel_access_data_type_medical,
+    HospitalPersonnelAccessDataType,
 };
 use decmed::std_enum_hospital_personnel_role::{
     medical_personnel as hospital_personnel_role_medical_personnel,
@@ -37,6 +38,15 @@ const EAddressNotFound: u64 = 4003;
 const EInvalidAccessType: u64 = 4004;
 const EMedicalRecordCreationLimit: u64 = 4005;
 const EMedicalRecordNotFound: u64 = 4006;
+
+/// Segment append is allowed for update access tagged Medical (clinical) or Administrative
+/// (ADMINISTRATIVE_GENERAL off-chain segments). Off-chain proxy/macaroon still restricts admins.
+fun update_access_can_append_segment(
+    update_access_types: &vector<HospitalPersonnelAccessDataType>,
+): bool {
+    update_access_types.contains(&hospital_personnel_access_data_type_medical())
+        || update_access_types.contains(&hospital_personnel_access_data_type_administrative())
+}
 
 entry fun create_capability(
     proxy_address: address,
@@ -117,9 +127,11 @@ entry fun create_medical_record_segment(
 
     assert!(hospital_personnel_update_access.contains(patient_id), EAccessNotFound);
     let update_access = hospital_personnel_update_access.get(patient_id);
-    let update_access_types = update_access.borrow_access_data_types();
+    let update_access_types = *update_access.borrow_access_data_types();
+    let track_medical_metadata_index = update_access_types
+        .contains(&hospital_personnel_access_data_type_medical());
 
-    assert!(update_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
+    assert!(update_access_can_append_segment(&update_access_types), EInvalidAccessType);
 
     if (update_access.borrow_exp() < clock.timestamp_ms()) {
         hospital_personnel_update_access.remove(patient_id);
@@ -138,8 +150,10 @@ entry fun create_medical_record_segment(
 
     patient_medical_metadata.push_back(medical_metadata);
 
-    let update_access = hospital_personnel_update_access.get_mut(patient_id);
-    update_access.set_medical_metadata_index(option::some(index));
+    if (track_medical_metadata_index) {
+        let update_access = hospital_personnel_update_access.get_mut(patient_id);
+        update_access.set_medical_metadata_index(option::some(index));
+    };
 }
 
 #[test_only]
@@ -339,6 +353,68 @@ entry fun get_medical_record(
     let patient_administrative_metadata = patient_account.borrow_administrative_metadata();
 
     (*medical_metadata, *patient_administrative_metadata, patient_medical_metadata.length() - index - 1, prev_index, next_index)
+}
+
+entry fun get_medical_records(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    cursor: u64,
+    size: u64,
+    _: &ProxyCap,
+): vector<PatientMedicalMetadata> {
+    let address_id_table = address_id.borrow_table();
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
+
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+
+    // Check access
+    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
+    let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+
+    assert!(hospital_personnel_read_access.contains(&patient_id), EAccessNotFound);
+    let read_access = hospital_personnel_read_access.get(&patient_id);
+
+    let read_access_types = read_access.borrow_access_data_types();
+    assert!(read_access_types.contains(&hospital_personnel_access_data_type_medical()), EInvalidAccessType);
+
+    if (read_access.borrow_exp() < clock.timestamp_ms()) {
+        hospital_personnel_read_access.remove(&patient_id);
+        assert!(false, EAccessExpired);
+    };
+
+    let patient_medical_metadata = patient_account.borrow_medical_metadata();
+    let patient_medical_metadata_length = patient_medical_metadata.length();
+
+    let mut result = vector::empty<PatientMedicalMetadata>();
+
+    if (cursor >= patient_medical_metadata_length) {
+        return result
+    };
+
+    let size = std::u64::min(size, 10);
+    let end_idx = patient_medical_metadata_length - cursor - 1;
+    let mut start_idx = end_idx + 1 - std::u64::min(size, end_idx + 1);
+    let mut curr_idx = end_idx;
+
+    while (start_idx <= end_idx) {
+        result.push_back(*patient_medical_metadata.borrow(curr_idx));
+        start_idx = start_idx + 1;
+
+        if (curr_idx > 0) {
+            curr_idx = curr_idx - 1;
+        };
+    };
+
+    result
 }
 
 #[test_only]

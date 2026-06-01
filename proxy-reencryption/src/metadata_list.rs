@@ -136,10 +136,12 @@ pub fn verify_decmed_token_patient_for_list(
 
 pub fn to_metadata_item(
     table_index: u64,
+    list_index: u64,
     segment: &RmeSegmentMetadata,
 ) -> MedicalRecordMetadataItem {
     MedicalRecordMetadataItem {
         index: table_index,
+        list_index,
         segment_id: segment.segment_id.clone(),
         related_rme_id: segment.related_rme_id.clone(),
         patient_address: segment.patient_address.clone(),

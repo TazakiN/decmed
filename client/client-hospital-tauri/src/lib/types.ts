@@ -245,6 +245,13 @@ export type InvokeGetMedicalRecordResponseData = {
 	prevIndex?: number | null;
 };
 
+export type InvokeGetMedicalRecordPayloadResponseData = Omit<
+	InvokeGetMedicalRecordResponseData,
+	'administrativeData'
+> & {
+	administrativeData?: TauriPatientPrivateAdministrativeData;
+};
+
 export type InvokeGetPatientAdministrativeDataResponseData = {
 	administrativeData: TauriPatientPrivateAdministrativeData;
 };

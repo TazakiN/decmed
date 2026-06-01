@@ -685,6 +685,8 @@ impl Handlers {
             )
         };
 
+        let include_administrative = query.include_administrative.unwrap_or(true);
+
         let (
             enc_administrative_data,
             enc_medical_data,
@@ -805,10 +807,6 @@ impl Handlers {
 
             let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 
-            let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
-                Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)
-                    .context(current_fn!())?;
-
             let enc_medical_data = Utils::get_data_ipfs(medical_metadata.cid)
                 .await
                 .context(current_fn!())?;
@@ -827,9 +825,6 @@ impl Handlers {
             let medical_metadata_key_nonce_capsule: Capsule =
                 Utils::serde_deserialize_from_base64(medical_metadata.capsule.clone())
                     .context(current_fn!())?;
-            let patient_private_adm_metadata_key_nonce_capsule: Capsule =
-                Utils::serde_deserialize_from_base64(patient_private_adm_metadata.capsule.clone())
-                    .context(current_fn!())?;
 
             let verified_kfrag = k_frag
                 .verify(
@@ -842,14 +837,48 @@ impl Handlers {
                 reencrypt(&medical_metadata_key_nonce_capsule, verified_kfrag.clone());
             let c_frag_medical = verified_cfrag_medical.unverify();
 
-            let verified_cfrag_administrative = reencrypt(
-                &patient_private_adm_metadata_key_nonce_capsule,
-                verified_kfrag,
-            );
-            let c_frag_administrative = verified_cfrag_administrative.unverify();
+            let administrative = if include_administrative {
+                let patient_private_adm_metadata: PatientPrivateAdministrativeMetadata =
+                    Utils::serde_deserialize_from_base64(administrative_metadata.private_metadata)
+                        .context(current_fn!())?;
+                let patient_private_adm_metadata_key_nonce_capsule: Capsule =
+                    Utils::serde_deserialize_from_base64(
+                        patient_private_adm_metadata.capsule.clone(),
+                    )
+                    .context(current_fn!())?;
+                let verified_cfrag_administrative = reencrypt(
+                    &patient_private_adm_metadata_key_nonce_capsule,
+                    verified_kfrag,
+                );
+                let c_frag_administrative = verified_cfrag_administrative.unverify();
+                Some((
+                    patient_private_adm_metadata.enc_data,
+                    c_frag_administrative,
+                    patient_private_adm_metadata.enc_key_nonce,
+                    patient_private_adm_metadata.capsule,
+                ))
+            } else {
+                None
+            };
+
+            let (
+                enc_administrative_data,
+                c_frag_administrative,
+                enc_administrative_data_key_nonce,
+                administrative_data_capsule,
+            ) = administrative
+                .map(|(enc_data, c_frag, enc_key_nonce, capsule)| {
+                    (
+                        Some(enc_data),
+                        Some(c_frag),
+                        Some(enc_key_nonce),
+                        Some(capsule),
+                    )
+                })
+                .unwrap_or((None, None, None, None));
 
             (
-                patient_private_adm_metadata.enc_data,
+                enc_administrative_data,
                 enc_medical_data,
                 access_keys,
                 c_frag_administrative,
@@ -860,20 +889,16 @@ impl Handlers {
                 medical_metadata.enc_key_and_nonce,
                 medical_metadata.capsule,
                 medical_metadata.created_at,
-                patient_private_adm_metadata.enc_key_nonce,
-                patient_private_adm_metadata.capsule,
+                enc_administrative_data_key_nonce,
+                administrative_data_capsule,
             )
         };
 
-        let res_data = json!({
-            "administrative_data_capsule": administrative_data_capsule,
-            "c_frag_administrative": Utils::serde_serialize_to_base64(&c_frag_administrative).context(current_fn!())?,
+        let mut res_data = json!({
             "c_frag_medical": Utils::serde_serialize_to_base64(&c_frag_medical).context(current_fn!())?,
             "current_index": current_index,
             "data_pre_public_key": access_keys.data_pre_public_key,
             "data_pre_secret_key_seed_capsule": access_keys.data_pre_secret_key_seed_capsule,
-            "enc_administrative_data": enc_administrative_data,
-            "enc_administrative_data_key_nonce": enc_administrative_data_key_nonce,
             "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
             "enc_medical_data": enc_medical_data,
             "enc_medical_data_key_nonce": enc_medical_data_key_nonce,
@@ -884,6 +909,37 @@ impl Handlers {
             "prev_index": prev_index,
             "signer_pre_public_key": access_keys.signer_pre_public_key,
         });
+
+        if include_administrative {
+            let administrative_data_capsule =
+                administrative_data_capsule.ok_or_else(|| anyhow!("Missing administrative data"))?;
+            let c_frag_administrative =
+                c_frag_administrative.ok_or_else(|| anyhow!("Missing administrative cfrag"))?;
+            let enc_administrative_data =
+                enc_administrative_data.ok_or_else(|| anyhow!("Missing administrative payload"))?;
+            let enc_administrative_data_key_nonce = enc_administrative_data_key_nonce
+                .ok_or_else(|| anyhow!("Missing administrative key nonce"))?;
+
+            if let Value::Object(map) = &mut res_data {
+                map.insert(
+                    "administrative_data_capsule".to_string(),
+                    json!(administrative_data_capsule),
+                );
+                map.insert(
+                    "c_frag_administrative".to_string(),
+                    json!(Utils::serde_serialize_to_base64(&c_frag_administrative)
+                        .context(current_fn!())?),
+                );
+                map.insert(
+                    "enc_administrative_data".to_string(),
+                    json!(enc_administrative_data),
+                );
+                map.insert(
+                    "enc_administrative_data_key_nonce".to_string(),
+                    json!(enc_administrative_data_key_nonce),
+                );
+            }
+        }
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
     }
@@ -910,7 +966,7 @@ impl Handlers {
 
         const DEFAULT_LIMIT: u64 = 50;
         const MAX_LIMIT: u64 = 100;
-        const CHAIN_PAGE_SIZE: u64 = 10;
+        const CHAIN_PAGE_SIZE: u64 = 50;
 
         let cursor = query.cursor.unwrap_or(0);
         let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
@@ -972,9 +1028,10 @@ impl Handlers {
                 break;
             }
 
-            chain_cursor += page.len() as u64;
+            let page_start_cursor = chain_cursor;
+            let page_len = page.len() as u64;
 
-            for record in page {
+            for (offset, record) in page.into_iter().enumerate() {
                 let Some(segment) =
                     crate::metadata_list::decode_rme_segment_metadata(&record.metadata)
                 else {
@@ -983,6 +1040,11 @@ impl Handlers {
 
                 if segment.patient_address != query.patient_iota_address {
                     continue;
+                }
+                if let Some(related_rme_id) = query.related_rme_id.as_deref() {
+                    if segment.related_rme_id != related_rme_id {
+                        continue;
+                    }
                 }
 
                 let include = if let Some(verified) = current_user.decmed_token.as_ref() {
@@ -998,10 +1060,13 @@ impl Handlers {
                 if include {
                     filtered.push(crate::metadata_list::to_metadata_item(
                         record.index,
+                        page_start_cursor + offset as u64,
                         &segment,
                     ));
                 }
             }
+
+            chain_cursor += page_len;
         }
 
         let total = filtered.len() as u64;

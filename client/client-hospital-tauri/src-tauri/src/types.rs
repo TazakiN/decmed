@@ -428,14 +428,18 @@ pub struct ProxyReencryptionGetPatientAdministrativeDataResponseData {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionGetMedicalRecordResponseData {
-    pub administrative_data_capsule: String,
-    pub c_frag_administrative: String,
+    #[serde(default)]
+    pub administrative_data_capsule: Option<String>,
+    #[serde(default)]
+    pub c_frag_administrative: Option<String>,
     pub c_frag_medical: String,
     pub current_index: u64,
     pub data_pre_public_key: String,
     pub data_pre_secret_key_seed_capsule: String,
-    pub enc_administrative_data: String,
-    pub enc_administrative_data_key_nonce: String,
+    #[serde(default)]
+    pub enc_administrative_data: Option<String>,
+    #[serde(default)]
+    pub enc_administrative_data_key_nonce: Option<String>,
     pub enc_data_pre_secret_key_seed: String,
     pub enc_medical_data: String,
     pub enc_medical_data_key_nonce: String,

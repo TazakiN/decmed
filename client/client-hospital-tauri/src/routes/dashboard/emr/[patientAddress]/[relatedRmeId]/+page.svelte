@@ -79,6 +79,7 @@
 			{#each detailState.encounter.datasets as dataset (dataset.dataset_category)}
 				<Tabs.Trigger
 					value={dataset.dataset_category}
+					onclick={() => detailState.activateDatasetTab(dataset.dataset_category)}
 					class="data-[state=active]:bg-zinc-100 hover:bg-zinc-100 cursor-pointer px-3 py-1 rounded-md border border-zinc-200 bg-white text-sm"
 				>
 					{datasetLabels[dataset.dataset_category]}

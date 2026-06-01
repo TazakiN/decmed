@@ -22,6 +22,7 @@ use crate::{
 #[derive(Clone, Debug, Deserialize, serde::Serialize)]
 pub struct MedicalRecordMetadataFlatItem {
     pub index: u64,
+    pub list_index: u64,
     pub segment_id: String,
     pub related_rme_id: String,
     pub patient_address: String,
@@ -89,8 +90,6 @@ pub fn compute_list_index(table_index: u64, max_table_index: u64) -> u64 {
 pub fn group_medical_record_metadata(
     items: Vec<MedicalRecordMetadataFlatItem>,
 ) -> Vec<RmeEncounterGroup> {
-    let max_table_index = items.iter().map(|i| i.index).max().unwrap_or(0);
-
     let mut by_rme: BTreeMap<String, Vec<MedicalRecordMetadataFlatItem>> = BTreeMap::new();
     for item in items {
         by_rme
@@ -125,7 +124,7 @@ pub fn group_medical_record_metadata(
                         function_category: seg.function_category,
                         created_at: seg.created_at.clone(),
                         author_address: seg.author_address.clone(),
-                        list_index: compute_list_index(seg.index, max_table_index),
+                        list_index: seg.list_index,
                     });
             }
 
@@ -179,6 +178,7 @@ async fn request_medical_records_from_proxy(
     patient_iota_address: &str,
     cursor: u64,
     limit: u64,
+    related_rme_id: Option<&str>,
     wallet_signature: Option<&str>,
     wallet_timestamp: Option<&str>,
 ) -> Result<
@@ -188,10 +188,14 @@ async fn request_medical_records_from_proxy(
     >,
     HospitalError,
 > {
-    let url = format!(
+    let mut url = format!(
         "{}/medical-records?patient_iota_address={}&cursor={}&limit={}",
         PROXY_BASE_URL, patient_iota_address, cursor, limit
     );
+    if let Some(related_rme_id) = related_rme_id {
+        url.push_str("&related_rme_id=");
+        url.push_str(related_rme_id);
+    }
     let mut request = req_client.get(&url).bearer_auth(access_token);
     if let Some(signature) = wallet_signature {
         request = request.header("x-decmed-wallet-signature", signature);
@@ -221,6 +225,7 @@ async fn fetch_all_metadata_flat(
     req_client: &reqwest::Client,
     access_token: &str,
     patient_iota_address: &str,
+    related_rme_id: Option<&str>,
     hospital_personnel_iota_key_pair: &iota_types::crypto::IotaKeyPair,
 ) -> Result<Vec<MedicalRecordMetadataFlatItem>, HospitalError> {
     let mut all = Vec::new();
@@ -234,6 +239,7 @@ async fn fetch_all_metadata_flat(
             patient_iota_address,
             cursor,
             PAGE_LIMIT,
+            related_rme_id,
             None,
             None,
         )
@@ -255,6 +261,7 @@ async fn fetch_all_metadata_flat(
                             patient_iota_address,
                             cursor,
                             PAGE_LIMIT,
+                            related_rme_id,
                             Some(&wallet_signature),
                             Some(&proof_context.timestamp),
                         )
@@ -292,16 +299,21 @@ pub async fn get_accessible_medical_record_metadata(
     access_token: String,
     patient_iota_address: String,
 ) -> Result<SuccessResponse<Vec<RmeEncounterGroup>>, HospitalError> {
-    let state = state.lock().await;
-    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
-        .context(current_fn!())?;
+    let (keys_entry_secret, pin) = {
+        let state = state.lock().await;
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found"))?;
+        (
+            state.keys_entry.get_secret().context(current_fn!())?,
+            pin,
+        )
+    };
+    let keys_entry = parse_keys_entry(&keys_entry_secret).context(current_fn!())?;
     let req_client = reqwest::Client::new();
 
-    let pin = state
-        .auth_state
-        .session_pin
-        .clone()
-        .ok_or(anyhow!("Session PIN not found"))?;
     let hospital_personnel_iota_key_pair =
         get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
 
@@ -309,6 +321,7 @@ pub async fn get_accessible_medical_record_metadata(
         &req_client,
         &access_token,
         &patient_iota_address,
+        None,
         &hospital_personnel_iota_key_pair,
     )
     .await
@@ -319,6 +332,52 @@ pub async fn get_accessible_medical_record_metadata(
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
         data: grouped,
+    })
+}
+
+#[tauri::command]
+pub async fn get_accessible_medical_record_encounter_metadata(
+    state: State<'_, Mutex<crate::types::AppState>>,
+    access_token: String,
+    patient_iota_address: String,
+    related_rme_id: String,
+) -> Result<SuccessResponse<RmeEncounterGroup>, HospitalError> {
+    let (keys_entry_secret, pin) = {
+        let state = state.lock().await;
+        let pin = state
+            .auth_state
+            .session_pin
+            .clone()
+            .ok_or(anyhow!("Session PIN not found"))?;
+        (
+            state.keys_entry.get_secret().context(current_fn!())?,
+            pin,
+        )
+    };
+    let keys_entry = parse_keys_entry(&keys_entry_secret).context(current_fn!())?;
+    let req_client = reqwest::Client::new();
+    let hospital_personnel_iota_key_pair =
+        get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+
+    let flat = fetch_all_metadata_flat(
+        &req_client,
+        &access_token,
+        &patient_iota_address,
+        Some(&related_rme_id),
+        &hospital_personnel_iota_key_pair,
+    )
+    .await
+    .context(current_fn!())?;
+
+    let target_id = related_rme_id;
+    let encounter = group_medical_record_metadata(flat)
+        .into_iter()
+        .find(|encounter| encounter.related_rme_id == target_id)
+        .ok_or(anyhow!("RME tidak ditemukan atau tidak memiliki akses."))?;
+
+    Ok(SuccessResponse {
+        status: ResponseStatus::Success,
+        data: encounter,
     })
 }
 
@@ -335,6 +394,7 @@ mod tests {
     ) -> MedicalRecordMetadataFlatItem {
         MedicalRecordMetadataFlatItem {
             index,
+            list_index: compute_list_index(index, 2),
             segment_id: format!("seg-{index}"),
             related_rme_id: related.to_string(),
             patient_address: "0xpatient".to_string(),

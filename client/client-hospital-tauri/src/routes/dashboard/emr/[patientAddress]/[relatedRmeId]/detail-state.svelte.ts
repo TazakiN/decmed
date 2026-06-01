@@ -1,6 +1,6 @@
 import type {
 	DatasetCategory,
-	InvokeGetMedicalRecordResponseData,
+	InvokeGetMedicalRecordPayloadResponseData,
 	RmeEncounterGroup,
 	RmeSegmentListItem,
 	SuccessResponse
@@ -30,7 +30,7 @@ export class EmrDetailState {
 	isLoading = $state(true);
 	activeDatasetTab = $state<DatasetCategory | ''>('');
 
-	payloadByListIndex = $state<Record<number, InvokeGetMedicalRecordResponseData>>({});
+	payloadByListIndex = $state<Record<number, InvokeGetMedicalRecordPayloadResponseData>>({});
 	loadingByListIndex = $state<Record<number, boolean>>({});
 	errorByListIndex = $state<Record<number, string>>({});
 
@@ -45,10 +45,11 @@ export class EmrDetailState {
 
 	private async fetchEncounter(): Promise<RmeEncounterGroup> {
 		const res = await tryCatchAsVal(async () => {
-			return (await invoke('get_accessible_medical_record_metadata', {
+			return (await invoke('get_accessible_medical_record_encounter_metadata', {
 				accessToken: this.accessToken,
-				patientIotaAddress: this.patientIotaAddress
-			})) as SuccessResponse<RmeEncounterGroup[]>;
+				patientIotaAddress: this.patientIotaAddress,
+				relatedRmeId: decodeURIComponent(this.relatedRmeId)
+			})) as SuccessResponse<RmeEncounterGroup>;
 		});
 
 		if (!res.success) {
@@ -56,14 +57,7 @@ export class EmrDetailState {
 			throw new Error(res.error);
 		}
 
-		const targetId = decodeURIComponent(this.relatedRmeId);
-		const encounter = res.data.data.find(
-			(e) => e.related_rme_id === targetId || e.related_rme_id === this.relatedRmeId
-		);
-		if (!encounter) {
-			throw new Error('RME tidak ditemukan atau tidak memiliki akses.');
-		}
-		return encounter;
+		return res.data.data;
 	}
 
 	load = async () => {
@@ -80,7 +74,7 @@ export class EmrDetailState {
 			const categories = encounter.datasets.map((d) => d.dataset_category);
 			const ordered = sortDatasets(categories);
 			this.activeDatasetTab = ordered[0] ?? '';
-			void this.loadAllPayloads(encounter);
+			void this.loadDatasetPayloads(this.activeDatasetTab, encounter);
 		} catch (err) {
 			this.loadError = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -92,6 +86,16 @@ export class EmrDetailState {
 		return encounter.datasets.flatMap((dataset) => dataset.segments);
 	}
 
+	private segmentsForDataset(
+		datasetCategory: DatasetCategory | '',
+		encounter = this.encounter
+	): RmeSegmentListItem[] {
+		if (!encounter || !datasetCategory) return [];
+		return (
+			encounter.datasets.find((dataset) => dataset.dataset_category === datasetCategory)?.segments ?? []
+		);
+	}
+
 	private setPayloadLoading(listIndex: number, isLoading: boolean) {
 		if (isLoading) {
 			this.loadingByListIndex = { ...this.loadingByListIndex, [listIndex]: true };
@@ -101,6 +105,19 @@ export class EmrDetailState {
 		const { [listIndex]: _removed, ...rest } = this.loadingByListIndex;
 		this.loadingByListIndex = rest;
 	}
+
+	loadDatasetPayloads = async (
+		datasetCategory: DatasetCategory | '',
+		encounter = this.encounter
+	) => {
+		const listIndexes = this.segmentsForDataset(datasetCategory, encounter)
+			.map((segment) => segment.list_index)
+			.filter(
+				(listIndex) => !this.payloadByListIndex[listIndex] && !this.loadingByListIndex[listIndex]
+			);
+
+		await Promise.all(listIndexes.map((listIndex) => this.loadPayload(listIndex, false)));
+	};
 
 	loadAllPayloads = async (encounter = this.encounter) => {
 		if (!encounter) return;
@@ -114,6 +131,11 @@ export class EmrDetailState {
 		await Promise.all(listIndexes.map((listIndex) => this.loadPayload(listIndex, false)));
 	};
 
+	activateDatasetTab = (datasetCategory: DatasetCategory) => {
+		this.activeDatasetTab = datasetCategory;
+		void this.loadDatasetPayloads(datasetCategory);
+	};
+
 	loadPayload = async (listIndex: number, showToast = true) => {
 		if (this.payloadByListIndex[listIndex] || this.loadingByListIndex[listIndex]) return;
 
@@ -122,13 +144,13 @@ export class EmrDetailState {
 		this.errorByListIndex = restErrors;
 
 		const res = await tryCatchAsVal(async () => {
-			return (await invoke('get_medical_record', {
+			return (await invoke('get_medical_record_payload', {
 				accessToken: this.accessToken,
 				index: listIndex,
 				patientIotaAddress: this.patientIotaAddress,
 				encDataPreSecretKeySeed: this.encDataPreSecretKeySeed,
 				dataPreSecretKeySeedCapsule: this.dataPreSecretKeySeedCapsule
-			})) as SuccessResponse<InvokeGetMedicalRecordResponseData>;
+			})) as SuccessResponse<InvokeGetMedicalRecordPayloadResponseData>;
 		});
 
 		this.setPayloadLoading(listIndex, false);

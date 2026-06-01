@@ -213,11 +213,14 @@ pub struct HandlerListMedicalRecordsQueryParams {
     pub cursor: Option<u64>,
     #[serde(default)]
     pub limit: Option<u64>,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MedicalRecordMetadataItem {
     pub index: u64,
+    pub list_index: u64,
     pub segment_id: String,
     pub related_rme_id: String,
     pub patient_address: String,
@@ -239,6 +242,8 @@ pub struct HandlerGetMedicalRecordQueryParams {
     #[serde(deserialize_with = "crate::utils::Utils::empty_string_as_none")]
     pub index: Option<u64>,
     pub patient_iota_address: String,
+    #[serde(default)]
+    pub include_administrative: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

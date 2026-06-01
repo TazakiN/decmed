@@ -1646,26 +1646,25 @@ impl Handlers {
         let mut conn = state.redis_pool.get().context(current_fn!())?;
         let ttl = revocation_ttl(payload.expires_before.as_deref())?;
 
-        // Set root revocation key
-        let root_key = decmed_macaroon_auth::root_revocation_key(
-            &payload.patient_address,
-            &payload.purpose,
-            &payload.root_subject,
-        );
-        let _: () = conn
-            .set_options(
-                root_key,
-                payload.tx_digest.clone(),
-                SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
-            )
-            .context(current_fn!())?;
-
-        // Set exact token hash if provided
+        // Set exact token revocation key if token_hash is provided, otherwise fallback to root revocation key
         if let Some(token_hash) = &payload.token_hash {
             let token_key = decmed_macaroon_auth::token_revocation_key(token_hash);
             let _: () = conn
                 .set_options(
                     token_key,
+                    payload.tx_digest.clone(),
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+                )
+                .context(current_fn!())?;
+        } else {
+            let root_key = decmed_macaroon_auth::root_revocation_key(
+                &payload.patient_address,
+                &payload.purpose,
+                &payload.root_subject,
+            );
+            let _: () = conn
+                .set_options(
+                    root_key,
                     payload.tx_digest.clone(),
                     SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
                 )

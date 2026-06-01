@@ -169,7 +169,9 @@ pub async fn revoke_access(
     let proxy_status = proxy_resp.status();
     if !proxy_status.is_success() {
         let err_text = proxy_resp.text().await.unwrap_or_default();
-        eprintln!("Proxy revocation warning: {proxy_status} {err_text}");
+        return Err(anyhow!("Proxy revocation failed: {proxy_status} {err_text}")
+            .context(current_fn!())
+            .into());
     }
 
     Ok(SuccessResponse {

@@ -22,6 +22,7 @@ pub enum CaveatKey {
     MaxDelegationDepth,
     ProofRequired,
     HospitalId,
+    ParentTokenHash,
     // Legacy coarse-grained caveats (still parsed for migration)
     Role,
     Purpose,
@@ -46,6 +47,7 @@ impl CaveatKey {
             "max_delegation_depth" => Some(Self::MaxDelegationDepth),
             "proof_required" => Some(Self::ProofRequired),
             "hospital_id" => Some(Self::HospitalId),
+            "parent_token_hash" => Some(Self::ParentTokenHash),
             "role" => Some(Self::Role),
             "purpose" => Some(Self::Purpose),
             "subject" => Some(Self::Subject),
@@ -252,6 +254,7 @@ pub fn caveat_line(key: CaveatKey, value: &str) -> String {
         CaveatKey::HospitalId => "hospital_id",
         CaveatKey::Role => "role",
         CaveatKey::Purpose => "purpose",
+        CaveatKey::ParentTokenHash => "parent_token_hash",
         CaveatKey::Subject => "subject",
         CaveatKey::Time => "time",
         CaveatKey::HolderAddress => "holder_address",

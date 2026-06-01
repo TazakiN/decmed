@@ -73,6 +73,7 @@ entry fun create_access(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     administrative_access_exp_dur_minutes: u64,
     metadata: vector<String>,
+    token_hashes: vector<String>,
     patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
 )
@@ -101,6 +102,7 @@ entry fun create_access(
     let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
 
+    assert!(token_hashes.length() == 2, EInvalidMetadataLength);
 
     if (hospital_personnel_role == hospital_personnel_role_administrative_personnel()) {
         let (read_access, access_data_type_read, update_access, access_data_type_update, exp_dur_read, exp_dur_update) =
@@ -129,6 +131,7 @@ entry fun create_access(
             hospital_personnel_administrative_metadata_public,
             patient_access_log.length(),
             false,
+            option::some(*token_hashes.borrow(0)),
         );
         patient_access_log.push_back(patient_access_log_read);
 
@@ -142,6 +145,7 @@ entry fun create_access(
             hospital_personnel_administrative_metadata_public,
             patient_access_log.length(),
             false,
+            option::some(*token_hashes.borrow(1)),
         );
         patient_access_log.push_back(patient_access_log_update);
     };
@@ -172,6 +176,7 @@ entry fun create_access(
             hospital_personnel_administrative_metadata_public,
             patient_access_log.length(),
             false,
+            option::some(*token_hashes.borrow(0)),
         );
         patient_access_log.push_back(patient_access_log_read);
 
@@ -185,6 +190,7 @@ entry fun create_access(
             hospital_personnel_administrative_metadata_public,
             patient_access_log.length(),
             false,
+            option::some(*token_hashes.borrow(1)),
         );
         patient_access_log.push_back(patient_access_log_update);
     };
@@ -200,6 +206,7 @@ public(package) fun create_access_test(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     administrative_access_exp_dur_minutes: u64,
     metadata: vector<String>,
+    token_hashes: vector<String>,
     patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
 )
@@ -212,6 +219,7 @@ public(package) fun create_access_test(
         hospital_personnel_id_account,
         administrative_access_exp_dur_minutes,
         metadata,
+        token_hashes,
         patient_id_account,
         ctx
     );

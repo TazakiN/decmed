@@ -779,8 +779,10 @@ impl MoveCall {
             .into_iter()
             .map(|item| builder.force_separate_pure(item).context(current_fn!()))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let metadata_vector =
-            builder.command(Command::MakeMoveVec(Some(move_string_type_tag()?), metadata_args));
+        let metadata_vector = builder.command(Command::MakeMoveVec(
+            Some(move_string_type_tag()?),
+            metadata_args,
+        ));
         let function = Identifier::from_str("create_delegated_access").context(current_fn!())?;
         let arguments = vec![
             builder.pure(activation_key).context(current_fn!())?,
@@ -836,9 +838,11 @@ impl MoveCall {
         activation_key: String,
         delegatee_address: IotaAddress,
         patient_address: IotaAddress,
+        access_type: String,
+        related_rme_id: Option<String>,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
-    ) -> Result<(), HospitalError> {
+    ) -> Result<String, HospitalError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let pt = construct_pt(
             String::from("revoke_delegated_access"),
@@ -848,9 +852,12 @@ impl MoveCall {
             vec![
                 CallArg::Pure(bcs::to_bytes(&activation_key).context(current_fn!())?),
                 self.construct_address_id_object_call_arg(false),
+                self.construct_clock_call_arg(),
                 CallArg::Pure(bcs::to_bytes(&delegatee_address).context(current_fn!())?),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(&patient_address).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&access_type.into_bytes()).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&related_rme_id).context(current_fn!())?),
             ],
         )
         .context(current_fn!())?;
@@ -873,10 +880,11 @@ impl MoveCall {
         );
 
         let tx = Transaction::from_data_and_signer(tx_data, vec![&sender_key_pair]);
+        let tx_digest = tx.digest().to_string();
         let response = execute_tx(tx, reservation_id)
             .await
             .context(current_fn!())?;
         handle_error_execute_tx(response).context(current_fn!())?;
-        Ok(())
+        Ok(tx_digest)
     }
 }

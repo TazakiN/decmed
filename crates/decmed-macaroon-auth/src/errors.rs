@@ -42,4 +42,6 @@ pub enum CaveatVerificationError {
     RelatedRmeAssignmentRequiresEmptyParent,
     #[error("holder_address must not be used")]
     HolderAddressForbidden,
+    #[error("Token has been revoked")]
+    RevokedToken,
 }

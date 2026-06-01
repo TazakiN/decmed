@@ -1,8 +1,10 @@
 use chrono::Utc;
 use decmed_macaroon_auth::{
-    attenuate_macaroon, issue_initial_token, parse_caveat_line, verify_decmed_token, AccessMode,
-    CaveatVerificationError, DelegationAttenuationParams, InitialDoctorTokenParams, ParsedCaveats,
-    SegmentAccessContext, TokenVerificationContext, WalletProofContext, WalletSignatureVerifier,
+    attenuate_macaroon, compute_revocation_keys, edge_revocation_key, hash_token,
+    issue_initial_token, parse_caveat_line, root_revocation_key, token_revocation_key,
+    verify_decmed_token, AccessMode, CaveatKey, CaveatVerificationError,
+    DelegationAttenuationParams, InitialDoctorTokenParams, ParsedCaveats, SegmentAccessContext,
+    TokenVerificationContext, WalletProofContext, WalletSignatureVerifier,
 };
 use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 use macaroon::MacaroonKey;
@@ -408,6 +410,57 @@ fn lab_write_hasil_ok() {
 }
 
 #[test]
+fn delegated_token_carries_parent_hash_revocation_key() {
+    let parent = doctor_token();
+    let child = lab_token(&parent);
+    let mac = macaroon::Macaroon::deserialize(&child).unwrap();
+    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+    let parent_hash = hash_token(&parent);
+
+    let parent_hash_entries = parsed.all(CaveatKey::ParentTokenHash);
+    assert_eq!(parent_hash_entries.len(), 1);
+    assert!(parent_hash_entries[0].raw.ends_with(&parent_hash));
+
+    let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();
+    let keys = compute_revocation_keys(&parsed, &delegation, &hash_token(&child)).unwrap();
+    assert!(keys.contains(&token_revocation_key(&hash_token(&child))));
+    assert!(keys.contains(&token_revocation_key(&parent_hash)));
+}
+
+#[test]
+fn root_revocation_key_blocks_root_and_descendant() {
+    let parent = doctor_token();
+    let child = lab_token(&parent);
+    let expected = root_revocation_key(PATIENT, "Read", DOCTOR);
+
+    for token in [parent, child] {
+        let mac = macaroon::Macaroon::deserialize(&token).unwrap();
+        let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+        let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();
+        let keys = compute_revocation_keys(&parsed, &delegation, &hash_token(&token)).unwrap();
+        assert!(keys.contains(&expected));
+    }
+}
+
+#[test]
+fn edge_revocation_checks_concrete_and_wildcard_related_rme() {
+    let child = lab_token(&doctor_token());
+    let mac = macaroon::Macaroon::deserialize(&child).unwrap();
+    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+    let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();
+    let keys = compute_revocation_keys(&parsed, &delegation, &hash_token(&child)).unwrap();
+
+    assert!(keys.contains(&edge_revocation_key(
+        PATIENT,
+        "Read",
+        DOCTOR,
+        LAB,
+        Some(RME_ID),
+    )));
+    assert!(keys.contains(&edge_revocation_key(PATIENT, "Read", DOCTOR, LAB, None)));
+}
+
+#[test]
 fn lab_read_penunjang_ok() {
     assert!(verify_ctx(
         &lab_token(&doctor_token()),
@@ -719,7 +772,9 @@ fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
         let effective = decmed_macaroon_auth::EffectiveCapability::from_parsed(&parsed).unwrap();
         assert!(effective.read_datasets.is_empty());
         assert!(effective.read_functions.is_empty());
-        assert!(effective.write_functions.contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
+        assert!(effective
+            .write_functions
+            .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
         assert!(verify_decmed_token(
             &mac,
             &root_key(),

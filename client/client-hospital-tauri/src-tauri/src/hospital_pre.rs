@@ -48,8 +48,11 @@ pub fn write_hospital_pre_public_key(
         "hospital_id_hash": hospital_id_hash,
         "pre_public_key": serde_serialize_to_base64(pre_public_key).context(current_fn!())?,
     });
-    fs::write(path, serde_json::to_vec_pretty(&payload).context(current_fn!())?)
-        .context(current_fn!())?;
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&payload).context(current_fn!())?,
+    )
+    .context(current_fn!())?;
     Ok(())
 }
 
@@ -60,7 +63,9 @@ pub fn read_hospital_pre_public_key(hospital_id_hash: &str) -> Result<PublicKey,
     let pk = payload
         .get("pre_public_key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| HospitalError::Anyhow(anyhow!("pre_public_key missing in hospital pre file")))?;
+        .ok_or_else(|| {
+            HospitalError::Anyhow(anyhow!("pre_public_key missing in hospital pre file"))
+        })?;
     crate::utils::serde_deserialize_from_base64(pk.to_string())
 }
 
@@ -74,9 +79,11 @@ pub fn generate_hospital_pre_keys_for_admin(
     let (_, hospital_pre_public_key) =
         compute_pre_keys(&hospital_pre_seed[0..32]).context(current_fn!())?;
 
-    let (enc_hospital_pre_secret, hospital_pre_nonce) =
-        aes_encrypt_custom_key(sha_hash(pin.as_bytes()).as_slice(), &hospital_pre_seed[0..32])
-            .context(current_fn!())?;
+    let (enc_hospital_pre_secret, hospital_pre_nonce) = aes_encrypt_custom_key(
+        sha_hash(pin.as_bytes()).as_slice(),
+        &hospital_pre_seed[0..32],
+    )
+    .context(current_fn!())?;
 
     keys_entry.hospital_pre_secret_key = Some(STANDARD.encode(enc_hospital_pre_secret));
     keys_entry.hospital_pre_public_key =

@@ -19,6 +19,7 @@ public struct PatientAccessLog has copy, drop, store {
     is_revoked: bool,
     is_delegated: bool,
     delegated_by_address: Option<address>,
+    token_hash: Option<String>,
 }
 
 public(package) fun new(
@@ -31,6 +32,7 @@ public(package) fun new(
     hospital_personnel_metadata: String,
     index: u64,
     is_revoked: bool,
+    token_hash: Option<String>,
 ): PatientAccessLog
 {
     PatientAccessLog {
@@ -45,6 +47,7 @@ public(package) fun new(
         is_revoked,
         is_delegated: false,
         delegated_by_address: option::none(),
+        token_hash,
     }
 }
 
@@ -179,4 +182,11 @@ public(package) fun set_is_revoked(
 )
 {
     self.is_revoked = is_revoked;
+}
+
+public(package) fun borrow_token_hash(
+    self: &PatientAccessLog,
+): &Option<String>
+{
+    &self.token_hash
 }

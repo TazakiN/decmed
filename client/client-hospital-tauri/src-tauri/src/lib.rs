@@ -11,6 +11,7 @@ mod macros;
 mod medical_personnel;
 mod move_call;
 mod profile;
+mod revoke_delegation;
 mod rme_admin_seed;
 mod rme_metadata;
 mod rme_segment;
@@ -174,6 +175,7 @@ pub fn run() {
             access_delegation::get_current_access_capabilities,
             access_delegation::create_delegated_access,
             access_delegation::create_admin_delegated_access,
+            revoke_delegation::revoke_delegated_access,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

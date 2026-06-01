@@ -1,12 +1,12 @@
 mod constants;
 mod handlers;
 mod macaroon_auth;
-mod segment_authorization;
 mod macros;
 mod metadata_list;
 mod middlewares;
 mod move_call;
 mod proxy_error;
+mod segment_authorization;
 mod tes_error;
 mod types;
 mod utils;
@@ -85,6 +85,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         redis_pool,
     });
 
+    let revocation_auth_routes = Router::new().route(
+        "/revocations/delegation",
+        post(Handlers::revoke_delegation_access),
+    );
+
     let protected_routes = Router::new()
         .route("/", get(|| async { "Hello, world!" }))
         .route("/medical-records", get(Handlers::list_medical_records))
@@ -100,6 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             get(Handlers::get_medical_record_update),
         )
         .route("/administrative", get(Handlers::get_administrative_data))
+        .merge(revocation_auth_routes)
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             shared_state.clone(),
             middlewares::auth_middleware,
@@ -117,9 +123,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             get(Handlers::generate_and_register_proxy_address),
         );
 
+    let revocation_routes = Router::new().route(
+        "/revocations/patient",
+        post(Handlers::revoke_patient_access),
+    );
+
     let public_routes = Router::new()
         .route("/nonce", post(Handlers::get_nonce_handler))
-        .route("/keys", post(Handlers::store_keys));
+        .route("/keys", post(Handlers::store_keys))
+        .merge(revocation_routes);
 
     let api_routes = Router::new()
         .nest("/gen", gen_routes)

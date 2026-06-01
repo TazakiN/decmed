@@ -86,14 +86,11 @@
 				>
 					<div class="min-w-0 flex flex-col gap-2">
 						<div class="min-w-0">
-							<span class="font-medium">RME {i + 1}</span>
+							<span class="font-medium">{formatDateTime(record.createdAt)}</span>
 							<p class="break-all text-xs text-zinc-500">{record.relatedRmeId}</p>
 						</div>
 					</div>
 					<div class="flex shrink-0 items-center gap-2 text-right">
-						<div>
-							<p class="text-sm">{formatDateTime(record.createdAt)}</p>
-						</div>
 						<ChevronRight size={16} />
 					</div>
 				</a>

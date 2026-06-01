@@ -25,9 +25,9 @@ use crate::constants::{
 };
 use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
-use crate::segment_authorization::authorize_create_rme_segment;
 use crate::middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER};
 use crate::proxy_error::{ProxyError, ResultExt};
+use crate::segment_authorization::authorize_create_rme_segment;
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
@@ -36,7 +36,7 @@ use crate::types::{
     HandlerGetMedicalRecordUpdateQueryParams, HandlerListMedicalRecordsQueryParams,
     HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, ListMedicalRecordsResponse,
     MedicalMetadata, MedicalRecordMetadataItem, MoveHospitalPersonnelRole,
-    PatientPrivateAdministrativeMetadata, ReencryptionPurposeType,
+    PatientPrivateAdministrativeMetadata, PatientRevocationSignedPayload, ReencryptionPurposeType,
 };
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
@@ -114,6 +114,58 @@ fn administrative_keys_duration(encounter_dataset: DatasetCategory) -> u64 {
         DatasetCategory::RAWAT_JALAN => ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR,
         DatasetCategory::RAWAT_INAP => ADMINISTRATIVE_RAWAT_INAP_KEYS_DUR,
         _ => 0,
+    }
+}
+
+fn max_revocation_ttl_secs() -> u64 {
+    [
+        ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR,
+        ADMINISTRATIVE_RAWAT_INAP_KEYS_DUR,
+        MEDICAL_KEYS_READ_DUR,
+        MEDICAL_KEYS_UPDATE_DUR,
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(24 * 60 * 60)
+}
+
+fn revocation_ttl(expires_before: Option<&str>) -> Result<u64, ProxyError> {
+    let Some(expires_before) = expires_before.filter(|v| !v.trim().is_empty()) else {
+        return Ok(max_revocation_ttl_secs());
+    };
+
+    let expiry = if let Ok(epoch_secs) = expires_before.parse::<i64>() {
+        chrono::DateTime::<chrono::Utc>::from_timestamp(epoch_secs, 0).ok_or_else(|| {
+            ProxyError::Anyhow {
+                source: anyhow!("Invalid expires_before epoch seconds"),
+                code: StatusCode::BAD_REQUEST,
+            }
+        })?
+    } else {
+        chrono::DateTime::parse_from_rfc3339(expires_before)
+            .map_err(|_| ProxyError::Anyhow {
+                source: anyhow!("Invalid expires_before; expected RFC3339 or epoch seconds"),
+                code: StatusCode::BAD_REQUEST,
+            })?
+            .with_timezone(&chrono::Utc)
+    };
+
+    let remaining = expiry
+        .signed_duration_since(chrono::Utc::now())
+        .num_seconds();
+    if remaining <= 0 {
+        return Err(ProxyError::Anyhow {
+            source: anyhow!("expires_before is already expired"),
+            code: StatusCode::BAD_REQUEST,
+        });
+    }
+    Ok(remaining as u64)
+}
+
+fn purpose_to_string(purpose: &ReencryptionPurposeType) -> &'static str {
+    match purpose {
+        ReencryptionPurposeType::Read => "Read",
+        ReencryptionPurposeType::Update => "Update",
     }
 }
 
@@ -1408,9 +1460,16 @@ impl Handlers {
             )
             .context(current_fn!())?;
 
+        let access_token_read_hash =
+            decmed_macaroon_auth::hash_token(&hospital_personnel_access_token_read);
+        let access_token_update_hash = hospital_personnel_access_token_update
+            .as_ref()
+            .map(|token| decmed_macaroon_auth::hash_token(token));
         let res_data = json!({
             "access_token_read": hospital_personnel_access_token_read,
             "access_token_update": hospital_personnel_access_token_update,
+            "access_token_read_hash": access_token_read_hash,
+            "access_token_update_hash": access_token_update_hash,
         });
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
@@ -1491,5 +1550,163 @@ impl Handlers {
             .context(current_fn!())?;
 
         Ok(Utils::build_success_response((), StatusCode::OK))
+    }
+
+    pub async fn revoke_patient_access(
+        State(state): State<Arc<AppState>>,
+        Json(payload): Json<crate::types::PatientRevocationPayload>,
+    ) -> Result<Response, ProxyError> {
+        let patient_iota_address = IotaAddress::from_str(&payload.patient_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let _proxy_iota_address =
+            IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+
+        // Verify patient signature against the full canonical revocation payload.
+        let signature = Utils::construct_signature_from_str(&payload.signature)
+            .map_err(|_| anyhow!("Invalid signature"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let canonical = serde_json::to_string(&PatientRevocationSignedPayload::from(&payload))
+            .map_err(|e| anyhow!(e.to_string()))
+            .code(StatusCode::BAD_REQUEST)?;
+        let intent_message = IntentMessage::new(Intent::personal_message(), canonical);
+        signature
+            .verify_secure(
+                &intent_message,
+                patient_iota_address,
+                SignatureScheme::ED25519,
+            )
+            .map_err(|_| anyhow!("Invalid patient signature"))
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        let mut conn = state.redis_pool.get().context(current_fn!())?;
+        let ttl = revocation_ttl(payload.expires_before.as_deref())?;
+
+        // Set root revocation key
+        let root_key = decmed_macaroon_auth::root_revocation_key(
+            &payload.patient_address,
+            &payload.purpose,
+            &payload.root_subject,
+        );
+        let _: () = conn
+            .set_options(
+                root_key,
+                payload.tx_digest.clone(),
+                SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+            )
+            .context(current_fn!())?;
+
+        // Set exact token hash if provided
+        if let Some(token_hash) = &payload.token_hash {
+            let token_key = decmed_macaroon_auth::token_revocation_key(token_hash);
+            let _: () = conn
+                .set_options(
+                    token_key,
+                    payload.tx_digest.clone(),
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+                )
+                .context(current_fn!())?;
+        }
+
+        Ok(Utils::build_success_response(
+            json!({ "revoked": true }),
+            StatusCode::OK,
+        ))
+    }
+
+    pub async fn revoke_delegation_access(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        Json(payload): Json<crate::types::DelegationRevocationPayload>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.iota_address != payload.delegated_by {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Only the delegator can revoke this delegation"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+        let Some(verified) = current_user.decmed_token.as_ref() else {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Delegation revocation requires a DecMed macaroon"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        };
+        if verified.effective.patient_address.as_deref() != Some(payload.patient_address.as_str()) {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Revocation patient does not match token"),
+                code: StatusCode::FORBIDDEN,
+            });
+        }
+        if purpose_to_string(&current_user.purpose) != payload.purpose {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Revocation purpose does not match token"),
+                code: StatusCode::FORBIDDEN,
+            });
+        }
+        if payload.delegated_to == payload.delegated_by {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("delegated_to must differ from delegated_by"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+        if let (Some(token_rme), Some(payload_rme)) = (
+            verified.effective.related_rme_id.as_deref(),
+            payload.related_rme_id.as_deref(),
+        ) {
+            if token_rme != payload_rme {
+                return Err(ProxyError::Anyhow {
+                    source: anyhow!("Revocation RME id does not match token"),
+                    code: StatusCode::FORBIDDEN,
+                });
+            }
+        }
+
+        let mut conn = state.redis_pool.get().context(current_fn!())?;
+        let ttl = revocation_ttl(payload.expires_before.as_deref())?;
+
+        let mut edge_keys = Vec::new();
+        if payload.related_rme_id.is_some() {
+            edge_keys.push(decmed_macaroon_auth::edge_revocation_key(
+                &payload.patient_address,
+                &payload.purpose,
+                &payload.delegated_by,
+                &payload.delegated_to,
+                payload.related_rme_id.as_deref(),
+            ));
+        }
+        edge_keys.push(decmed_macaroon_auth::edge_revocation_key(
+            &payload.patient_address,
+            &payload.purpose,
+            &payload.delegated_by,
+            &payload.delegated_to,
+            None,
+        ));
+        edge_keys.dedup();
+        for edge_key in edge_keys {
+            let _: () = conn
+                .set_options(
+                    edge_key,
+                    payload.tx_digest.clone(),
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+                )
+                .context(current_fn!())?;
+        }
+
+        // Set exact token hash if provided
+        if let Some(token_hash) = &payload.token_hash {
+            let token_key = decmed_macaroon_auth::token_revocation_key(token_hash);
+            let _: () = conn
+                .set_options(
+                    token_key,
+                    payload.tx_digest.clone(),
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+                )
+                .context(current_fn!())?;
+        }
+
+        Ok(Utils::build_success_response(
+            json!({ "revoked": true }),
+            StatusCode::OK,
+        ))
     }
 }

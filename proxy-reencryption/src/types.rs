@@ -110,6 +110,57 @@ pub struct GenerateAndRegisterProxyAddress {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct PatientRevocationPayload {
+    pub patient_address: String,
+    pub purpose: String,
+    pub root_subject: String,
+    #[serde(default)]
+    pub token_hash: Option<String>,
+    #[serde(default)]
+    pub expires_before: Option<String>,
+    pub tx_digest: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatientRevocationSignedPayload {
+    pub patient_address: String,
+    pub purpose: String,
+    pub root_subject: String,
+    pub token_hash: Option<String>,
+    pub expires_before: Option<String>,
+    pub tx_digest: String,
+}
+
+impl From<&PatientRevocationPayload> for PatientRevocationSignedPayload {
+    fn from(payload: &PatientRevocationPayload) -> Self {
+        Self {
+            patient_address: payload.patient_address.clone(),
+            purpose: payload.purpose.clone(),
+            root_subject: payload.root_subject.clone(),
+            token_hash: payload.token_hash.clone(),
+            expires_before: payload.expires_before.clone(),
+            tx_digest: payload.tx_digest.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DelegationRevocationPayload {
+    pub patient_address: String,
+    pub purpose: String,
+    pub delegated_by: String,
+    pub delegated_to: String,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
+    #[serde(default)]
+    pub token_hash: Option<String>,
+    #[serde(default)]
+    pub expires_before: Option<String>,
+    pub tx_digest: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GenerateMacaroonKeyHandlerResponse {
     pub macaroon_root_key: String,
 }

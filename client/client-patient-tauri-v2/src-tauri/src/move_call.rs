@@ -74,6 +74,7 @@ impl MoveCall {
         date: String,
         hospital_personnel_address: &IotaAddress,
         metadata: Vec<String>,
+        token_hashes: Vec<String>,
         administrative_access_exp_dur_minutes: u64,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
@@ -103,6 +104,7 @@ impl MoveCall {
                     bcs::to_bytes(&administrative_access_exp_dur_minutes).context(current_fn!())?,
                 ),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&token_hashes).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
             ],
         )
@@ -352,7 +354,7 @@ impl MoveCall {
         index: u64,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
-    ) -> Result<(), PatientError> {
+    ) -> Result<String, PatientError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let pt = construct_pt(
             String::from("revoke_access"),
@@ -386,6 +388,7 @@ impl MoveCall {
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
+        let tx_digest = tx.digest().to_string();
 
         let response = execute_tx(tx, reservation_id)
             .await
@@ -393,7 +396,7 @@ impl MoveCall {
 
         handle_error_execute_tx(response).context(current_fn!())?;
 
-        Ok(())
+        Ok(tx_digest)
     }
 
     pub async fn signup(

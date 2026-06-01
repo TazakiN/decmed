@@ -32,7 +32,9 @@ pub struct DelegateMacaroonResponse {
 
 /// Locally attenuate a parent macaroon for delegation (no PRE root key required).
 #[command]
-pub fn delegate_macaroon(payload: DelegateMacaroonPayload) -> Result<DelegateMacaroonResponse, HospitalError> {
+pub fn delegate_macaroon(
+    payload: DelegateMacaroonPayload,
+) -> Result<DelegateMacaroonResponse, HospitalError> {
     use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
     let parse_datasets = |values: &[String]| -> Result<Vec<DatasetCategory>, HospitalError> {

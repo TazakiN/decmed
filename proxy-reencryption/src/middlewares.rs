@@ -14,10 +14,11 @@ use axum::{
     response::Response,
 };
 use decmed_macaroon_auth::{
-    verify_macaroon_signature, DelegationChain, EffectiveCapability, ParsedCaveats,
-    VerifiedDecmedToken,
+    compute_revocation_keys, hash_token, verify_macaroon_signature, DelegationChain,
+    EffectiveCapability, ParsedCaveats, VerifiedDecmedToken,
 };
 use iota_types::base_types::IotaAddress;
+use redis::Commands;
 
 pub const WALLET_SIGNATURE_HEADER: &str = "x-decmed-wallet-signature";
 pub const WALLET_TIMESTAMP_HEADER: &str = "x-decmed-wallet-timestamp";
@@ -47,6 +48,32 @@ pub async fn auth_middleware(
 
         let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
         let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
+
+        // Check revocation status in Redis
+        {
+            let token_str = &bearer_token;
+            let token_hash = hash_token(token_str);
+            let revocation_keys = compute_revocation_keys(&parsed, &delegation, &token_hash)
+                .map_err(|e| anyhow!(e.to_string()))
+                .code(StatusCode::UNAUTHORIZED)?;
+
+            let mut conn = state.redis_pool.get().map_err(|e| ProxyError::Anyhow {
+                source: anyhow!("Revocation store unavailable: {e}"),
+                code: StatusCode::SERVICE_UNAVAILABLE,
+            })?;
+            for key in revocation_keys {
+                let revoked: bool = conn.exists(&key).map_err(|e| ProxyError::Anyhow {
+                    source: anyhow!("Revocation check failed: {e}"),
+                    code: StatusCode::SERVICE_UNAVAILABLE,
+                })?;
+                if revoked {
+                    return Err(ProxyError::Anyhow {
+                        source: anyhow!("Token has been revoked"),
+                        code: StatusCode::UNAUTHORIZED,
+                    });
+                }
+            }
+        }
 
         let active_subject = delegation.active_subject.clone();
         let active_subject_address = IotaAddress::from_str(&active_subject)

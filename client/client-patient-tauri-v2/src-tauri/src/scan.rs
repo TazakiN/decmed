@@ -215,6 +215,14 @@ pub async fn create_access(
         )
         .context(current_fn!())
     })?;
+    let access_token_read_hash = access_token.access_token_read_hash.clone();
+    let access_token_update_hash =
+        access_token
+            .access_token_update_hash
+            .clone()
+            .ok_or_else(|| {
+                anyhow!("Proxy did not return write access token hash").context(current_fn!())
+            })?;
 
     let (metadata_read, metadata_update, date) = {
         let patient_name = state
@@ -279,6 +287,7 @@ pub async fn create_access(
             date,
             &hospital_personnel_iota_address,
             metadata,
+            vec![access_token_read_hash, access_token_update_hash],
             administrative_access_exp_dur_minutes,
             patient_iota_address,
             patient_iota_key_pair,

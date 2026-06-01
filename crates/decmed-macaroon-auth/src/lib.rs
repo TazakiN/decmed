@@ -9,6 +9,7 @@ mod delegation_proof;
 mod effective;
 mod errors;
 mod issuance;
+mod revocation;
 mod rme_id;
 mod verify;
 mod wallet_proof;
@@ -26,6 +27,10 @@ pub use issuance::{
     admin_all_datasets, admin_all_functions, admin_write_datasets, admin_write_functions,
     issue_admin_personnel_token, issue_initial_token, AdminTokenKind,
     InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+};
+pub use revocation::{
+    compute_revocation_keys, edge_revocation_key, hash_token, root_revocation_key,
+    token_revocation_key,
 };
 pub use rme_id::generate_related_rme_id;
 pub use verify::{

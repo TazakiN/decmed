@@ -44,6 +44,7 @@ pub fn caveat_error_to_status(err: &CaveatVerificationError) -> StatusCode {
             StatusCode::FORBIDDEN
         }
         CaveatVerificationError::ExpiredToken => StatusCode::UNAUTHORIZED,
+        CaveatVerificationError::RevokedToken => StatusCode::UNAUTHORIZED,
         CaveatVerificationError::InvalidDelegationChain
         | CaveatVerificationError::DelegationDepthExceeded
         | CaveatVerificationError::DelegationDepthNotMonotonic => StatusCode::FORBIDDEN,

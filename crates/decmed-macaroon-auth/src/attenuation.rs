@@ -127,6 +127,10 @@ pub fn attenuate_macaroon(
     let parent_effective = EffectiveCapability::from_parsed(&parsed)?;
     validate_attenuation(&parent_effective, params)?;
 
+    // Attach parent token hash for revocation cascade
+    let parent_token_hash = crate::revocation::hash_token(parent_serialized);
+    add_caveat_to_macaroon(&mut mac, CaveatKey::ParentTokenHash, &parent_token_hash);
+
     add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedBy, &params.delegated_by);
     add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedTo, &params.delegated_to);
     if !params.read_datasets.is_empty() {

@@ -55,6 +55,7 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
 };
 
 use iota::clock::Clock;
+use iota::event;
 use iota::vec_map;
 
 use std::string::{String};
@@ -80,8 +81,19 @@ const EAccessExpired: u64 = 2015;
 const EInvalidHospitalPersonnelSubRole: u64 = 2016;
 const ESubRoleRequiredForMedicalPersonnel: u64 = 2017;
 const ESubRoleNotAllowedForNonMedicalPersonnel: u64 = 2018;
+const EInvalidAccessType: u64 = 2019;
 
 // Structs
+
+/// Emitted when a delegator revokes delegated access for a patient.
+public struct DelegationRevokedEvent has copy, drop, store {
+    patient_address: address,
+    revoker: address,
+    delegatee_address: address,
+    access_type: vector<u8>,
+    related_rme_id: Option<String>,
+    revoked_at_ms: u64,
+}
 
 public struct DelegateeCandidate has copy, drop, store {
     personnel_id_hash: String,
@@ -731,9 +743,12 @@ entry fun create_delegated_access(
 entry fun revoke_delegated_access(
     activation_key: String,
     address_id: &AddressId,
+    clock: &Clock,
     delegatee_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     patient_address: address,
+    access_type: vector<u8>,
+    related_rme_id: Option<String>,
     ctx: &TxContext,
 )
 {
@@ -748,19 +763,40 @@ entry fun revoke_delegated_access(
     require_account_activation(activation_key, delegator_account);
 
     assert!(hospital_personnel_id_account_table.contains(delegatee_personnel_id), EDelegateeNotFound);
+    assert!(
+        access_type == b"Read" || access_type == b"Update" || access_type == b"Read,Update",
+        EInvalidAccessType,
+    );
+    let revoke_read = access_type == b"Read" || access_type == b"Read,Update";
+    let revoke_update = access_type == b"Update" || access_type == b"Read,Update";
 
     let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
     let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
 
-    let delegatee_read = delegatee_access.borrow_mut_read();
-    if (delegatee_read.contains(&patient_id)) {
-        delegatee_read.remove(&patient_id);
+    if (revoke_read) {
+        let delegatee_read = delegatee_access.borrow_mut_read();
+        if (delegatee_read.contains(&patient_id)) {
+            delegatee_read.remove(&patient_id);
+        };
     };
 
-    let delegatee_update = delegatee_access.borrow_mut_update();
-    if (delegatee_update.contains(&patient_id)) {
-        delegatee_update.remove(&patient_id);
+    if (revoke_update) {
+        let delegatee_update = delegatee_access.borrow_mut_update();
+        if (delegatee_update.contains(&patient_id)) {
+            delegatee_update.remove(&patient_id);
+        };
     };
+
+    event::emit(
+        DelegationRevokedEvent {
+            patient_address,
+            revoker: delegator_address,
+            delegatee_address,
+            access_type,
+            related_rme_id,
+            revoked_at_ms: clock.timestamp_ms(),
+        }
+    );
 }
 
 entry fun is_account_registered(

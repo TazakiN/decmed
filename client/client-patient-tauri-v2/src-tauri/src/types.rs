@@ -182,6 +182,7 @@ pub struct CommandGetAccessLogResponse {
     pub is_revoked: bool,
     pub is_delegated: bool,
     pub delegated_by_address: Option<String>,
+    pub token_hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -197,6 +198,7 @@ pub struct MovePatientAccessLog {
     pub is_revoked: bool,
     pub is_delegated: bool,
     pub delegated_by_address: Option<IotaAddress>,
+    pub token_hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -261,6 +263,8 @@ pub struct PrivateAdministrativeMetadata {
 pub struct ProxyReencryptionPostKeysResponseData {
     pub access_token_read: String,
     pub access_token_update: Option<String>,
+    pub access_token_read_hash: String,
+    pub access_token_update_hash: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -366,6 +370,7 @@ mod tests {
         is_revoked: bool,
         is_delegated: bool,
         delegated_by_address: Option<IotaAddress>,
+        token_hash: Option<String>,
     }
 
     #[test]
@@ -396,6 +401,7 @@ mod tests {
             is_revoked: false,
             is_delegated: true,
             delegated_by_address: Some(delegated_by_address),
+            token_hash: Some("hash-read".to_string()),
         }];
 
         let encoded = bcs::to_bytes(&wire).unwrap();
@@ -415,5 +421,6 @@ mod tests {
         assert_eq!(entry.hospital_personnel_address, personnel_address);
         assert_eq!(entry.is_delegated, true);
         assert_eq!(entry.delegated_by_address, Some(delegated_by_address));
+        assert_eq!(entry.token_hash.as_deref(), Some("hash-read"));
     }
 }

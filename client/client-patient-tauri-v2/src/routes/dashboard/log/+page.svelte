@@ -67,7 +67,13 @@
 										isRevoking = true;
 										await invoke('revoke_access', {
 											hospitalPersonnelAddress: access.hospital_personnel_address,
-											index: access.index
+											index: access.index,
+											purpose: access.access_type,
+											rootSubject: access.hospital_personnel_address,
+											tokenHash: access.token_hash ?? null,
+											expiresBefore: new Date(
+												new Date(access.date).getTime() + access.exp_dur * 60 * 1000
+											).toISOString()
 										});
 										await waitMs(2000);
 										invalidateAll();

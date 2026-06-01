@@ -33,6 +33,7 @@ export type InvokeGetAccessLog = {
 	is_revoked: boolean;
 	is_delegated: boolean;
 	delegated_by_address: string | null;
+	token_hash?: string | null;
 };
 
 export type InvokeProcessQrResponse = {

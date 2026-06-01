@@ -55,7 +55,6 @@ pub fn is_administrative_personnel_write_token(
         )
     });
     Ok(purpose == "Update"
-        && effective.related_rme_id.is_none()
         && has_encounter_write
         && effective
             .write_functions
@@ -79,7 +78,14 @@ fn seed_token_for_dataset(
     expires_before: DateTime<Utc>,
 ) -> Result<String, HospitalError> {
     let parent = effective_from_write_token(parent_write_token)?;
-    let _ = parent;
+    if let Some(parent_related_rme_id) = parent.related_rme_id.as_deref() {
+        if parent_related_rme_id != related_rme_id {
+            return Err(HospitalError::Anyhow(
+                anyhow!("parent write token is bound to a different related_rme_id")
+                    .context(current_fn!()),
+            ));
+        }
+    }
     let params = DelegationAttenuationParams {
         delegated_by: delegator.to_string(),
         delegated_to: delegator.to_string(),
@@ -90,7 +96,10 @@ fn seed_token_for_dataset(
         expires_before,
         max_delegation_depth: 0,
         require_wallet_proof: true,
-        related_rme_id: Some(related_rme_id.to_string()),
+        related_rme_id: parent
+            .related_rme_id
+            .is_none()
+            .then(|| related_rme_id.to_string()),
     };
     attenuate_macaroon(parent_write_token, &params)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))

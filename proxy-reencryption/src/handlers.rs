@@ -40,8 +40,8 @@ use crate::types::{
 };
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
-    issue_admin_personnel_token, issue_initial_token, AccessMode, AdminTokenKind,
-    InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+    generate_related_rme_id, issue_admin_personnel_token, issue_initial_token, AccessMode,
+    AdminTokenKind, InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
 };
 use decmed_macaroon_auth::{
     verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
@@ -160,13 +160,6 @@ fn revocation_ttl(expires_before: Option<&str>) -> Result<u64, ProxyError> {
         });
     }
     Ok(remaining as u64)
-}
-
-fn purpose_to_string(purpose: &ReencryptionPurposeType) -> &'static str {
-    match purpose {
-        ReencryptionPurposeType::Read => "Read",
-        ReencryptionPurposeType::Update => "Update",
-    }
 }
 
 fn get_access_keys_for_current_user(
@@ -1285,6 +1278,7 @@ impl Handlers {
         let hospital_id_opt = payload.hospital_id.as_deref().filter(|id| !id.is_empty());
         let mut access_keys_duration = update_keys_duration.unwrap_or(read_keys_duration);
 
+        let mut response_related_rme_id: Option<String> = None;
         let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
             match hospital_personnel_role {
                 AuthRole::AdministrativePersonnel => {
@@ -1309,6 +1303,8 @@ impl Handlers {
                         access_keys_duration = keys_duration;
                         let expires_before =
                             chrono::Utc::now() + chrono::Duration::seconds(keys_duration as i64);
+                        let related_rme_id = generate_related_rme_id(chrono::Utc::now());
+                        response_related_rme_id = Some(related_rme_id.clone());
 
                         let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
                             &patient_iota_address.to_string(),
@@ -1341,6 +1337,7 @@ impl Handlers {
                         if let Some(hospital_id) = payload.hospital_id.clone() {
                             write_params.hospital_id = Some(hospital_id);
                         }
+                        write_params.related_rme_id = Some(related_rme_id);
 
                         let read_token = issue_admin_personnel_token(&root_key, &read_params)
                             .map_err(|e| ProxyError::Caveat {
@@ -1372,6 +1369,7 @@ impl Handlers {
                         });
                     }
                     if let Some(related_rme_id) = payload.related_rme_id.clone() {
+                        response_related_rme_id = Some(related_rme_id.clone());
                         let expires_before = chrono::Utc::now()
                             + chrono::Duration::seconds(read_keys_duration as i64);
                         let mut read_params = InitialDoctorTokenParams::example_rm_initial_token(
@@ -1470,6 +1468,7 @@ impl Handlers {
             "access_token_update": hospital_personnel_access_token_update,
             "access_token_read_hash": access_token_read_hash,
             "access_token_update_hash": access_token_update_hash,
+            "related_rme_id": response_related_rme_id,
         });
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
@@ -1608,6 +1607,13 @@ impl Handlers {
                 .context(current_fn!())?;
         }
 
+        let _: usize = conn
+            .del(format!(
+                "keys:{}@{}",
+                payload.root_subject, payload.patient_address
+            ))
+            .context(current_fn!())?;
+
         Ok(Utils::build_success_response(
             json!({ "revoked": true }),
             StatusCode::OK,
@@ -1615,98 +1621,13 @@ impl Handlers {
     }
 
     pub async fn revoke_delegation_access(
-        State(state): State<Arc<AppState>>,
-        Extension(current_user): Extension<CurrentUser>,
-        Json(payload): Json<crate::types::DelegationRevocationPayload>,
+        State(_state): State<Arc<AppState>>,
+        Extension(_current_user): Extension<CurrentUser>,
+        Json(_payload): Json<crate::types::DelegationRevocationPayload>,
     ) -> Result<Response, ProxyError> {
-        if current_user.iota_address != payload.delegated_by {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Only the delegator can revoke this delegation"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-        let Some(verified) = current_user.decmed_token.as_ref() else {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Delegation revocation requires a DecMed macaroon"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        };
-        if verified.effective.patient_address.as_deref() != Some(payload.patient_address.as_str()) {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Revocation patient does not match token"),
-                code: StatusCode::FORBIDDEN,
-            });
-        }
-        if purpose_to_string(&current_user.purpose) != payload.purpose {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Revocation purpose does not match token"),
-                code: StatusCode::FORBIDDEN,
-            });
-        }
-        if payload.delegated_to == payload.delegated_by {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("delegated_to must differ from delegated_by"),
-                code: StatusCode::BAD_REQUEST,
-            });
-        }
-        if let (Some(token_rme), Some(payload_rme)) = (
-            verified.effective.related_rme_id.as_deref(),
-            payload.related_rme_id.as_deref(),
-        ) {
-            if token_rme != payload_rme {
-                return Err(ProxyError::Anyhow {
-                    source: anyhow!("Revocation RME id does not match token"),
-                    code: StatusCode::FORBIDDEN,
-                });
-            }
-        }
-
-        let mut conn = state.redis_pool.get().context(current_fn!())?;
-        let ttl = revocation_ttl(payload.expires_before.as_deref())?;
-
-        let mut edge_keys = Vec::new();
-        if payload.related_rme_id.is_some() {
-            edge_keys.push(decmed_macaroon_auth::edge_revocation_key(
-                &payload.patient_address,
-                &payload.purpose,
-                &payload.delegated_by,
-                &payload.delegated_to,
-                payload.related_rme_id.as_deref(),
-            ));
-        }
-        edge_keys.push(decmed_macaroon_auth::edge_revocation_key(
-            &payload.patient_address,
-            &payload.purpose,
-            &payload.delegated_by,
-            &payload.delegated_to,
-            None,
-        ));
-        edge_keys.dedup();
-        for edge_key in edge_keys {
-            let _: () = conn
-                .set_options(
-                    edge_key,
-                    payload.tx_digest.clone(),
-                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
-                )
-                .context(current_fn!())?;
-        }
-
-        // Set exact token hash if provided
-        if let Some(token_hash) = &payload.token_hash {
-            let token_key = decmed_macaroon_auth::token_revocation_key(token_hash);
-            let _: () = conn
-                .set_options(
-                    token_key,
-                    payload.tx_digest.clone(),
-                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
-                )
-                .context(current_fn!())?;
-        }
-
-        Ok(Utils::build_success_response(
-            json!({ "revoked": true }),
-            StatusCode::OK,
-        ))
+        Err(ProxyError::Anyhow {
+            source: anyhow!("Delegation revoke is disabled; only patients can revoke access"),
+            code: StatusCode::FORBIDDEN,
+        })
     }
 }

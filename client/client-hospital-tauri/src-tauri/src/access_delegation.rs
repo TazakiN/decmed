@@ -896,10 +896,20 @@ pub async fn create_admin_delegated_access(
     let rewrap_capsule_b64 = serde_serialize_to_base64(&rewrap_capsule).context(current_fn!())?;
 
     let encounter = encounter_from_write_token(&payload.parent_write_token)?;
-    let related_rme_id = generate_related_rme_id(Utc::now());
+    let parent_write_related_rme_id = related_rme_from_token(&payload.parent_write_token)?;
+    let related_rme_id = parent_write_related_rme_id
+        .clone()
+        .unwrap_or_else(|| generate_related_rme_id(Utc::now()));
     let expires_before = DateTime::parse_from_rfc3339(&payload.expires_before)
         .map_err(|e| anyhow::anyhow!(e))?
         .with_timezone(&Utc);
+    let parent_read_token = payload.parent_read_token.as_ref().ok_or_else(|| {
+        HospitalError::Anyhow(
+            anyhow::anyhow!("Parent read token is required for admin delegation")
+                .context(current_fn!()),
+        )
+    })?;
+    let parent_read_related_rme_id = related_rme_from_token(parent_read_token)?;
     let params = admin_delegation_params(
         &payload.preset,
         encounter,
@@ -911,16 +921,15 @@ pub async fn create_admin_delegated_access(
     let mut read_params = params.clone();
     read_params.write_datasets.clear();
     read_params.write_functions.clear();
+    if parent_read_related_rme_id.is_some() {
+        read_params.related_rme_id = None;
+    }
     let mut update_params = params;
     update_params.read_datasets.clear();
     update_params.read_functions.clear();
-
-    let parent_read_token = payload.parent_read_token.as_ref().ok_or_else(|| {
-        HospitalError::Anyhow(
-            anyhow::anyhow!("Parent read token is required for admin delegation")
-                .context(current_fn!()),
-        )
-    })?;
+    if parent_write_related_rme_id.is_some() {
+        update_params.related_rme_id = None;
+    }
 
     let delegated_read_token =
         attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {

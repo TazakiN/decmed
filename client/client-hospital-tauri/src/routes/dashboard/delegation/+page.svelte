@@ -49,9 +49,7 @@
 	let delegateeCandidates = $state<DelegateeCandidate[]>([]);
 	let selectedDelegateeAddress = $state('');
 	let isSubmitting = $state(false);
-	let isRevoking = $state(false);
 	let visiblePatientInfo = $state<Record<string, boolean>>({});
-	let currentIotaAddress = $state('');
 	let currentRole = $state<GetProfileData['role'] | null>(null);
 
 	const DEFAULT_DELEGATION_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -193,7 +191,6 @@
 			toast.error(res.error);
 			return null;
 		}
-		currentIotaAddress = res.data.data.iotaAddress;
 		currentRole = res.data.data.role;
 		return res.data.data;
 	};
@@ -369,60 +366,6 @@
 		}
 	};
 
-	const revokeDelegation = async () => {
-		if (!selectedAccess) {
-			toast.error('Pilih pasien');
-			return;
-		}
-		if (!selectedDelegatee) {
-			toast.error('Pilih personnel penerima delegasi');
-			return;
-		}
-		if (!currentIotaAddress) {
-			toast.error('Profil belum dimuat');
-			return;
-		}
-		const calls: Array<{ purpose: 'Read' | 'Update'; capability: AccessCapabilityData }> = [];
-		if ((mode === 'read' || mode === 'read_write') && activeRead) {
-			calls.push({ purpose: 'Read', capability: activeRead });
-		}
-		if ((mode === 'write' || mode === 'read_write') && activeWrite) {
-			calls.push({ purpose: 'Update', capability: activeWrite });
-		}
-		if (calls.length === 0) {
-			toast.error('Akses untuk mode yang dipilih tidak tersedia');
-			return;
-		}
-
-		isRevoking = true;
-		for (const call of calls) {
-			const res = await tryCatchAsVal(async () => {
-				return (await invoke('revoke_delegated_access', {
-					payload: {
-						accessToken: call.capability.access.accessToken,
-						delegateeIotaAddress: selectedDelegatee.iotaAddress,
-						patientIotaAddress: selectedAccess.patientIotaAddress,
-						purpose: call.purpose,
-						delegatedBy: currentIotaAddress,
-						delegatedTo: selectedDelegatee.iotaAddress,
-						accessType: call.purpose,
-						relatedRmeId: call.capability.relatedRmeId ?? call.capability.access.relatedRmeId ?? null,
-						tokenHash: call.capability.access.tokenHash ?? null,
-						expiresBefore: call.capability.expiresBefore ?? call.capability.access.expiresBefore ?? null
-					}
-				})) as SuccessResponse<void>;
-			});
-			if (!res.success) {
-				isRevoking = false;
-				toast.error(res.error);
-				return;
-			}
-		}
-		isRevoking = false;
-		toast.success('Delegasi berhasil direvoke');
-		await loadAccesses();
-	};
-
 	$effect(() => {
 		void selectedPatientAddress;
 		void preset;
@@ -545,9 +488,6 @@
 												))}
 										/>
 										{functionLabels[functionCategory]}
-										{#if mandatoryAdmin}
-											<span class="text-xs text-zinc-500">(wajib)</span>
-										{/if}
 									</label>
 								{/each}
 							</div>
@@ -612,21 +552,6 @@
 					{isSubmitting ? 'Delegating...' : 'Delegate'}
 				</button>
 
-				<div class="border-t border-zinc-200 pt-4">
-					<p class="font-medium">Revoke delegasi</p>
-					<p class="text-sm text-zinc-600">
-						Gunakan pilihan pasien, mode, dan delegatee di atas untuk mencabut delegasi yang
-						pernah diberikan.
-					</p>
-					<button
-						type="button"
-						class="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-red-700 disabled:opacity-50"
-						disabled={isRevoking || delegationData.loadedCandidates.length === 0}
-						onclick={revokeDelegation}
-					>
-						{isRevoking ? 'Revoking...' : 'Revoke Delegation'}
-					</button>
-				</div>
 			</div>
 		{/if}
 	{/await}

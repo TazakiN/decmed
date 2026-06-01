@@ -6,7 +6,7 @@ pub const HASH_SALT: &str = "169224A2BE2B267684F93A9CE38080D359BD774741FD3AE738D
 pub const DECMED_MODULE_HOSPITAL_PERSONNEL: &str = "hospital_personnel";
 
 pub const DECMED_PACKAGE_ID: &str =
-    "0x1d5ac23bc9ba4138ca162ed591e6b1ca921442011ae28450e05b5bfd74002ce0";
+    "0x52af513e82e068330cd7d9cfd1ccafd396bd46222b5485203ad3ce3745d18c7f";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

@@ -23,6 +23,8 @@ pub enum AdminTokenKind {
 pub struct InitialAdminPersonnelTokenParams {
     pub patient_address: String,
     pub root_subject: String,
+    /// Episode id assigned to the write token for this administrative grant.
+    pub related_rme_id: Option<String>,
     /// Required for write token; ignored for read token.
     pub encounter_dataset: Option<DatasetCategory>,
     pub token_kind: AdminTokenKind,
@@ -75,6 +77,7 @@ impl InitialAdminPersonnelTokenParams {
         Ok(Self {
             patient_address: patient_address.to_string(),
             root_subject: admin_address.to_string(),
+            related_rme_id: None,
             encounter_dataset: Some(encounter_dataset),
             token_kind,
             read_datasets,
@@ -348,7 +351,10 @@ pub fn issue_admin_personnel_token(
         root_key,
         DecmedTokenFields {
             patient_address: &params.patient_address,
-            related_rme_id: None,
+            related_rme_id: match params.token_kind {
+                AdminTokenKind::Read => None,
+                AdminTokenKind::Write => params.related_rme_id.as_deref(),
+            },
             root_subject: &params.root_subject,
             read_datasets: &params.read_datasets,
             write_datasets: &params.write_datasets,

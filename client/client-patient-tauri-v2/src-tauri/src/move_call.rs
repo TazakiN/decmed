@@ -351,6 +351,7 @@ impl MoveCall {
     pub async fn revoke_access(
         &self,
         hospital_personnel_address: IotaAddress,
+        admin_personnel_id: String,
         index: u64,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
@@ -363,8 +364,10 @@ impl MoveCall {
             vec![],
             vec![
                 self.construct_address_id_object_call_arg(true),
+                self.construct_clock_call_arg(),
                 CallArg::Pure(bcs::to_bytes(&hospital_personnel_address).context(current_fn!())?),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&admin_personnel_id).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
             ],

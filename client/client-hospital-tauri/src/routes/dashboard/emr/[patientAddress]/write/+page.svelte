@@ -114,7 +114,6 @@
 			}
 		}
 
-		payloadByFunction = {};
 		isSubmitting = false;
 		toast.success('RME berhasil ditulis');
 	};

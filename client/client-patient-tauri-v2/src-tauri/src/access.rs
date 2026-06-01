@@ -19,8 +19,8 @@ use crate::{
         MovePatientAccessLog, ResponseStatus, SuccessResponse,
     },
     utils::{
-        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry, parse_keys_entry,
-        serde_deserialize_from_base64,
+        argon_hash, get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
+        parse_keys_entry, serde_deserialize_from_base64,
     },
 };
 
@@ -113,12 +113,14 @@ pub async fn revoke_access(
         get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
     let hospital_personnel_address =
         IotaAddress::from_str(&hospital_personnel_address).context(current_fn!())?;
+    let admin_personnel_id = argon_hash("admin".to_string()).context(current_fn!())?;
 
     // Execute the Move revoke
     let tx_digest = state
         .move_call
         .revoke_access(
             hospital_personnel_address,
+            admin_personnel_id,
             index,
             patient_iota_address,
             patient_iota_key_pair,

@@ -36,6 +36,10 @@ Missing whitelist for an operation → **DENY**.
 
 `issue_initial_token` signs with the PRE root key (from `MACAROON_ROOT_KEY`). Clients receive only the serialized macaroon.
 
+Administrative grants issue separate read/write macaroons. The read token stays patient-scoped,
+while the write token may carry `related_rme_id` to bind all writes and downstream clinical
+delegations to one RME episode.
+
 ## Delegated token (client)
 
 `attenuate_macaroon` appends caveats without the root key. Local checks reject expansions; PRE re-validates.

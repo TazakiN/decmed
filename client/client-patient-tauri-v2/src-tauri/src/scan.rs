@@ -223,6 +223,7 @@ pub async fn create_access(
             .ok_or_else(|| {
                 anyhow!("Proxy did not return write access token hash").context(current_fn!())
             })?;
+    let related_rme_id = access_token.related_rme_id.clone();
 
     let (metadata_read, metadata_update, date) = {
         let patient_name = state
@@ -241,6 +242,7 @@ pub async fn create_access(
             patient_pre_public_key: None,
             enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64.clone()),
             data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64.clone()),
+            related_rme_id: None,
         };
         let (data_capsule_read, enc_data_read) = encrypt(
             &hospital_personnel_pre_public_key,
@@ -259,6 +261,7 @@ pub async fn create_access(
             patient_pre_public_key: Some(patient_pre_public_key_b64),
             enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64),
             data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64),
+            related_rme_id,
         };
 
         let (data_capsule_update, enc_data_update) = encrypt(

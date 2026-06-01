@@ -6,6 +6,7 @@ use decmed::std_enum_hospital_personnel_role::{
     HospitalPersonnelRole,
 };
 use decmed::std_enum_hospital_personnel_access_type::{
+    HospitalPersonnelAccessType,
     read as hospital_personnel_access_type_read,
     update as hospital_personnel_access_type_update,
 };
@@ -15,6 +16,7 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
     medical as  hospital_personnel_access_data_type_medical,
 };
 use decmed::shared::{
+    encode_hospital_personnel_id,
     encode_patient_id,
 };
 use decmed::std_struct_address_id::AddressId;
@@ -39,6 +41,7 @@ use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
 
 use iota::clock::Clock;
+use iota::event;
 use iota::table_vec;
 
 use std::string::String;
@@ -55,6 +58,14 @@ const EInvalidMetadataLength: u64 = 3005;
 // Enums
 
 // Structs
+
+public struct PatientCascadeRevokedEvent has copy, drop {
+    patient_address: address,
+    root_revoked_personnel_address: address,
+    affected_delegatee_address: address,
+    access_type: HospitalPersonnelAccessType,
+    revoked_at_ms: u64,
+}
 
 // Functions
 
@@ -563,8 +574,10 @@ entry fun get_medical_records(
 
 entry fun revoke_access(
     address_id: &AddressId,
+    clock: &Clock,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    admin_personnel_id: String,
     index: u64,
     patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
@@ -584,16 +597,133 @@ entry fun revoke_access(
     patient_access_log.set_is_revoked(true);
 
     let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
-    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
-    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access();
+    let revoke_read = patient_access_log.borrow_access_type() == hospital_personnel_access_type_read();
+    let revoke_update = patient_access_log.borrow_access_type() == hospital_personnel_access_type_update();
+    let hospital_id = {
+        let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
+        let hospital_id = *hospital_personnel_account.borrow_hospital_id();
+        let hospital_personnel_access_option = hospital_personnel_account.borrow_mut_access();
+        let hospital_personnel_access = hospital_personnel_access_option.borrow_mut();
 
-    let hospital_personnel_read_access = hospital_personnel_access.borrow_mut().borrow_mut_read();
-    if (hospital_personnel_read_access.contains(&patient_id) && patient_access_log.borrow_access_type() == hospital_personnel_access_type_read()) {
-        hospital_personnel_read_access.remove(&patient_id);
+        let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+        if (hospital_personnel_read_access.contains(&patient_id) && revoke_read) {
+            hospital_personnel_read_access.remove(&patient_id);
+        };
+        let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+        if (hospital_personnel_update_access.contains(&patient_id) && revoke_update) {
+            hospital_personnel_update_access.remove(&patient_id);
+        };
+
+        hospital_id
     };
-    let hospital_personnel_update_access = hospital_personnel_access.borrow_mut().borrow_mut_update();
-    if (hospital_personnel_update_access.contains(&patient_id) && patient_access_log.borrow_access_type() == hospital_personnel_access_type_update()) {
-        hospital_personnel_update_access.remove(&patient_id);
+
+    let hospital_admin_id = encode_hospital_personnel_id(hospital_id, admin_personnel_id);
+    if (!hospital_personnel_id_account_table.contains(hospital_admin_id)) {
+        return
+    };
+
+    let mut personnel_ids = vector::empty<String>();
+    {
+        let hospital_admin_account = hospital_personnel_id_account_table.borrow(hospital_admin_id);
+        if (hospital_admin_account.borrow_personnels().is_none()) {
+            return
+        };
+        let hospital_admin_personnels = hospital_admin_account.borrow_personnels().borrow();
+        let mut idx = 0;
+        let personnel_len = hospital_admin_personnels.size();
+        while (idx < personnel_len) {
+            let (personnel_id, _) = hospital_admin_personnels.get_entry_by_idx(idx);
+            personnel_ids.push_back(*personnel_id);
+            idx = idx + 1;
+        };
+    };
+
+    let mut revoked_addresses = vector::empty<address>();
+    revoked_addresses.push_back(hospital_personnel_address);
+    let mut changed = true;
+    let mut idx = 0;
+    while (changed) {
+        changed = false;
+        idx = 0;
+        while (idx < personnel_ids.length()) {
+            let personnel_id = *personnel_ids.borrow(idx);
+            if (!hospital_personnel_id_account_table.contains(personnel_id)) {
+                idx = idx + 1;
+                continue
+            };
+
+            let candidate_account = hospital_personnel_id_account_table.borrow_mut(personnel_id);
+            if (candidate_account.borrow_address().is_none()) {
+                idx = idx + 1;
+                continue
+            };
+            let candidate_address = *candidate_account.borrow_address().borrow();
+            if (revoked_addresses.contains(&candidate_address)) {
+                idx = idx + 1;
+                continue
+            };
+            let candidate_access_option = candidate_account.borrow_mut_access();
+            if (candidate_access_option.is_none()) {
+                idx = idx + 1;
+                continue
+            };
+
+            let mut candidate_revoked = false;
+            let candidate_access = candidate_access_option.borrow_mut();
+
+            if (revoke_read) {
+                let candidate_read = candidate_access.borrow_mut_read();
+                let should_revoke_read = if (candidate_read.contains(&patient_id)) {
+                    let delegated_by = candidate_read.get(&patient_id).borrow_delegated_by();
+                    delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())
+                } else {
+                    false
+                };
+                if (should_revoke_read) {
+                    candidate_read.remove(&patient_id);
+                    candidate_revoked = true;
+                    event::emit(
+                        PatientCascadeRevokedEvent {
+                            patient_address: ctx.sender(),
+                            root_revoked_personnel_address: hospital_personnel_address,
+                            affected_delegatee_address: candidate_address,
+                            access_type: hospital_personnel_access_type_read(),
+                            revoked_at_ms: clock.timestamp_ms(),
+                        }
+                    );
+                };
+            };
+
+            if (revoke_update) {
+                let candidate_update = candidate_access.borrow_mut_update();
+                let should_revoke_update = if (candidate_update.contains(&patient_id)) {
+                    let delegated_by = candidate_update.get(&patient_id).borrow_delegated_by();
+                    delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())
+                } else {
+                    false
+                };
+                if (should_revoke_update) {
+                    candidate_update.remove(&patient_id);
+                    candidate_revoked = true;
+                    event::emit(
+                        PatientCascadeRevokedEvent {
+                            patient_address: ctx.sender(),
+                            root_revoked_personnel_address: hospital_personnel_address,
+                            affected_delegatee_address: candidate_address,
+                            access_type: hospital_personnel_access_type_update(),
+                            revoked_at_ms: clock.timestamp_ms(),
+                        }
+                    );
+                };
+            };
+
+            if (candidate_revoked) {
+                revoked_addresses.push_back(candidate_address);
+                changed = true;
+            };
+
+            idx = idx + 1;
+        };
     };
 }
 

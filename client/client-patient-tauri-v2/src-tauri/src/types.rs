@@ -209,6 +209,8 @@ pub struct MoveCreateAccessData {
     pub patient_pre_public_key: Option<String>,
     pub enc_data_pre_secret_key_seed: Option<String>,
     pub data_pre_secret_key_seed_capsule: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_rme_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -265,6 +267,8 @@ pub struct ProxyReencryptionPostKeysResponseData {
     pub access_token_update: Option<String>,
     pub access_token_read_hash: String,
     pub access_token_update_hash: Option<String>,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

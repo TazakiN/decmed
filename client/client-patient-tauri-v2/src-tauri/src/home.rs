@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context};
+use iota_types::base_types::IotaAddress;
 use serde_json::{json, Value};
 use tauri::{async_runtime::Mutex, State};
 use umbral_pre::decrypt_original;
@@ -17,6 +18,8 @@ use crate::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+const MEDICAL_RECORDS_PAGE_SIZE: u64 = 10;
 
 struct StoredRmeSegmentMetadata {
     author_address: String,
@@ -65,6 +68,40 @@ fn require_stored_rme_segment_metadata(
     )
 }
 
+async fn fetch_all_medical_records_metadata(
+    move_call: &crate::move_call::MoveCall,
+    patient_iota_address: IotaAddress,
+) -> Result<Vec<MovePatientMedicalMetadata>, PatientError> {
+    let mut cursor = 0u64;
+    let mut page_number = 0u64;
+    let mut all_records = Vec::new();
+
+    loop {
+        let page = move_call
+            .get_medical_records(cursor, MEDICAL_RECORDS_PAGE_SIZE, patient_iota_address.clone())
+            .await
+            .context(current_fn!())?;
+
+        let raw_count = page.len();
+        println!(
+            "get_medical_records page={} cursor={} raw_count={}",
+            page_number, cursor, raw_count
+        );
+
+        if raw_count == 0 {
+            break;
+        }
+
+        all_records.extend(page);
+        cursor += raw_count as u64;
+        page_number += 1;
+    }
+
+    println!("get_medical_records total_raw={}", all_records.len());
+
+    Ok(all_records)
+}
+
 #[tauri::command]
 pub async fn get_medical_records(
     state: State<'_, Mutex<AppState>>,
@@ -80,31 +117,47 @@ pub async fn get_medical_records(
         patient_iota_address
     };
 
-    let medical_records: Vec<MovePatientMedicalMetadata> = state
-        .move_call
-        .get_medical_records(0, 100, patient_iota_address)
-        .await
-        .context(current_fn!())?;
+    let raw_medical_records =
+        fetch_all_medical_records_metadata(&state.move_call, patient_iota_address)
+            .await
+            .context(current_fn!())?;
 
-    let medical_records = medical_records
-        .into_iter()
-        .map(|metadata| {
-            deserialize_stored_rme_segment_metadata(metadata.metadata).map(|medical_metadata| {
-                medical_metadata.map(|medical_metadata| CommandGetMedicalRecordsResponseData {
+    let mut medical_records = Vec::new();
+    let mut skipped_legacy = 0u64;
+    let mut skipped_invalid = 0u64;
+
+    for metadata in raw_medical_records {
+        let index = metadata.index;
+
+        match deserialize_stored_rme_segment_metadata(metadata.metadata) {
+            Ok(Some(medical_metadata)) => {
+                medical_records.push(CommandGetMedicalRecordsResponseData {
                     author_address: medical_metadata.author_address,
                     cid: medical_metadata.cid,
-                    index: metadata.index,
+                    index,
                     created_at: medical_metadata.created_at,
                     dataset_category: medical_metadata.dataset_category,
                     function_category: medical_metadata.function_category,
                     related_rme_id: medical_metadata.related_rme_id,
-                })
-            })
-        })
-        .collect::<Result<Vec<Option<CommandGetMedicalRecordsResponseData>>, PatientError>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<CommandGetMedicalRecordsResponseData>>();
+                });
+            }
+            Ok(None) => skipped_legacy += 1,
+            Err(err) => {
+                skipped_invalid += 1;
+                println!(
+                    "Skipping invalid RME metadata at index={}: {:?}",
+                    index, err
+                );
+            }
+        }
+    }
+
+    println!(
+        "get_medical_records decoded={} skipped_legacy={} skipped_invalid={}",
+        medical_records.len(),
+        skipped_legacy,
+        skipped_invalid
+    );
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,

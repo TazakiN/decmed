@@ -87,9 +87,44 @@ pub fn compute_list_index(table_index: u64, max_table_index: u64) -> u64 {
     max_table_index.saturating_sub(table_index)
 }
 
+pub fn collapse_to_active_flat_items(
+    items: Vec<MedicalRecordMetadataFlatItem>,
+) -> Vec<MedicalRecordMetadataFlatItem> {
+    let mut active_items = HashMap::new();
+
+    for item in items {
+        let key = (
+            item.related_rme_id.clone(),
+            item.dataset_category,
+            item.function_category,
+        );
+
+        let should_replace = active_items
+            .get(&key)
+            .map(|current: &MedicalRecordMetadataFlatItem| {
+                item.index > current.index
+                    || (item.index == current.index && item.list_index < current.list_index)
+            })
+            .unwrap_or(true);
+
+        if should_replace {
+            active_items.insert(key, item);
+        }
+    }
+
+    let mut items = active_items.into_values().collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        left.list_index
+            .cmp(&right.list_index)
+            .then_with(|| right.index.cmp(&left.index))
+    });
+    items
+}
+
 pub fn group_medical_record_metadata(
     items: Vec<MedicalRecordMetadataFlatItem>,
 ) -> Vec<RmeEncounterGroup> {
+    let items = collapse_to_active_flat_items(items);
     let mut by_rme: BTreeMap<String, Vec<MedicalRecordMetadataFlatItem>> = BTreeMap::new();
     for item in items {
         by_rme
@@ -406,6 +441,28 @@ mod tests {
         }
     }
 
+    fn item_with_author(
+        related: &str,
+        dataset: DatasetCategory,
+        function: FunctionCategory,
+        index: u64,
+        list_index: u64,
+        author: &str,
+    ) -> MedicalRecordMetadataFlatItem {
+        MedicalRecordMetadataFlatItem {
+            index,
+            list_index,
+            segment_id: format!("seg-{index}"),
+            related_rme_id: related.to_string(),
+            patient_address: "0xpatient".to_string(),
+            dataset_category: dataset,
+            function_category: function,
+            ipfs_cid: "bafy".to_string(),
+            created_at: format!("2024-01-0{}T00:00:00Z", index + 1),
+            author_address: author.to_string(),
+        }
+    }
+
     #[test]
     fn group_medical_record_metadata_groups_and_sorts() {
         let items = vec![
@@ -443,5 +500,80 @@ mod tests {
         );
         assert_eq!(grouped[1].datasets[0].segments.len(), 1);
         assert_eq!(grouped[1].datasets[0].segments[0].list_index, 1);
+    }
+
+    #[test]
+    fn group_medical_record_metadata_keeps_latest_duplicate_function_slot() {
+        let grouped = group_medical_record_metadata(vec![
+            item_with_author(
+                "rme-a",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                5,
+                0,
+                "0xdoctor",
+            ),
+            item_with_author(
+                "rme-a",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                2,
+                3,
+                "0xnurse",
+            ),
+        ]);
+
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].datasets.len(), 1);
+        assert_eq!(grouped[0].datasets[0].segments.len(), 1);
+
+        let segment = &grouped[0].datasets[0].segments[0];
+        assert_eq!(segment.index, 5);
+        assert_eq!(segment.list_index, 0);
+        assert_eq!(segment.author_address, "0xdoctor");
+    }
+
+    #[test]
+    fn collapse_to_active_flat_items_keeps_distinct_slots() {
+        let items = collapse_to_active_flat_items(vec![
+            item_with_author(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                1,
+                3,
+                "0xnurse",
+            ),
+            item_with_author(
+                "rme-2",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                2,
+                2,
+                "0xdoctor",
+            ),
+            item_with_author(
+                "rme-1",
+                DatasetCategory::RAWAT_INAP,
+                FunctionCategory::ANAMNESIS,
+                3,
+                1,
+                "0xdoctor",
+            ),
+            item_with_author(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::DIAGNOSIS,
+                4,
+                0,
+                "0xdoctor",
+            ),
+        ]);
+
+        assert_eq!(items.len(), 4);
+        assert_eq!(
+            items.iter().map(|item| item.index).collect::<Vec<_>>(),
+            vec![4, 3, 2, 1]
+        );
     }
 }

@@ -34,9 +34,9 @@ use crate::types::{
     HandlerCreateMedicalRecordPayload, HandlerCreateMedicalRecordSegmentPayload,
     HandlerGetAdministrativeDataQueryParams, HandlerGetMedicalRecordQueryParams,
     HandlerGetMedicalRecordUpdateQueryParams, HandlerListMedicalRecordsQueryParams,
-    HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, ListMedicalRecordsResponse,
-    MedicalMetadata, MedicalRecordMetadataItem, MoveHospitalPersonnelRole,
-    PatientPrivateAdministrativeMetadata, PatientRevocationSignedPayload, ReencryptionPurposeType,
+    HandlerStoreKeysPayload, HandlerUpdateMedicalRecordPayload, MedicalMetadata,
+    MedicalRecordMetadataItem, MoveHospitalPersonnelRole, PatientPrivateAdministrativeMetadata,
+    PatientRevocationSignedPayload, ReencryptionPurposeType,
 };
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
@@ -1069,13 +1069,7 @@ impl Handlers {
             chain_cursor += page_len;
         }
 
-        let total = filtered.len() as u64;
-        let start = cursor.min(total);
-        let end = (cursor.saturating_add(limit)).min(total);
-        let items: Vec<MedicalRecordMetadataItem> = filtered[start as usize..end as usize].to_vec();
-        let next_cursor = if end < total { Some(end) } else { None };
-
-        let res_data = ListMedicalRecordsResponse { items, next_cursor };
+        let res_data = crate::metadata_list::active_metadata_page(filtered, cursor, limit);
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
     }

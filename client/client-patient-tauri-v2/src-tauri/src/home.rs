@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use iota_types::base_types::IotaAddress;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use tauri::{async_runtime::Mutex, State};
 use umbral_pre::decrypt_original;
 
@@ -68,6 +69,33 @@ fn require_stored_rme_segment_metadata(
     )
 }
 
+fn collapse_to_active_medical_records(
+    records: Vec<CommandGetMedicalRecordsResponseData>,
+) -> Vec<CommandGetMedicalRecordsResponseData> {
+    let mut active_records = HashMap::new();
+
+    for record in records {
+        let key = (
+            record.related_rme_id.clone(),
+            record.dataset_category,
+            record.function_category,
+        );
+
+        let should_replace = active_records
+            .get(&key)
+            .map(|current: &CommandGetMedicalRecordsResponseData| record.index > current.index)
+            .unwrap_or(true);
+
+        if should_replace {
+            active_records.insert(key, record);
+        }
+    }
+
+    let mut records = active_records.into_values().collect::<Vec<_>>();
+    records.sort_by(|left, right| right.index.cmp(&left.index));
+    records
+}
+
 async fn fetch_all_medical_records_metadata(
     move_call: &crate::move_call::MoveCall,
     patient_iota_address: IotaAddress,
@@ -78,7 +106,11 @@ async fn fetch_all_medical_records_metadata(
 
     loop {
         let page = move_call
-            .get_medical_records(cursor, MEDICAL_RECORDS_PAGE_SIZE, patient_iota_address.clone())
+            .get_medical_records(
+                cursor,
+                MEDICAL_RECORDS_PAGE_SIZE,
+                patient_iota_address.clone(),
+            )
             .await
             .context(current_fn!())?;
 
@@ -159,6 +191,9 @@ pub async fn get_medical_records(
         skipped_invalid
     );
 
+    let medical_records = collapse_to_active_medical_records(medical_records);
+    println!("get_medical_records active={}", medical_records.len());
+
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
         data: medical_records,
@@ -235,4 +270,95 @@ pub async fn get_medical_record(
         data: res_data,
         status: ResponseStatus::Success,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DatasetCategory, FunctionCategory};
+
+    fn record(
+        related_rme_id: &str,
+        dataset_category: DatasetCategory,
+        function_category: FunctionCategory,
+        index: u64,
+        author_address: &str,
+    ) -> CommandGetMedicalRecordsResponseData {
+        CommandGetMedicalRecordsResponseData {
+            author_address: author_address.to_string(),
+            cid: format!("cid-{index}"),
+            created_at: format!("2024-01-0{}T00:00:00Z", index + 1),
+            dataset_category,
+            function_category,
+            index,
+            related_rme_id: related_rme_id.to_string(),
+        }
+    }
+
+    #[test]
+    fn collapse_uses_latest_anamnesis_segment_for_same_slot() {
+        let records = collapse_to_active_medical_records(vec![
+            record(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                3,
+                "0xdoctor",
+            ),
+            record(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                1,
+                "0xnurse",
+            ),
+        ]);
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].index, 3);
+        assert_eq!(records[0].author_address, "0xdoctor");
+    }
+
+    #[test]
+    fn collapse_keeps_distinct_rme_dataset_and_function_slots() {
+        let records = collapse_to_active_medical_records(vec![
+            record(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                1,
+                "0xnurse",
+            ),
+            record(
+                "rme-2",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                2,
+                "0xdoctor",
+            ),
+            record(
+                "rme-1",
+                DatasetCategory::RAWAT_INAP,
+                FunctionCategory::ANAMNESIS,
+                3,
+                "0xdoctor",
+            ),
+            record(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::DIAGNOSIS,
+                4,
+                "0xdoctor",
+            ),
+        ]);
+
+        assert_eq!(records.len(), 4);
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.index)
+                .collect::<Vec<_>>(),
+            vec![4, 3, 2, 1]
+        );
+    }
 }

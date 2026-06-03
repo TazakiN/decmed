@@ -6,12 +6,13 @@ use decmed_macaroon_auth::{
 use decmed_rme_segment::{DatasetCategory, FunctionCategory, RmeSegmentMetadata};
 use macaroon::Macaroon;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::{
     macaroon_auth::{map_caveat_error, IotaWalletVerifier},
     middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER},
     proxy_error::ProxyError,
-    types::MedicalRecordMetadataItem,
+    types::{ListMedicalRecordsResponse, MedicalRecordMetadataItem},
     utils::Utils,
 };
 
@@ -153,6 +154,58 @@ pub fn to_metadata_item(
     }
 }
 
+pub fn collapse_to_active_metadata_items(
+    items: Vec<MedicalRecordMetadataItem>,
+) -> Vec<MedicalRecordMetadataItem> {
+    let mut active_items = HashMap::new();
+
+    for item in items {
+        let key = (
+            item.related_rme_id.clone(),
+            item.dataset_category,
+            item.function_category,
+        );
+
+        let should_replace = active_items
+            .get(&key)
+            .map(|current: &MedicalRecordMetadataItem| {
+                item.index > current.index
+                    || (item.index == current.index && item.list_index < current.list_index)
+            })
+            .unwrap_or(true);
+
+        if should_replace {
+            active_items.insert(key, item);
+        }
+    }
+
+    let mut items = active_items.into_values().collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        left.list_index
+            .cmp(&right.list_index)
+            .then_with(|| right.index.cmp(&left.index))
+    });
+    items
+}
+
+pub fn active_metadata_page(
+    items: Vec<MedicalRecordMetadataItem>,
+    cursor: u64,
+    limit: u64,
+) -> ListMedicalRecordsResponse {
+    let items = collapse_to_active_metadata_items(items);
+    let total = items.len() as u64;
+    let start = cursor.min(total);
+    let end = (cursor.saturating_add(limit)).min(total);
+    let page_items = items[start as usize..end as usize].to_vec();
+    let next_cursor = if end < total { Some(end) } else { None };
+
+    ListMedicalRecordsResponse {
+        items: page_items,
+        next_cursor,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +235,28 @@ mod tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             author_address: "0xauthor".to_string(),
             updated_at: None,
+        }
+    }
+
+    fn metadata_item(
+        related: &str,
+        dataset: DatasetCategory,
+        function: FunctionCategory,
+        index: u64,
+        list_index: u64,
+        author: &str,
+    ) -> MedicalRecordMetadataItem {
+        MedicalRecordMetadataItem {
+            index,
+            list_index,
+            segment_id: format!("seg-{index}"),
+            related_rme_id: related.to_string(),
+            patient_address: "0xpatient".to_string(),
+            dataset_category: dataset,
+            function_category: function,
+            ipfs_cid: "bafy".to_string(),
+            created_at: format!("2024-01-0{}T00:00:00Z", index + 1),
+            author_address: author.to_string(),
         }
     }
 
@@ -222,5 +297,123 @@ mod tests {
 
         assert!(segment_allowed_for_list(&verified, &allowed, "0xpatient"));
         assert!(!segment_allowed_for_list(&verified, &denied, "0xpatient"));
+    }
+
+    #[test]
+    fn active_metadata_page_collapses_duplicate_anamnesis_before_pagination() {
+        let page = active_metadata_page(
+            vec![
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    5,
+                    0,
+                    "0xdoctor",
+                ),
+                metadata_item(
+                    "rme-2",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::DIAGNOSIS,
+                    4,
+                    1,
+                    "0xdoctor",
+                ),
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    2,
+                    3,
+                    "0xnurse",
+                ),
+            ],
+            0,
+            1,
+        );
+
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].index, 5);
+        assert_eq!(page.items[0].author_address, "0xdoctor");
+        assert_eq!(page.next_cursor, Some(1));
+
+        let page = active_metadata_page(
+            vec![
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    5,
+                    0,
+                    "0xdoctor",
+                ),
+                metadata_item(
+                    "rme-2",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::DIAGNOSIS,
+                    4,
+                    1,
+                    "0xdoctor",
+                ),
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    2,
+                    3,
+                    "0xnurse",
+                ),
+            ],
+            1,
+            1,
+        );
+
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].index, 4);
+        assert_eq!(page.next_cursor, None);
+    }
+
+    #[test]
+    fn collapse_keeps_distinct_rme_dataset_and_function_items() {
+        let items = collapse_to_active_metadata_items(vec![
+            metadata_item(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                1,
+                3,
+                "0xnurse",
+            ),
+            metadata_item(
+                "rme-2",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::ANAMNESIS,
+                2,
+                2,
+                "0xdoctor",
+            ),
+            metadata_item(
+                "rme-1",
+                DatasetCategory::RAWAT_INAP,
+                FunctionCategory::ANAMNESIS,
+                3,
+                1,
+                "0xdoctor",
+            ),
+            metadata_item(
+                "rme-1",
+                DatasetCategory::RAWAT_JALAN,
+                FunctionCategory::DIAGNOSIS,
+                4,
+                0,
+                "0xdoctor",
+            ),
+        ]);
+
+        assert_eq!(items.len(), 4);
+        assert_eq!(
+            items.iter().map(|item| item.index).collect::<Vec<_>>(),
+            vec![4, 3, 2, 1]
+        );
     }
 }

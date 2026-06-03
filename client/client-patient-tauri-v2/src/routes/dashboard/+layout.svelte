@@ -26,7 +26,7 @@
 </script>
 
 <div class="relative">
-	<div class="flex flex-col flex-1 p-2">
+	<div class="flex flex-col flex-1 px-2 pt-2 pb-20">
 		{@render children()}
 	</div>
 	<div class="fixed bottom-0 border-t border-zinc-200 w-full bg-zinc-50 p-2 flex items-center">

@@ -14,6 +14,11 @@ use decmed::std_enum_hospital_personnel_sub_role::{
     laboratory_staff as hospital_personnel_sub_role_laboratory_staff,
     pharmacist as hospital_personnel_sub_role_pharmacist,
 };
+use decmed::std_enum_hospital_personnel_access_type::{
+    HospitalPersonnelAccessType,
+    read as hospital_personnel_access_type_read,
+    update as hospital_personnel_access_type_update,
+};
 
 use decmed::shared::{
     encode_hospital_id,
@@ -53,12 +58,19 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
     administrative as hospital_personnel_access_data_type_administrative,
     medical as hospital_personnel_access_data_type_medical,
 };
+use decmed::std_enum_patient_delegation_audit_event_type::{
+    PatientDelegationAuditEventType,
+    delegated as patient_delegation_audit_event_type_delegated,
+    revoked as patient_delegation_audit_event_type_revoked,
+};
+use decmed::std_struct_patient_account::PatientAccount;
+use decmed::std_struct_patient_delegation_audit_entry::new as patient_delegation_audit_entry_new;
 
 use iota::clock::Clock;
 use iota::event;
 use iota::vec_map;
 
-use std::string::{String};
+use std::string::{Self, String};
 
 // Constants
 
@@ -104,6 +116,64 @@ public struct DelegateeCandidate has copy, drop, store {
 }
 
 // Functions
+
+fun append_delegation_audit(
+    patient_account: &mut PatientAccount,
+    event_type: PatientDelegationAuditEventType,
+    timestamp_ms: u64,
+    actor_address: address,
+    root_subject: address,
+    delegated_by: address,
+    delegated_to: address,
+    access_type: HospitalPersonnelAccessType,
+    related_rme_id: String,
+    delegation_depth: u8,
+    token_hash: String,
+    parent_token_hash: String,
+    expires_at_ms: u64,
+) {
+    let delegation_audit_log = patient_account.borrow_mut_delegation_audit_log();
+    let entry = patient_delegation_audit_entry_new(
+        delegation_audit_log.length(),
+        event_type,
+        timestamp_ms,
+        actor_address,
+        root_subject,
+        delegated_by,
+        delegated_to,
+        access_type,
+        option_string_from_sentinel(related_rme_id),
+        delegation_depth,
+        option_string_from_sentinel(token_hash),
+        option_string_from_sentinel(parent_token_hash),
+        option_u64_from_sentinel(expires_at_ms),
+    );
+    delegation_audit_log.push_back(entry);
+}
+
+fun option_string_from_sentinel(value: String): Option<String> {
+    if (value == string::utf8(b"")) {
+        option::none()
+    } else {
+        option::some(value)
+    }
+}
+
+fun option_u64_from_sentinel(value: u64): Option<u64> {
+    if (value == 0) {
+        option::none()
+    } else {
+        option::some(value)
+    }
+}
+
+fun related_rme_id_string(value: Option<String>): String {
+    if (value.is_some()) {
+        *value.borrow()
+    } else {
+        string::utf8(b"")
+    }
+}
 
 /// ## Params
 /// - `activation_key`: argon_hash(<raw_uuid_v4>@<raw_id>)
@@ -598,6 +668,14 @@ entry fun create_delegated_access(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     patient_address: address,
     metadata: vector<String>,
+    audit_root_subjects: vector<address>,
+    audit_single_access_type: vector<u8>,
+    audit_related_rme_ids: vector<String>,
+    audit_delegation_depths: vector<u8>,
+    audit_token_hashes: vector<String>,
+    audit_parent_token_hashes: vector<String>,
+    audit_expires_at_ms: vector<u64>,
+    patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
 )
 {
@@ -608,11 +686,26 @@ entry fun create_delegated_access(
     let patient_id = *address_id_table.borrow(patient_address);
 
     let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
     let current_time = clock.timestamp_ms();
 
     if (metadata.length() == 1) {
-        let read_access_data_types;
-        let read_exp;
+        assert!(audit_root_subjects.length() == 1, EInvalidMetadataLength);
+        assert!(audit_related_rme_ids.length() == 1, EInvalidMetadataLength);
+        assert!(audit_delegation_depths.length() == 1, EInvalidMetadataLength);
+        assert!(audit_token_hashes.length() == 1, EInvalidMetadataLength);
+        assert!(audit_parent_token_hashes.length() == 1, EInvalidMetadataLength);
+        assert!(audit_expires_at_ms.length() == 1, EInvalidMetadataLength);
+        let single_access_type = if (audit_single_access_type == b"Update") {
+            hospital_personnel_access_type_update()
+        } else if (audit_single_access_type == b"Read") {
+            hospital_personnel_access_type_read()
+        } else {
+            abort EInvalidAccessType
+        };
+        let access_data_types;
+        let exp;
         let delegation_depth;
         {
             let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
@@ -631,33 +724,85 @@ entry fun create_delegated_access(
             );
 
             let delegator_access = delegator_account.borrow_access().borrow();
-            let delegator_read = delegator_access.borrow_read();
-            assert!(delegator_read.contains(&patient_id), EDelegatorNoAccess);
-            let source = delegator_read.get(&patient_id);
-            assert!(source.borrow_exp() >= current_time, EAccessExpired);
+            if (single_access_type == hospital_personnel_access_type_read()) {
+                let delegator_read = delegator_access.borrow_read();
+                assert!(delegator_read.contains(&patient_id), EDelegatorNoAccess);
+                let source = delegator_read.get(&patient_id);
+                assert!(source.borrow_exp() >= current_time, EAccessExpired);
 
-            read_access_data_types = *source.borrow_access_data_types();
-            read_exp = source.borrow_exp();
-            delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source) + 1;
+                access_data_types = *source.borrow_access_data_types();
+                exp = source.borrow_exp();
+                delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source) + 1;
+            } else if (single_access_type == hospital_personnel_access_type_update()) {
+                let delegator_update = delegator_access.borrow_update();
+                assert!(delegator_update.contains(&patient_id), EDelegatorNoAccess);
+                let source = delegator_update.get(&patient_id);
+                assert!(source.borrow_exp() >= current_time, EAccessExpired);
+
+                access_data_types = *source.borrow_access_data_types();
+                exp = source.borrow_exp();
+                delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source) + 1;
+            } else {
+                abort EInvalidAccessType
+            };
         };
 
         let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
         let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
-        let delegatee_read = delegatee_access.borrow_mut_read();
-        if (delegatee_read.contains(&patient_id)) {
-            delegatee_read.remove(&patient_id);
+        if (single_access_type == hospital_personnel_access_type_read()) {
+            let delegatee_read = delegatee_access.borrow_mut_read();
+            if (delegatee_read.contains(&patient_id)) {
+                delegatee_read.remove(&patient_id);
+            };
+
+            let delegated = hospital_personnel_access_data_new_delegated(
+                access_data_types,
+                exp,
+                *metadata.borrow(0),
+                option::none(),
+                delegator_address,
+                delegation_depth,
+            );
+            delegatee_read.insert(patient_id, delegated);
+        } else {
+            let delegatee_update = delegatee_access.borrow_mut_update();
+            if (delegatee_update.contains(&patient_id)) {
+                delegatee_update.remove(&patient_id);
+            };
+
+            let delegated = hospital_personnel_access_data_new_delegated(
+                access_data_types,
+                exp,
+                *metadata.borrow(0),
+                option::none(),
+                delegator_address,
+                delegation_depth,
+            );
+            delegatee_update.insert(patient_id, delegated);
         };
 
-        let delegated = hospital_personnel_access_data_new_delegated(
-            read_access_data_types,
-            read_exp,
-            *metadata.borrow(0),
-            option::none(),
+        append_delegation_audit(
+            patient_account,
+            patient_delegation_audit_event_type_delegated(),
+            current_time,
             delegator_address,
-            delegation_depth,
+            *audit_root_subjects.borrow(0),
+            delegator_address,
+            delegatee_address,
+            single_access_type,
+            *audit_related_rme_ids.borrow(0),
+            *audit_delegation_depths.borrow(0),
+            *audit_token_hashes.borrow(0),
+            *audit_parent_token_hashes.borrow(0),
+            *audit_expires_at_ms.borrow(0),
         );
-        delegatee_read.insert(patient_id, delegated);
     } else if (metadata.length() == 2) {
+        assert!(audit_root_subjects.length() == 2, EInvalidMetadataLength);
+        assert!(audit_related_rme_ids.length() == 2, EInvalidMetadataLength);
+        assert!(audit_delegation_depths.length() == 2, EInvalidMetadataLength);
+        assert!(audit_token_hashes.length() == 2, EInvalidMetadataLength);
+        assert!(audit_parent_token_hashes.length() == 2, EInvalidMetadataLength);
+        assert!(audit_expires_at_ms.length() == 2, EInvalidMetadataLength);
         let mut read_access_data_types;
         let read_exp;
         let mut update_access_data_types;
@@ -721,6 +866,21 @@ entry fun create_delegated_access(
             delegation_depth,
         );
         delegatee_read.insert(patient_id, delegated_read);
+        append_delegation_audit(
+            patient_account,
+            patient_delegation_audit_event_type_delegated(),
+            current_time,
+            delegator_address,
+            *audit_root_subjects.borrow(0),
+            delegator_address,
+            delegatee_address,
+            hospital_personnel_access_type_read(),
+            *audit_related_rme_ids.borrow(0),
+            *audit_delegation_depths.borrow(0),
+            *audit_token_hashes.borrow(0),
+            *audit_parent_token_hashes.borrow(0),
+            *audit_expires_at_ms.borrow(0),
+        );
 
         let delegatee_update = delegatee_access.borrow_mut_update();
         if (delegatee_update.contains(&patient_id)) {
@@ -735,6 +895,21 @@ entry fun create_delegated_access(
             delegation_depth,
         );
         delegatee_update.insert(patient_id, delegated_update);
+        append_delegation_audit(
+            patient_account,
+            patient_delegation_audit_event_type_delegated(),
+            current_time,
+            delegator_address,
+            *audit_root_subjects.borrow(1),
+            delegator_address,
+            delegatee_address,
+            hospital_personnel_access_type_update(),
+            *audit_related_rme_ids.borrow(1),
+            *audit_delegation_depths.borrow(1),
+            *audit_token_hashes.borrow(1),
+            *audit_parent_token_hashes.borrow(1),
+            *audit_expires_at_ms.borrow(1),
+        );
     } else {
         abort EInvalidMetadataLength
     };
@@ -749,6 +924,12 @@ entry fun revoke_delegated_access(
     patient_address: address,
     access_type: vector<u8>,
     related_rme_id: Option<String>,
+    audit_root_subject: address,
+    audit_token_hash: String,
+    audit_parent_token_hash: String,
+    audit_delegation_depth: u8,
+    audit_expires_at_ms: u64,
+    patient_id_account: &mut PatientIdAccount,
     ctx: &TxContext,
 )
 {
@@ -769,6 +950,8 @@ entry fun revoke_delegated_access(
     );
     let revoke_read = access_type == b"Read" || access_type == b"Read,Update";
     let revoke_update = access_type == b"Update" || access_type == b"Read,Update";
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
 
     let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
     let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
@@ -777,6 +960,21 @@ entry fun revoke_delegated_access(
         let delegatee_read = delegatee_access.borrow_mut_read();
         if (delegatee_read.contains(&patient_id)) {
             delegatee_read.remove(&patient_id);
+            append_delegation_audit(
+                patient_account,
+                patient_delegation_audit_event_type_revoked(),
+                clock.timestamp_ms(),
+                delegator_address,
+                audit_root_subject,
+                delegator_address,
+                delegatee_address,
+                hospital_personnel_access_type_read(),
+                related_rme_id_string(related_rme_id),
+                audit_delegation_depth,
+                audit_token_hash,
+                audit_parent_token_hash,
+                audit_expires_at_ms,
+            );
         };
     };
 
@@ -784,6 +982,21 @@ entry fun revoke_delegated_access(
         let delegatee_update = delegatee_access.borrow_mut_update();
         if (delegatee_update.contains(&patient_id)) {
             delegatee_update.remove(&patient_id);
+            append_delegation_audit(
+                patient_account,
+                patient_delegation_audit_event_type_revoked(),
+                clock.timestamp_ms(),
+                delegator_address,
+                audit_root_subject,
+                delegator_address,
+                delegatee_address,
+                hospital_personnel_access_type_update(),
+                related_rme_id_string(related_rme_id),
+                audit_delegation_depth,
+                audit_token_hash,
+                audit_parent_token_hash,
+                audit_expires_at_ms,
+            );
         };
     };
 

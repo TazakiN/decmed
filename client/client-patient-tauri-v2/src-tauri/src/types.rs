@@ -23,6 +23,14 @@ pub enum HospitalPersonnelRole {
     MedicalPersonnel,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum HospitalPersonnelSubRole {
+    Doctor,
+    Nurse,
+    LaboratoryStaff,
+    Pharmacist,
+}
+
 pub type MedicalDataMainCategory = DatasetCategory;
 pub type MedicalDataSubCategory = FunctionCategory;
 
@@ -32,10 +40,16 @@ pub enum MoveHospitalPersonnelAccessDataType {
     Medical,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum MoveHospitalPersonnelAccessType {
     Read,
     Update,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub enum MovePatientDelegationAuditEventType {
+    Delegated,
+    Revoked,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -169,6 +183,49 @@ pub struct HospitalPersonnelPublicAdministrativeData {
     pub name: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationAuditPersonnelSummary {
+    pub address: String,
+    pub name: Option<String>,
+    pub hospital_name: Option<String>,
+    pub role: Option<HospitalPersonnelRole>,
+    pub sub_role: Option<HospitalPersonnelSubRole>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationAuditRootGrant {
+    pub personnel: DelegationAuditPersonnelSummary,
+    pub granted_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub revoked: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationAuditEdge {
+    pub delegated_by: DelegationAuditPersonnelSummary,
+    pub delegated_to: DelegationAuditPersonnelSummary,
+    pub depth: u8,
+    pub token_hash: Option<String>,
+    pub parent_token_hash: Option<String>,
+    pub expires_at: Option<String>,
+    pub revoked: bool,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvokeDelegationAuditChain {
+    pub root_subject: String,
+    pub access_type: MoveHospitalPersonnelAccessType,
+    pub related_rme_id: Option<String>,
+    pub root_grant: Option<DelegationAuditRootGrant>,
+    pub edges: Vec<DelegationAuditEdge>,
+    pub status: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandGetAccessLogResponse {
     pub access_data_type: Vec<MoveHospitalPersonnelAccessDataType>,
@@ -199,6 +256,23 @@ pub struct MovePatientAccessLog {
     pub is_delegated: bool,
     pub delegated_by_address: Option<IotaAddress>,
     pub token_hash: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MovePatientDelegationAuditEntry {
+    pub index: u64,
+    pub event_type: MovePatientDelegationAuditEventType,
+    pub timestamp_ms: u64,
+    pub actor_address: IotaAddress,
+    pub root_subject: IotaAddress,
+    pub delegated_by: IotaAddress,
+    pub delegated_to: IotaAddress,
+    pub access_type: MoveHospitalPersonnelAccessType,
+    pub related_rme_id: Option<String>,
+    pub delegation_depth: u8,
+    pub token_hash: Option<String>,
+    pub parent_token_hash: Option<String>,
+    pub expires_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -377,6 +451,23 @@ mod tests {
         token_hash: Option<String>,
     }
 
+    #[derive(Debug, Serialize)]
+    struct WirePatientDelegationAuditEntry {
+        index: u64,
+        event_type: MovePatientDelegationAuditEventType,
+        timestamp_ms: u64,
+        actor_address: IotaAddress,
+        root_subject: IotaAddress,
+        delegated_by: IotaAddress,
+        delegated_to: IotaAddress,
+        access_type: MoveHospitalPersonnelAccessType,
+        related_rme_id: Option<String>,
+        delegation_depth: u8,
+        token_hash: Option<String>,
+        parent_token_hash: Option<String>,
+        expires_at_ms: Option<u64>,
+    }
+
     #[test]
     fn move_patient_access_log_decodes_latest_bcs_layout() {
         let personnel_address = IotaAddress::from_str(
@@ -426,5 +517,56 @@ mod tests {
         assert_eq!(entry.is_delegated, true);
         assert_eq!(entry.delegated_by_address, Some(delegated_by_address));
         assert_eq!(entry.token_hash.as_deref(), Some("hash-read"));
+    }
+
+    #[test]
+    fn move_patient_delegation_audit_decodes_bcs_layout() {
+        let admin = IotaAddress::from_str(
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .unwrap();
+        let doctor = IotaAddress::from_str(
+            "0x2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .unwrap();
+        let lab = IotaAddress::from_str(
+            "0x3333333333333333333333333333333333333333333333333333333333333333",
+        )
+        .unwrap();
+
+        let wire = vec![WirePatientDelegationAuditEntry {
+            index: 3,
+            event_type: MovePatientDelegationAuditEventType::Delegated,
+            timestamp_ms: 1_780_000_000_000,
+            actor_address: doctor,
+            root_subject: admin,
+            delegated_by: doctor,
+            delegated_to: lab,
+            access_type: MoveHospitalPersonnelAccessType::Read,
+            related_rme_id: Some("RME-2026-demo".to_string()),
+            delegation_depth: 2,
+            token_hash: Some("child-hash".to_string()),
+            parent_token_hash: Some("parent-hash".to_string()),
+            expires_at_ms: Some(1_780_003_600_000),
+        }];
+
+        let encoded = bcs::to_bytes(&wire).unwrap();
+        let decoded: Vec<MovePatientDelegationAuditEntry> = bcs::from_bytes(&encoded).unwrap();
+
+        assert_eq!(decoded.len(), 1);
+        let entry = &decoded[0];
+        assert_eq!(entry.index, 3);
+        assert_eq!(
+            entry.event_type,
+            MovePatientDelegationAuditEventType::Delegated
+        );
+        assert_eq!(entry.root_subject, admin);
+        assert_eq!(entry.delegated_by, doctor);
+        assert_eq!(entry.delegated_to, lab);
+        assert_eq!(entry.related_rme_id.as_deref(), Some("RME-2026-demo"));
+        assert_eq!(entry.delegation_depth, 2);
+        assert_eq!(entry.token_hash.as_deref(), Some("child-hash"));
+        assert_eq!(entry.parent_token_hash.as_deref(), Some("parent-hash"));
+        assert_eq!(entry.expires_at_ms, Some(1_780_003_600_000));
     }
 }

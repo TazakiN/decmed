@@ -4,7 +4,8 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
     attenuate_macaroon, generate_related_rme_id, hash_macaroon_token, CaveatKey, CaveatValue,
-    DelegationAttenuationParams, DelegationProofContext, EffectiveCapability, ParsedCaveats,
+    DelegationAttenuationParams, DelegationChain, DelegationProofContext, EffectiveCapability,
+    ParsedCaveats,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
@@ -23,7 +24,8 @@ use crate::{
     hospital_error::HospitalError,
     types::{
         AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, HospitalPersonnelRole,
-        MoveHospitalPersonnelAccessData, ResponseStatus, SuccessResponse,
+        MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAccessType,
+        PatientDelegationAuditInput, ResponseStatus, SuccessResponse,
     },
     utils::{
         encode_activation_key_from_keys_entry, get_iota_address_from_keys_entry,
@@ -376,6 +378,55 @@ fn sign_delegation_proof(
     Ok(signature.encode_base64())
 }
 
+fn datetime_to_epoch_ms(value: DateTime<Utc>) -> Result<u64, HospitalError> {
+    let millis = value.timestamp_millis();
+    if millis < 0 {
+        return Err(HospitalError::Anyhow(
+            anyhow::anyhow!("Delegation expiry is before Unix epoch").context(current_fn!()),
+        ));
+    }
+    Ok(millis as u64)
+}
+
+fn build_delegation_audit_input(
+    token: &str,
+    parent_token: &str,
+    access_type: MoveHospitalPersonnelAccessType,
+    fallback_related_rme_id: Option<String>,
+    fallback_expires_before: DateTime<Utc>,
+) -> Result<PatientDelegationAuditInput, HospitalError> {
+    let mac = macaroon::Macaroon::deserialize(token).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
+    let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
+    let delegation = DelegationChain::from_parsed(&parsed).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
+    let effective = EffectiveCapability::from_parsed(&parsed).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
+    let delegation_depth = delegation.delegation_depth();
+    if delegation_depth > u8::MAX as usize {
+        return Err(HospitalError::Anyhow(
+            anyhow::anyhow!("Delegation depth exceeds u8").context(current_fn!()),
+        ));
+    }
+    let root_subject = IotaAddress::from_str(&delegation.root_subject).context(current_fn!())?;
+    let expires_at = effective.expires_before.unwrap_or(fallback_expires_before);
+
+    Ok(PatientDelegationAuditInput {
+        root_subject,
+        access_type,
+        related_rme_id: effective.related_rme_id.or(fallback_related_rme_id),
+        delegation_depth: delegation_depth as u8,
+        token_hash: Some(hash_macaroon_token(token)),
+        parent_token_hash: Some(hash_macaroon_token(parent_token)),
+        expires_at_ms: Some(datetime_to_epoch_ms(expires_at)?),
+    })
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DelegatedAccessMetadataInput {
@@ -663,6 +714,7 @@ pub async fn create_delegated_access(
     let delegator = delegator_iota_address.to_string();
     let delegatee = delegatee_iota_address.to_string();
     let mut on_chain_metadata = Vec::new();
+    let mut on_chain_audit_metadata = Vec::new();
     let mut delegated_read_token = None;
     let mut delegated_update_token = None;
 
@@ -716,6 +768,13 @@ pub async fn create_delegated_access(
             )?)
             .context(current_fn!())?,
         );
+        on_chain_audit_metadata.push(build_delegation_audit_input(
+            &token,
+            parent_read_token,
+            MoveHospitalPersonnelAccessType::Read,
+            read_effective_related_rme_id.clone(),
+            expires_before,
+        )?);
         delegated_read_token = Some(token);
     }
 
@@ -769,10 +828,14 @@ pub async fn create_delegated_access(
             &delegatee_pre_public_key,
         )?)
         .context(current_fn!())?;
-        if mode == "write" {
-            on_chain_metadata.push(encrypted.clone());
-        }
         on_chain_metadata.push(encrypted);
+        on_chain_audit_metadata.push(build_delegation_audit_input(
+            &token,
+            parent_write_token,
+            MoveHospitalPersonnelAccessType::Update,
+            write_effective_related_rme_id.clone(),
+            expires_before,
+        )?);
         delegated_update_token = Some(token);
     }
 
@@ -825,6 +888,7 @@ pub async fn create_delegated_access(
             delegatee_iota_address,
             patient_iota_address,
             on_chain_metadata,
+            on_chain_audit_metadata,
             delegator_iota_address,
             delegator_iota_key_pair,
         )
@@ -987,6 +1051,22 @@ pub async fn create_admin_delegated_access(
         serde_serialize_to_base64(&enc_read).context(current_fn!())?,
         serde_serialize_to_base64(&enc_update).context(current_fn!())?,
     ];
+    let on_chain_audit_metadata = vec![
+        build_delegation_audit_input(
+            &delegated_read_token,
+            parent_read_token,
+            MoveHospitalPersonnelAccessType::Read,
+            Some(related_rme_id.clone()),
+            expires_before,
+        )?,
+        build_delegation_audit_input(
+            &delegated_update_token,
+            &payload.parent_write_token,
+            MoveHospitalPersonnelAccessType::Update,
+            Some(related_rme_id.clone()),
+            expires_before,
+        )?,
+    ];
 
     let seed_outcome = match patient_pre_public_key_for_seed.as_deref() {
         Some(patient_pre_public_key) => {
@@ -1028,6 +1108,7 @@ pub async fn create_admin_delegated_access(
             delegatee_iota_address,
             patient_iota_address,
             on_chain_metadata,
+            on_chain_audit_metadata,
             delegator_iota_address,
             delegator_iota_key_pair,
         )

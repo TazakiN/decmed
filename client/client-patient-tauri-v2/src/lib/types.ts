@@ -36,6 +36,45 @@ export type InvokeGetAccessLog = {
 	token_hash?: string | null;
 };
 
+export type HospitalPersonnelRole = 'Admin' | 'AdministrativePersonnel' | 'MedicalPersonnel';
+
+export type HospitalPersonnelSubRole = 'Doctor' | 'Nurse' | 'LaboratoryStaff' | 'Pharmacist';
+
+export type DelegationAuditPersonnelSummary = {
+	address: string;
+	name: string | null;
+	hospitalName: string | null;
+	role: HospitalPersonnelRole | null;
+	subRole: HospitalPersonnelSubRole | null;
+};
+
+export type DelegationAuditRootGrant = {
+	personnel: DelegationAuditPersonnelSummary;
+	grantedAt: string | null;
+	expiresAt: string | null;
+	revoked: boolean;
+};
+
+export type DelegationAuditEdge = {
+	delegatedBy: DelegationAuditPersonnelSummary;
+	delegatedTo: DelegationAuditPersonnelSummary;
+	depth: number;
+	tokenHash: string | null;
+	parentTokenHash: string | null;
+	expiresAt: string | null;
+	revoked: boolean;
+	revokedAt: string | null;
+};
+
+export type InvokeDelegationAuditChain = {
+	rootSubject: string;
+	accessType: 'Read' | 'Update';
+	relatedRmeId: string | null;
+	rootGrant: DelegationAuditRootGrant | null;
+	edges: DelegationAuditEdge[];
+	status: 'Active' | 'Expired' | 'Revoked';
+};
+
 export type InvokeProcessQrResponse = {
 	hospitalPersonnelHospitalName: string;
 	hospitalPersonnelName: string;

@@ -63,6 +63,12 @@ pub enum MoveHospitalPersonnelAccessDataType {
     Medical,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum MoveHospitalPersonnelAccessType {
+    Read,
+    Update,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ResponseStatus {
     Error,
@@ -128,6 +134,17 @@ pub struct AccessData {
         skip_serializing_if = "Option::is_none"
     )]
     pub delegation_depth: Option<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PatientDelegationAuditInput {
+    pub root_subject: IotaAddress,
+    pub access_type: MoveHospitalPersonnelAccessType,
+    pub related_rme_id: Option<String>,
+    pub delegation_depth: u8,
+    pub token_hash: Option<String>,
+    pub parent_token_hash: Option<String>,
+    pub expires_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

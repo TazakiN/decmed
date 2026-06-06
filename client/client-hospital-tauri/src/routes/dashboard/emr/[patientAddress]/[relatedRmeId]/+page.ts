@@ -17,6 +17,7 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 		dataPreSecretKeySeedCapsule: url.searchParams.get('dataPreSecretKeySeedCapsule'),
 		encDataPreSecretKeySeed: url.searchParams.get('encDataPreSecretKeySeed'),
 		patientIotaAddress: params.patientAddress,
-		relatedRmeId: params.relatedRmeId
+		relatedRmeId: params.relatedRmeId,
+		patientName: url.searchParams.get('patientName')
 	};
 };

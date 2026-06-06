@@ -10,7 +10,10 @@ use crate::{
     constants::PROXY_BASE_URL,
     current_fn,
     hospital_error::HospitalError,
-    types::{AppState, ResponseStatus, SuccessResponse},
+    types::{
+        AppState, MoveHospitalPersonnelAccessType, PatientDelegationAuditInput, ResponseStatus,
+        SuccessResponse,
+    },
     utils::{
         encode_activation_key_from_keys_entry, get_iota_address_from_keys_entry,
         get_iota_key_pair_from_keys_entry, parse_keys_entry,
@@ -33,6 +36,47 @@ pub struct RevokeDelegatedAccessPayload {
     pub token_hash: Option<String>,
     #[serde(default)]
     pub expires_before: Option<String>,
+    #[serde(default)]
+    pub root_subject: Option<String>,
+    #[serde(default)]
+    pub parent_token_hash: Option<String>,
+    #[serde(default)]
+    pub delegation_depth: Option<u8>,
+}
+
+fn parse_expires_at_ms(value: Option<&str>) -> Result<Option<u64>, HospitalError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let parsed = chrono::DateTime::parse_from_rfc3339(value)
+        .map_err(|e| HospitalError::Anyhow(anyhow::anyhow!(e).context(current_fn!())))?
+        .with_timezone(&chrono::Utc);
+    let millis = parsed.timestamp_millis();
+    if millis < 0 {
+        return Err(HospitalError::Anyhow(
+            anyhow::anyhow!("Delegation expiry is before Unix epoch").context(current_fn!()),
+        ));
+    }
+    Ok(Some(millis as u64))
+}
+
+fn build_audit_input(
+    payload: &RevokeDelegatedAccessPayload,
+    access_type: MoveHospitalPersonnelAccessType,
+) -> Result<PatientDelegationAuditInput, HospitalError> {
+    let root_subject = payload
+        .root_subject
+        .as_deref()
+        .unwrap_or(&payload.delegated_by);
+    Ok(PatientDelegationAuditInput {
+        root_subject: IotaAddress::from_str(root_subject).context(current_fn!())?,
+        access_type,
+        related_rme_id: payload.related_rme_id.clone(),
+        delegation_depth: payload.delegation_depth.unwrap_or(1),
+        token_hash: payload.token_hash.clone(),
+        parent_token_hash: payload.parent_token_hash.clone(),
+        expires_at_ms: parse_expires_at_ms(payload.expires_before.as_deref())?,
+    })
 }
 
 #[command]
@@ -59,6 +103,25 @@ pub async fn revoke_delegated_access(
         IotaAddress::from_str(&payload.delegatee_iota_address).context(current_fn!())?;
     let patient_address =
         IotaAddress::from_str(&payload.patient_iota_address).context(current_fn!())?;
+    let audit_metadata = match payload.access_type.as_str() {
+        "Read" => vec![build_audit_input(
+            &payload,
+            MoveHospitalPersonnelAccessType::Read,
+        )?],
+        "Update" => vec![build_audit_input(
+            &payload,
+            MoveHospitalPersonnelAccessType::Update,
+        )?],
+        "Read,Update" => vec![
+            build_audit_input(&payload, MoveHospitalPersonnelAccessType::Read)?,
+            build_audit_input(&payload, MoveHospitalPersonnelAccessType::Update)?,
+        ],
+        _ => {
+            return Err(HospitalError::Anyhow(
+                anyhow::anyhow!("Invalid access type").context(current_fn!()),
+            ))
+        }
+    };
 
     // Step 1: Execute Move revoke_delegated_access
     let tx_digest = state
@@ -69,6 +132,7 @@ pub async fn revoke_delegated_access(
             patient_address,
             payload.access_type,
             payload.related_rme_id.clone(),
+            audit_metadata,
             delegator_iota_address,
             delegator_iota_key_pair,
         )

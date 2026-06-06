@@ -54,7 +54,7 @@
 	href={`/dashboard/emr/${data.patientIotaAddress}?${backQuery}`}
 	class="text-sm text-zinc-600 hover:text-zinc-900 mb-4 inline-block"
 >
-	← Kembali ke daftar RME
+	← Back
 </a>
 
 <h2 class="text-lg font-montserrat font-semibold">Detail RME</h2>
@@ -112,7 +112,10 @@
 								<span class="text-zinc-500">Waktu</span>
 								<span>{formatDate(segment.created_at)}</span>
 								<span class="text-zinc-500">Author</span>
-								<span class="break-all">{segment.author_address}</span>
+								<span class="break-all"
+									>{detailState.authorNameMap[segment.author_address] ||
+										segment.author_address}</span
+								>
 							</div>
 						{/if}
 
@@ -150,7 +153,8 @@
 									{/if}
 								{:else if record.medicalData}
 									<p class="text-sm text-zinc-600">Data legacy (bukan segment RME).</p>
-									<pre class="text-xs mt-2 p-2 bg-zinc-50 border rounded-md overflow-auto">{JSON.stringify(
+									<pre
+										class="text-xs mt-2 p-2 bg-zinc-50 border rounded-md overflow-auto">{JSON.stringify(
 											record.medicalData,
 											null,
 											2

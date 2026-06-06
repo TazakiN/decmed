@@ -6,7 +6,7 @@ use iota_types::{
     crypto::IotaKeyPair,
     gas_coin::NANOS_PER_IOTA,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{CallArg, Command, Transaction},
+    transaction::{Argument, CallArg, Command, Transaction},
     Identifier, TypeTag,
 };
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
@@ -17,8 +17,9 @@ use crate::{
     hospital_error::HospitalError,
     types::{
         DecmedPackage, HospitalPersonnelRole, HospitalPersonnelSubRole, MoveDelegateeCandidate,
-        MoveHospitalMetadata, MoveHospitalPersonnelAccessData,
+        MoveHospitalMetadata, MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAccessType,
         MoveHospitalPersonnelAdministrativeMetadata, MoveHospitalPersonnelMetadata,
+        PatientDelegationAuditInput,
     },
     utils::{
         construct_capability_call_arg, construct_pt, construct_shared_object_call_arg,
@@ -42,6 +43,24 @@ fn move_string_type_tag() -> Result<TypeTag, HospitalError> {
         name: Identifier::from_str("String").context(current_fn!())?,
         type_params: vec![],
     })))
+}
+
+fn make_move_string_vector(
+    builder: &mut ProgrammableTransactionBuilder,
+    values: Vec<String>,
+) -> Result<Argument, HospitalError> {
+    let args = values
+        .into_iter()
+        .map(|item| builder.force_separate_pure(item).context(current_fn!()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(builder.command(Command::MakeMoveVec(Some(move_string_type_tag()?), args)))
+}
+
+fn access_type_bytes(access_type: MoveHospitalPersonnelAccessType) -> Vec<u8> {
+    match access_type {
+        MoveHospitalPersonnelAccessType::Read => b"Read".to_vec(),
+        MoveHospitalPersonnelAccessType::Update => b"Update".to_vec(),
+    }
 }
 
 impl MoveCall {
@@ -82,6 +101,14 @@ impl MoveCall {
             self.decmed_package.hospital_personnel_id_account_object_id,
             self.decmed_package
                 .hospital_personnel_id_account_object_version,
+            mutable,
+        )
+    }
+
+    pub fn construct_patient_id_account_object_call_arg(&self, mutable: bool) -> CallArg {
+        construct_shared_object_call_arg(
+            self.decmed_package.patient_id_account_object_id,
+            self.decmed_package.patient_id_account_object_version,
             mutable,
         )
     }
@@ -770,19 +797,50 @@ impl MoveCall {
         delegatee_address: IotaAddress,
         patient_address: IotaAddress,
         metadata: Vec<String>,
+        audit_metadata: Vec<PatientDelegationAuditInput>,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), HospitalError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let mut builder = ProgrammableTransactionBuilder::new();
-        let metadata_args = metadata
-            .into_iter()
-            .map(|item| builder.force_separate_pure(item).context(current_fn!()))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let metadata_vector = builder.command(Command::MakeMoveVec(
-            Some(move_string_type_tag()?),
-            metadata_args,
-        ));
+        let metadata_vector = make_move_string_vector(&mut builder, metadata)?;
+        let audit_root_subjects: Vec<IotaAddress> = audit_metadata
+            .iter()
+            .map(|item| item.root_subject)
+            .collect();
+        let audit_single_access_type = audit_metadata
+            .first()
+            .map(|item| access_type_bytes(item.access_type))
+            .unwrap_or_default();
+        let audit_related_rme_ids = make_move_string_vector(
+            &mut builder,
+            audit_metadata
+                .iter()
+                .map(|item| item.related_rme_id.clone().unwrap_or_default())
+                .collect(),
+        )?;
+        let audit_delegation_depths: Vec<u8> = audit_metadata
+            .iter()
+            .map(|item| item.delegation_depth)
+            .collect();
+        let audit_token_hashes = make_move_string_vector(
+            &mut builder,
+            audit_metadata
+                .iter()
+                .map(|item| item.token_hash.clone().unwrap_or_default())
+                .collect(),
+        )?;
+        let audit_parent_token_hashes = make_move_string_vector(
+            &mut builder,
+            audit_metadata
+                .iter()
+                .map(|item| item.parent_token_hash.clone().unwrap_or_default())
+                .collect(),
+        )?;
+        let audit_expires_at_ms: Vec<u64> = audit_metadata
+            .iter()
+            .map(|item| item.expires_at_ms.unwrap_or_default())
+            .collect();
         let function = Identifier::from_str("create_delegated_access").context(current_fn!())?;
         let arguments = vec![
             builder.pure(activation_key).context(current_fn!())?,
@@ -798,6 +856,20 @@ impl MoveCall {
                 .context(current_fn!())?,
             builder.pure(patient_address).context(current_fn!())?,
             metadata_vector,
+            builder.pure(audit_root_subjects).context(current_fn!())?,
+            builder
+                .pure(audit_single_access_type)
+                .context(current_fn!())?,
+            audit_related_rme_ids,
+            builder
+                .pure(audit_delegation_depths)
+                .context(current_fn!())?,
+            audit_token_hashes,
+            audit_parent_token_hashes,
+            builder.pure(audit_expires_at_ms).context(current_fn!())?,
+            builder
+                .input(self.construct_patient_id_account_object_call_arg(true))
+                .context(current_fn!())?,
         ];
         builder.programmable_move_call(
             self.decmed_package.package_id,
@@ -840,10 +912,17 @@ impl MoveCall {
         patient_address: IotaAddress,
         access_type: String,
         related_rme_id: Option<String>,
+        audit_metadata: Vec<PatientDelegationAuditInput>,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<String, HospitalError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
+        let audit = audit_metadata.first().ok_or_else(|| {
+            HospitalError::Anyhow(
+                anyhow::anyhow!("Delegation revocation audit metadata is required")
+                    .context(current_fn!()),
+            )
+        })?;
         let pt = construct_pt(
             String::from("revoke_delegated_access"),
             self.decmed_package.package_id,
@@ -858,6 +937,21 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&patient_address).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&access_type.into_bytes()).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&related_rme_id).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&audit.root_subject).context(current_fn!())?),
+                CallArg::Pure(
+                    bcs::to_bytes(&audit.token_hash.clone().unwrap_or_default())
+                        .context(current_fn!())?,
+                ),
+                CallArg::Pure(
+                    bcs::to_bytes(&audit.parent_token_hash.clone().unwrap_or_default())
+                        .context(current_fn!())?,
+                ),
+                CallArg::Pure(bcs::to_bytes(&audit.delegation_depth).context(current_fn!())?),
+                CallArg::Pure(
+                    bcs::to_bytes(&audit.expires_at_ms.unwrap_or_default())
+                        .context(current_fn!())?,
+                ),
+                self.construct_patient_id_account_object_call_arg(true),
             ],
         )
         .context(current_fn!())?;

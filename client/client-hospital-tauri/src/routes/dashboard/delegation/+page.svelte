@@ -95,12 +95,9 @@
 		return [...map.values()];
 	};
 
-	const shortAddress = (address: string) =>
-		address.length > 18 ? `${address.slice(0, 10)}...${address.slice(-8)}` : address;
-
 	const delegateeLabel = (candidate: DelegateeCandidate) => {
 		const roleDescr = candidate.subRole ? `${candidate.role}/${candidate.subRole}` : candidate.role;
-		return `${candidate.name ? `${candidate.name} - ` : ''}${roleDescr} - ${shortAddress(candidate.iotaAddress)}`;
+		return `${candidate.name ? `${candidate.name} - ` : ''}${roleDescr}`;
 	};
 
 	const parseUtcExpiry = (value?: string | null) => {
@@ -299,9 +296,7 @@
 				patientIotaAddress: selectedAccess.patientIotaAddress,
 				patientName: selectedAccess.patientName,
 				patientPrePublicKey:
-					activeWrite?.access.patientPrePublicKey ??
-					activeRead?.access.patientPrePublicKey ??
-					null,
+					activeWrite?.access.patientPrePublicKey ?? activeRead?.access.patientPrePublicKey ?? null,
 				parentEncDataPreSecretKeySeed,
 				parentDataPreSecretKeySeedCapsule,
 				expiresBefore
@@ -330,14 +325,12 @@
 					mode,
 					relatedRmeId:
 						mode === 'read'
-							? activeRead?.relatedRmeId ?? null
-							: activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null,
+							? (activeRead?.relatedRmeId ?? null)
+							: (activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null),
 					readDatasets: mode === 'write' ? [] : previewReadDatasets,
 					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
 					readFunctions:
-						mode === 'write'
-							? []
-							: withMandatoryAdministrativeRead(previewReadFunctions),
+						mode === 'write' ? [] : withMandatoryAdministrativeRead(previewReadFunctions),
 					writeFunctions: mode === 'read' ? [] : previewWriteFunctions
 				}
 			})) as SuccessResponse<{
@@ -352,15 +345,8 @@
 			toast.error(res.error);
 			return;
 		}
-		const seeded = res.data.data.administrativeSegmentsSeeded ?? 0;
 		const warnings = res.data.data.seedWarnings ?? [];
-		if (seeded > 0) {
-			toast.success(
-				`Delegasi berhasil. ${seeded} segment data administratif diisi otomatis.`
-			);
-		} else {
-			toast.success('Delegasi berhasil dibuat');
-		}
+		toast.success(`Delegasi berhasil.`);
 		for (const warning of warnings) {
 			toast.warning(warning);
 		}
@@ -551,7 +537,6 @@
 				>
 					{isSubmitting ? 'Delegating...' : 'Delegate'}
 				</button>
-
 			</div>
 		{/if}
 	{/await}

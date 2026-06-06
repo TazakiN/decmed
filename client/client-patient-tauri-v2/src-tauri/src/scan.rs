@@ -320,7 +320,7 @@ pub async fn process_qr(
     state.scan_state.hospital_personnel_qr_content = Some(hp_addr_pub_key.clone());
     let hospital_personnel_iota_address = grant.personnel_iota_address;
 
-    let (hospital_personnel_public_administrative_data, hospital_name) = state
+    let (hospital_personnel_public_administrative_data, hospital_name, _, _) = state
         .move_call
         .get_hospital_personnel_info(&hospital_personnel_iota_address, patient_iota_address)
         .await

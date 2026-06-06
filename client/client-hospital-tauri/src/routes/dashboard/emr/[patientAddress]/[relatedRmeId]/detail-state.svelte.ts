@@ -33,6 +33,7 @@ export class EmrDetailState {
 	payloadByListIndex = $state<Record<number, InvokeGetMedicalRecordPayloadResponseData>>({});
 	loadingByListIndex = $state<Record<number, boolean>>({});
 	errorByListIndex = $state<Record<number, string>>({});
+	authorNameMap = $state<Record<string, string>>({});
 
 	constructor(props: Props) {
 		this.accessToken = props.accessToken;
@@ -69,6 +70,8 @@ export class EmrDetailState {
 		this.loadingByListIndex = {};
 
 		try {
+			void this.loadAuthorNames();
+
 			const encounter = await this.fetchEncounter();
 			this.encounter = encounter;
 			const categories = encounter.datasets.map((d) => d.dataset_category);
@@ -79,6 +82,29 @@ export class EmrDetailState {
 			this.loadError = err instanceof Error ? err.message : String(err);
 		} finally {
 			this.isLoading = false;
+		}
+	};
+
+	loadAuthorNames = async () => {
+		const profileRes = await tryCatchAsVal(async () => {
+			return (await invoke('get_profile')) as SuccessResponse<any>;
+		});
+		if (profileRes.success && profileRes.data.data) {
+			const profile = profileRes.data.data;
+			if (profile.iotaAddress && profile.name) {
+				this.authorNameMap[profile.iotaAddress] = `${profile.name} (Saya)`;
+			}
+		}
+
+		const candidatesRes = await tryCatchAsVal(async () => {
+			return (await invoke('get_delegatee_candidates')) as SuccessResponse<any>;
+		});
+		if (candidatesRes.success && candidatesRes.data.data?.candidates) {
+			for (const candidate of candidatesRes.data.data.candidates) {
+				if (candidate.iotaAddress && candidate.name) {
+					this.authorNameMap[candidate.iotaAddress] = candidate.name;
+				}
+			}
 		}
 	};
 

@@ -13,7 +13,8 @@ use crate::{
     current_fn,
     patient_error::PatientError,
     types::{
-        DecmedPackage, MovePatientAccessLog, MovePatientAdministrativeMetadata,
+        DecmedPackage, HospitalPersonnelRole, HospitalPersonnelSubRole, MovePatientAccessLog,
+        MovePatientAdministrativeMetadata, MovePatientDelegationAuditEntry,
         MovePatientMedicalMetadata,
     },
     utils::{
@@ -218,7 +219,15 @@ impl MoveCall {
         &self,
         hospital_personnel_iota_address: &IotaAddress,
         sender: IotaAddress,
-    ) -> Result<(String, String), PatientError> {
+    ) -> Result<
+        (
+            String,
+            String,
+            HospitalPersonnelRole,
+            Option<HospitalPersonnelSubRole>,
+        ),
+        PatientError,
+    > {
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let pt = construct_pt(
             "get_hospital_personnel_info".to_string(),
@@ -245,10 +254,16 @@ impl MoveCall {
             parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
         let hospital_name: String =
             parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
+        let role: HospitalPersonnelRole =
+            parse_move_read_only_result(response.clone(), 2).context(current_fn!())?;
+        let sub_role: Option<HospitalPersonnelSubRole> =
+            parse_move_read_only_result(response.clone(), 3).context(current_fn!())?;
 
         Ok((
             hospital_personnel_public_administrative_metadata,
             hospital_name,
+            role,
+            sub_role,
         ))
     }
 
@@ -283,6 +298,39 @@ impl MoveCall {
             parse_move_read_only_result(response.clone(), 0)?;
 
         Ok(access_log)
+    }
+
+    pub async fn get_delegation_audit_log(
+        &self,
+        cursor: u64,
+        size: u64,
+        sender: IotaAddress,
+    ) -> Result<Vec<MovePatientDelegationAuditEntry>, PatientError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            "get_delegation_audit_log".to_string(),
+            self.decmed_package.package_id,
+            self.decmed_package.module_patient.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&cursor).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(&size).context(current_fn!())?),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+
+        handle_error_move_call_read_only(response.clone()).context(current_fn!())?;
+
+        let audit_log: Vec<MovePatientDelegationAuditEntry> =
+            parse_move_read_only_result(response.clone(), 0)?;
+
+        Ok(audit_log)
     }
 
     pub async fn get_medical_records(

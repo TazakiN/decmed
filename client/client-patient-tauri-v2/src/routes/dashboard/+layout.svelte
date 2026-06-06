@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { cn } from '$lib/utils';
-	import { Home, LucideHistory, Scan, User } from '@lucide/svelte';
+	import { GitBranch, Home, LucideHistory, Scan, User } from '@lucide/svelte';
 
 	let { children } = $props();
 
@@ -13,6 +13,10 @@
 		{
 			icon: LucideHistory,
 			url: '/dashboard/log'
+		},
+		{
+			icon: GitBranch,
+			url: '/dashboard/delegation-audit'
 		},
 		{
 			icon: Scan,

@@ -28,10 +28,6 @@
 			hourCycle: 'h24'
 		});
 	};
-
-	const segmentCount = (encounter: {
-		datasets: { segments: unknown[] }[];
-	}) => encounter.datasets.reduce((sum, ds) => sum + ds.segments.length, 0);
 </script>
 
 <h2 class="text-lg font-montserrat font-semibold">Rekam Medis</h2>
@@ -63,16 +59,11 @@
 						</div>
 						<div class="flex flex-wrap gap-2">
 							{#each encounter.datasets as dataset (dataset.dataset_category)}
-								<span
-									class="text-xs px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200"
-								>
+								<span class="text-xs px-2 py-1 rounded-md bg-zinc-100 border border-zinc-200">
 									{datasetLabels[dataset.dataset_category]}
 								</span>
 							{/each}
 						</div>
-						<p class="text-xs text-zinc-500">
-							{segmentCount(encounter)} segment
-						</p>
 					</a>
 				{/each}
 			</div>

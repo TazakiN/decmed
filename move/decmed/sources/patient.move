@@ -5,10 +5,14 @@ use decmed::std_enum_hospital_personnel_role::{
     medical_personnel as hospital_personnel_role_medical_personnel,
     HospitalPersonnelRole,
 };
+use decmed::std_enum_hospital_personnel_sub_role::HospitalPersonnelSubRole;
 use decmed::std_enum_hospital_personnel_access_type::{
     HospitalPersonnelAccessType,
     read as hospital_personnel_access_type_read,
     update as hospital_personnel_access_type_update,
+};
+use decmed::std_enum_patient_delegation_audit_event_type::{
+    revoked as patient_delegation_audit_event_type_revoked,
 };
 use decmed::std_enum_hospital_personnel_access_data_type::{
     HospitalPersonnelAccessDataType,
@@ -31,11 +35,16 @@ use decmed::std_struct_patient_access_log::{
     new as patient_access_log_new,
 };
 use decmed::std_struct_patient_account::{
+    PatientAccount,
     new as patient_account_new,
 };
 use decmed::std_struct_patient_administrative_metadata::{
     PatientAdministrativeMetadata,
     new as patient_administrative_metadata_new,
+};
+use decmed::std_struct_patient_delegation_audit_entry::{
+    PatientDelegationAuditEntry,
+    new as patient_delegation_audit_entry_new,
 };
 use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
@@ -68,6 +77,36 @@ public struct PatientCascadeRevokedEvent has copy, drop {
 }
 
 // Functions
+
+fun append_delegation_revoked_audit(
+    patient_account: &mut PatientAccount,
+    timestamp_ms: u64,
+    actor_address: address,
+    root_subject: address,
+    delegated_by: address,
+    delegated_to: address,
+    access_type: HospitalPersonnelAccessType,
+    delegation_depth: u8,
+    expires_at_ms: Option<u64>,
+) {
+    let delegation_audit_log = patient_account.borrow_mut_delegation_audit_log();
+    let entry = patient_delegation_audit_entry_new(
+        delegation_audit_log.length(),
+        patient_delegation_audit_event_type_revoked(),
+        timestamp_ms,
+        actor_address,
+        root_subject,
+        delegated_by,
+        delegated_to,
+        access_type,
+        option::none(),
+        delegation_depth,
+        option::none(),
+        option::none(),
+        expires_at_ms,
+    );
+    delegation_audit_log.push_back(entry);
+}
 
 /// ## Params:
 /// - `metadata`: vector<Base64 encoded>
@@ -360,9 +399,17 @@ entry fun signup(
 
     let access_log = table_vec::empty<PatientAccessLog>(ctx);
     let administrative_metadata = patient_administrative_metadata_new(private_metadata);
+    let delegation_audit_log = table_vec::empty<PatientDelegationAuditEntry>(ctx);
     let medical_metadata = table_vec::empty<PatientMedicalMetadata>(ctx);
 
-    let patient_account = patient_account_new(access_log, ctx.sender(), administrative_metadata, false, medical_metadata);
+    let patient_account = patient_account_new(
+        access_log,
+        ctx.sender(),
+        administrative_metadata,
+        delegation_audit_log,
+        false,
+        medical_metadata,
+    );
     patient_id_account_table.add(patient_id, patient_account);
 }
 
@@ -431,13 +478,14 @@ entry fun get_account_state(
 /// 0: public administrative data
 /// 1: hospital name
 /// 2: hospital personnel role
+/// 3: hospital personnel sub-role
 entry fun get_hospital_personnel_info(
     address_id: &AddressId,
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &HospitalPersonnelIdAccount,
     ctx: &TxContext,
-): (String, String, HospitalPersonnelRole)
+): (String, String, HospitalPersonnelRole, Option<HospitalPersonnelSubRole>)
 {
     let address_id_table = address_id.borrow_table();
 
@@ -456,8 +504,9 @@ entry fun get_hospital_personnel_info(
     let public_data = *hospital_personnel_administrative_metadata.borrow_public_metadata();
     let hospital_name = *hospital_metadata.borrow_name();
     let role = *hospital_personnel_account.borrow_role();
+    let sub_role = *hospital_personnel_account.borrow_sub_role();
 
-    (public_data, hospital_name, role)
+    (public_data, hospital_name, role, sub_role)
 }
 
 /// Role lookup for patient grant flow (no ProxyCap required).
@@ -507,6 +556,45 @@ entry fun get_access_log(
 
     while (start_idx <= end_idx) {
         result.push_back(*patient_access_log.borrow(curr_idx));
+        start_idx = start_idx + 1;
+
+        if (curr_idx > 0) {
+            curr_idx = curr_idx - 1;
+        };
+    };
+
+    result
+}
+
+entry fun get_delegation_audit_log(
+    address_id: &AddressId,
+    cursor: u64,
+    patient_id_account: &PatientIdAccount,
+    size: u64,
+    ctx: &TxContext,
+): vector<PatientDelegationAuditEntry>
+{
+    let address_id_table = address_id.borrow_table();
+    let patient_id = *address_id_table.borrow(ctx.sender());
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    let delegation_audit_log = patient_account.borrow_delegation_audit_log();
+
+    let delegation_audit_log_length = delegation_audit_log.length();
+
+    let mut result = vector::empty<PatientDelegationAuditEntry>();
+
+    if (cursor >= delegation_audit_log_length) {
+        return result
+    };
+
+    let size = std::u64::min(size, 10);
+    let end_idx = delegation_audit_log_length - cursor - 1;
+    let mut start_idx = end_idx + 1 - std::u64::min(size, end_idx + 1);
+    let mut curr_idx = end_idx;
+
+    while (start_idx <= end_idx) {
+        result.push_back(*delegation_audit_log.borrow(curr_idx));
         start_idx = start_idx + 1;
 
         if (curr_idx > 0) {
@@ -673,15 +761,34 @@ entry fun revoke_access(
 
             if (revoke_read) {
                 let candidate_read = candidate_access.borrow_mut_read();
-                let should_revoke_read = if (candidate_read.contains(&patient_id)) {
-                    let delegated_by = candidate_read.get(&patient_id).borrow_delegated_by();
-                    delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())
-                } else {
-                    false
+                let mut should_revoke_read = false;
+                let mut read_delegated_by = option::none<address>();
+                let mut read_delegation_depth = 0;
+                let mut read_exp = option::none<u64>();
+                if (candidate_read.contains(&patient_id)) {
+                    let source = candidate_read.get(&patient_id);
+                    let delegated_by = source.borrow_delegated_by();
+                    if (delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())) {
+                        should_revoke_read = true;
+                        read_delegated_by = delegated_by;
+                        read_delegation_depth = source.borrow_delegation_depth();
+                        read_exp = option::some(source.borrow_exp());
+                    };
                 };
                 if (should_revoke_read) {
                     candidate_read.remove(&patient_id);
                     candidate_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        hospital_personnel_address,
+                        *read_delegated_by.borrow(),
+                        candidate_address,
+                        hospital_personnel_access_type_read(),
+                        read_delegation_depth,
+                        read_exp,
+                    );
                     event::emit(
                         PatientCascadeRevokedEvent {
                             patient_address: ctx.sender(),
@@ -696,15 +803,34 @@ entry fun revoke_access(
 
             if (revoke_update) {
                 let candidate_update = candidate_access.borrow_mut_update();
-                let should_revoke_update = if (candidate_update.contains(&patient_id)) {
-                    let delegated_by = candidate_update.get(&patient_id).borrow_delegated_by();
-                    delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())
-                } else {
-                    false
+                let mut should_revoke_update = false;
+                let mut update_delegated_by = option::none<address>();
+                let mut update_delegation_depth = 0;
+                let mut update_exp = option::none<u64>();
+                if (candidate_update.contains(&patient_id)) {
+                    let source = candidate_update.get(&patient_id);
+                    let delegated_by = source.borrow_delegated_by();
+                    if (delegated_by.is_some() && revoked_addresses.contains(delegated_by.borrow())) {
+                        should_revoke_update = true;
+                        update_delegated_by = delegated_by;
+                        update_delegation_depth = source.borrow_delegation_depth();
+                        update_exp = option::some(source.borrow_exp());
+                    };
                 };
                 if (should_revoke_update) {
                     candidate_update.remove(&patient_id);
                     candidate_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        hospital_personnel_address,
+                        *update_delegated_by.borrow(),
+                        candidate_address,
+                        hospital_personnel_access_type_update(),
+                        update_delegation_depth,
+                        update_exp,
+                    );
                     event::emit(
                         PatientCascadeRevokedEvent {
                             patient_address: ctx.sender(),

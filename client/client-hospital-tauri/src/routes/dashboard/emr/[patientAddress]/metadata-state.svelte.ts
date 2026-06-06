@@ -40,6 +40,7 @@ export function emrAccessQueryString(params: {
 	accessToken: string;
 	encDataPreSecretKeySeed?: string | null;
 	dataPreSecretKeySeedCapsule?: string | null;
+	patientName?: string | null;
 }) {
 	const search = new URLSearchParams();
 	search.set('accessToken', params.accessToken);
@@ -48,6 +49,9 @@ export function emrAccessQueryString(params: {
 	}
 	if (params.dataPreSecretKeySeedCapsule) {
 		search.set('dataPreSecretKeySeedCapsule', params.dataPreSecretKeySeedCapsule);
+	}
+	if (params.patientName) {
+		search.set('patientName', params.patientName);
 	}
 	return search.toString();
 }

@@ -94,6 +94,18 @@ cd client/client-hospital-tauri/src-tauri
 cargo tauri dev
 ```
 
+For multi-account hospital demos, launch separate app instances with different profiles:
+```bash
+DEC_MED_PROFILE=admin ./client-hospital-tauri
+DEC_MED_PROFILE=doctor ./client-hospital-tauri
+DEC_MED_PROFILE=nurse ./client-hospital-tauri
+DEC_MED_PROFILE=lab ./client-hospital-tauri
+```
+Each profile uses a separate keyring namespace. For the most predictable multi-instance demo,
+build the executable once and launch the generated binary multiple times with different
+`DEC_MED_PROFILE` values. Running multiple `pnpm tauri dev` processes can collide on Vite's fixed
+port `1420`.
+
 ---
 
 ## 5. Macaroon caveats (RME fine-grained access)

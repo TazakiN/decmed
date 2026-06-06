@@ -4,6 +4,7 @@ use decmed::std_struct_patient_access_log::PatientAccessLog;
 use decmed::std_struct_patient_administrative_metadata::PatientAdministrativeMetadata;
 #[test_only]
 use decmed::std_struct_patient_administrative_metadata::default as patient_administrative_metadata_default;
+use decmed::std_struct_patient_delegation_audit_entry::PatientDelegationAuditEntry;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
 
 #[test_only]
@@ -14,6 +15,7 @@ public struct PatientAccount has store {
     access_log: TableVec<PatientAccessLog>,
     address: address,
     administrative_metadata: PatientAdministrativeMetadata,
+    delegation_audit_log: TableVec<PatientDelegationAuditEntry>,
     is_profile_completed: bool,
     medical_metadata: TableVec<PatientMedicalMetadata>,
 }
@@ -22,6 +24,7 @@ public(package) fun new(
     access_log: TableVec<PatientAccessLog>,
     address: address,
     administrative_metadata: PatientAdministrativeMetadata,
+    delegation_audit_log: TableVec<PatientDelegationAuditEntry>,
     is_profile_completed: bool,
     medical_metadata: TableVec<PatientMedicalMetadata>,
 ): PatientAccount
@@ -30,6 +33,7 @@ public(package) fun new(
     	access_log,
         address,
     	administrative_metadata,
+        delegation_audit_log,
         is_profile_completed,
     	medical_metadata,
     }
@@ -47,6 +51,20 @@ public(package) fun borrow_mut_access_log(
 ): &mut TableVec<PatientAccessLog>
 {
     &mut self.access_log
+}
+
+public(package) fun borrow_delegation_audit_log(
+    self: &PatientAccount,
+): &TableVec<PatientDelegationAuditEntry>
+{
+    &self.delegation_audit_log
+}
+
+public(package) fun borrow_mut_delegation_audit_log(
+    self: &mut PatientAccount,
+): &mut TableVec<PatientDelegationAuditEntry>
+{
+    &mut self.delegation_audit_log
 }
 
 public(package) fun borrow_administrative_metadata(
@@ -110,6 +128,7 @@ public(package) fun default(
     	access_log: table_vec::empty<PatientAccessLog>(ctx),
     	address,
     	administrative_metadata: patient_administrative_metadata_default(),
+        delegation_audit_log: table_vec::empty<PatientDelegationAuditEntry>(ctx),
     	is_profile_completed: false,
     	medical_metadata: table_vec::empty<PatientMedicalMetadata>(ctx),
     }

@@ -164,6 +164,7 @@ pub fn run() {
             home::get_medical_record,
             access::revoke_access,
             access::get_access_log,
+            access::get_delegation_audit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4,7 +4,6 @@ use decmed_macaroon_auth::{
     TokenVerificationContext, VerifiedDecmedToken, WalletProofContext, WalletSignatureVerifier,
 };
 use decmed_rme_segment::{DatasetCategory, FunctionCategory, RmeSegmentMetadata};
-use macaroon::Macaroon;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -55,16 +54,11 @@ pub fn segment_allowed_for_list(
     verify_segment_access(&verified.effective, &ctx).is_ok()
 }
 
-pub fn verify_list_wallet_proof_if_required(
+pub fn verify_list_wallet_proof(
     verified: &VerifiedDecmedToken,
-    mac: &Macaroon,
     patient_iota_address: &str,
     headers: &HeaderMap,
 ) -> Result<(), ProxyError> {
-    if verified.effective.proof_required.is_none() {
-        return Ok(());
-    }
-
     let proof_timestamp = headers
         .get(WALLET_TIMESTAMP_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -116,7 +110,6 @@ pub fn verify_list_wallet_proof_if_required(
         return Err(map_caveat_error(CaveatVerificationError::ExpiredToken));
     }
 
-    let _ = mac;
     Ok(())
 }
 
@@ -267,7 +260,6 @@ mod tests {
             InitialDoctorTokenParams::example_doctor_token("0xpatient", "rme-1", "0xdoc");
         params.read_datasets = vec![DatasetCategory::RAWAT_JALAN];
         params.read_functions = vec![FunctionCategory::ANAMNESIS];
-        params.require_wallet_proof = false;
         let mac_str = issue_initial_token(&root_key, &params).unwrap();
         let mac = macaroon::Macaroon::deserialize(&mac_str).unwrap();
         let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac).unwrap();
@@ -283,6 +275,9 @@ mod tests {
             legacy_role: None,
             legacy_purpose: None,
         };
+
+        let err = verify_list_wallet_proof(&verified, "0xpatient", &HeaderMap::new()).unwrap_err();
+        assert!(matches!(err, ProxyError::WalletProofChallenge { .. }));
 
         let allowed = sample_segment(
             "0xpatient",

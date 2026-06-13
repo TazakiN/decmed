@@ -80,6 +80,7 @@ pub fn administrative_general_payload_from_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn rejects_empty_id() {

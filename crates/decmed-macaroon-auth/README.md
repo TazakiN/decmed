@@ -14,10 +14,12 @@ DecMed Macaroon caveat layer for fine-grained RME access control.
 | `read_function_in` / `write_function_in` | `[LABORATORIUM]` |
 | `expires_before` | `2026-05-16T18:00:00` |
 | `max_delegation_depth` | `1` |
-| `proof_required` | `wallet_signature` |
 
 `holder_address` is **not** used. Active identity is derived from `root_subject` and the
 `delegated_by` / `delegated_to` chain (`active_subject` = last `delegated_to`, or `root_subject`).
+
+Older tokens containing `proof_required = wallet_signature` remain parseable for compatibility.
+New tokens do not emit this caveat because wallet proof is mandatory for every DecMed token.
 
 ## Effective access
 
@@ -49,7 +51,7 @@ delegations to one RME episode.
 1. Verify macaroon HMAC with root key.
 2. Match `patient_address` / `related_rme_id`.
 3. Validate delegation chain and `max_delegation_depth`.
-4. If `proof_required = wallet_signature`, verify IOTA ED25519 signature over `WalletProofContext` JSON from `active_subject`.
+4. Verify the mandatory IOTA ED25519 signature over `WalletProofContext` JSON from `active_subject`.
 5. Intersect caveats → allow READ/WRITE only when dataset + function categories match segment metadata.
 
 ## Segment metadata

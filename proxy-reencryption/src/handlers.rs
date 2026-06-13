@@ -989,20 +989,12 @@ impl Handlers {
         };
 
         if let Some(verified) = current_user.decmed_token.as_ref() {
-            let mac =
-                macaroon::Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
-                    ProxyError::Anyhow {
-                        source: anyhow!("Invalid access token"),
-                        code: StatusCode::UNAUTHORIZED,
-                    }
-                })?;
             crate::metadata_list::verify_decmed_token_patient_for_list(
                 verified,
                 &query.patient_iota_address,
             )?;
-            crate::metadata_list::verify_list_wallet_proof_if_required(
+            crate::metadata_list::verify_list_wallet_proof(
                 verified,
-                &mac,
                 &query.patient_iota_address,
                 &headers,
             )?;
@@ -1376,7 +1368,6 @@ impl Handlers {
                             code: StatusCode::BAD_REQUEST.as_u16(),
                             error: e.to_string(),
                         })?;
-                        read_params.require_wallet_proof = true;
                         if let Some(hospital_id) = payload.hospital_id.clone() {
                             read_params.hospital_id = Some(hospital_id);
                         }
@@ -1392,7 +1383,6 @@ impl Handlers {
                             code: StatusCode::BAD_REQUEST.as_u16(),
                             error: e.to_string(),
                         })?;
-                        write_params.require_wallet_proof = true;
                         if let Some(hospital_id) = payload.hospital_id.clone() {
                             write_params.hospital_id = Some(hospital_id);
                         }
@@ -1438,7 +1428,6 @@ impl Handlers {
                         )
                         .into_read_only();
                         read_params.expires_before = expires_before;
-                        read_params.require_wallet_proof = true;
                         if let Some(hospital_id) = payload.hospital_id.clone() {
                             read_params.hospital_id = Some(hospital_id);
                         }
@@ -1463,7 +1452,6 @@ impl Handlers {
                                 )
                                 .into_update_only();
                             update_params.expires_before = update_expires;
-                            update_params.require_wallet_proof = true;
                             if let Some(hospital_id) = payload.hospital_id.clone() {
                                 update_params.hospital_id = Some(hospital_id);
                             }

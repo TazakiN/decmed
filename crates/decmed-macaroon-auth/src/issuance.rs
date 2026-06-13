@@ -34,7 +34,6 @@ pub struct InitialAdminPersonnelTokenParams {
     pub write_functions: Vec<FunctionCategory>,
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
-    pub require_wallet_proof: bool,
     pub hospital_id: Option<String>,
     pub purpose: Option<String>,
 }
@@ -86,7 +85,6 @@ impl InitialAdminPersonnelTokenParams {
             write_functions,
             expires_before,
             max_delegation_depth: 3,
-            require_wallet_proof: true,
             hospital_id: None,
             purpose: Some(purpose.into()),
         })
@@ -139,7 +137,6 @@ pub struct InitialDoctorTokenParams {
     pub write_functions: Vec<FunctionCategory>,
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
-    pub require_wallet_proof: bool,
     pub hospital_id: Option<String>,
     pub purpose: Option<String>,
 }
@@ -162,7 +159,6 @@ impl InitialDoctorTokenParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 1,
-            require_wallet_proof: true,
             hospital_id: None,
             purpose: None,
         }
@@ -210,7 +206,6 @@ impl InitialDoctorTokenParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 3,
-            require_wallet_proof: true,
             hospital_id: None,
             purpose: Some("Read".into()),
         }
@@ -241,7 +236,6 @@ struct DecmedTokenFields<'a> {
     write_functions: &'a [FunctionCategory],
     expires_before: DateTime<Utc>,
     max_delegation_depth: u32,
-    require_wallet_proof: bool,
     hospital_id: Option<&'a str>,
     purpose: Option<&'a str>,
 }
@@ -316,9 +310,6 @@ fn issue_decmed_token(
         CaveatKey::MaxDelegationDepth,
         &fields.max_delegation_depth.to_string(),
     );
-    if fields.require_wallet_proof {
-        add_caveat_to_macaroon(&mut mac, CaveatKey::ProofRequired, "wallet_signature");
-    }
     if let Some(hospital_id) = fields.hospital_id {
         add_caveat_to_macaroon(&mut mac, CaveatKey::HospitalId, hospital_id);
     }
@@ -362,7 +353,6 @@ pub fn issue_admin_personnel_token(
             write_functions: &params.write_functions,
             expires_before: params.expires_before,
             max_delegation_depth: params.max_delegation_depth,
-            require_wallet_proof: params.require_wallet_proof,
             hospital_id: params.hospital_id.as_deref(),
             purpose: params.purpose.as_deref(),
         },
@@ -385,7 +375,6 @@ pub fn issue_initial_token(
             write_functions: &params.write_functions,
             expires_before: params.expires_before,
             max_delegation_depth: params.max_delegation_depth,
-            require_wallet_proof: params.require_wallet_proof,
             hospital_id: params.hospital_id.as_deref(),
             purpose: params.purpose.as_deref(),
         },

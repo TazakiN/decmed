@@ -129,7 +129,7 @@ fn test_admin_dual_token_issue_and_verify() {
     let root_key = MacaroonKey::generate(ROOT.as_bytes());
     let expires = chrono::Utc::now() + chrono::Duration::hours(24);
 
-    let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
+    let read_params = InitialAdminPersonnelTokenParams::for_grant(
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
@@ -137,11 +137,10 @@ fn test_admin_dual_token_issue_and_verify() {
         expires,
     )
     .unwrap();
-    read_params.require_wallet_proof = false;
     let read_token = issue_admin_personnel_token(&root_key, &read_params).unwrap();
 
     let write_expires = chrono::Utc::now() + chrono::Duration::hours(2);
-    let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
+    let write_params = InitialAdminPersonnelTokenParams::for_grant(
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
@@ -149,8 +148,24 @@ fn test_admin_dual_token_issue_and_verify() {
         write_expires,
     )
     .unwrap();
-    write_params.require_wallet_proof = false;
     let write_token = issue_admin_personnel_token(&root_key, &write_params).unwrap();
+
+    struct TestWalletVerifier;
+    impl decmed_macaroon_auth::WalletSignatureVerifier for TestWalletVerifier {
+        fn verify(
+            &self,
+            _context: &decmed_macaroon_auth::WalletProofContext,
+            signature_b64: &str,
+            expected_address: &str,
+        ) -> Result<(), decmed_macaroon_auth::CaveatVerificationError> {
+            if signature_b64 == "valid-sig" && expected_address == ADMIN {
+                Ok(())
+            } else {
+                Err(decmed_macaroon_auth::CaveatVerificationError::InvalidWalletSignature)
+            }
+        }
+    }
+    let wallet_verifier = TestWalletVerifier;
 
     let read_mac = Macaroon::deserialize(&read_token).unwrap();
     assert!(verify_decmed_token(
@@ -165,11 +180,11 @@ fn test_admin_dual_token_issue_and_verify() {
                 dataset_category: DatasetCategory::RAWAT_INAP,
                 function_category: FunctionCategory::ANAMNESIS,
             },
-            wallet_signature_b64: None,
+            wallet_signature_b64: Some("valid-sig".into()),
             wallet_timestamp: None,
             now: chrono::Utc::now(),
         },
-        None,
+        Some(&wallet_verifier),
     )
     .is_ok());
 
@@ -186,11 +201,11 @@ fn test_admin_dual_token_issue_and_verify() {
                 dataset_category: DatasetCategory::LABORATORIUM,
                 function_category: FunctionCategory::LABORATORIUM,
             },
-            wallet_signature_b64: None,
+            wallet_signature_b64: Some("valid-sig".into()),
             wallet_timestamp: None,
             now: chrono::Utc::now(),
         },
-        None,
+        Some(&wallet_verifier),
     )
     .is_ok());
 

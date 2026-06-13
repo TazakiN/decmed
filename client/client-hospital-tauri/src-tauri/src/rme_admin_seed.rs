@@ -95,7 +95,6 @@ fn seed_token_for_dataset(
         write_functions: vec![FunctionCategory::ADMINISTRATIVE_GENERAL],
         expires_before,
         max_delegation_depth: 0,
-        require_wallet_proof: true,
         related_rme_id: parent
             .related_rme_id
             .is_none()
@@ -288,7 +287,7 @@ mod tests {
         let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
             .unwrap()
             .with_timezone(&Utc);
-        let mut params = InitialAdminPersonnelTokenParams::for_grant(
+        let params = InitialAdminPersonnelTokenParams::for_grant(
             "0x1111111111111111111111111111111111111111111111111111111111111111",
             "0x7777777777777777777777777777777777777777777777777777777777777777",
             DatasetCategory::RAWAT_JALAN,
@@ -296,7 +295,6 @@ mod tests {
             expires,
         )
         .unwrap();
-        params.require_wallet_proof = false;
         let root_key = macaroon::MacaroonKey::generate(b"decmed-hospital-admin-seed-test-key!!");
         issue_admin_personnel_token(&root_key, &params).unwrap()
     }

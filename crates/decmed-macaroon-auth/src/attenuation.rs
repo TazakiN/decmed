@@ -19,7 +19,6 @@ pub struct DelegationAttenuationParams {
     pub write_functions: Vec<FunctionCategory>,
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
-    pub require_wallet_proof: bool,
     /// When set, assigns a new related RME id (only allowed if parent has none).
     pub related_rme_id: Option<String>,
 }
@@ -41,7 +40,6 @@ impl DelegationAttenuationParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 0,
-            require_wallet_proof: true,
             related_rme_id: None,
         }
     }
@@ -60,7 +58,6 @@ impl DelegationAttenuationParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 0,
-            require_wallet_proof: true,
             related_rme_id: None,
         }
     }
@@ -79,7 +76,6 @@ impl DelegationAttenuationParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 0,
-            require_wallet_proof: true,
             related_rme_id: None,
         }
     }
@@ -104,7 +100,6 @@ impl DelegationAttenuationParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 1,
-            require_wallet_proof: true,
             related_rme_id: Some(related_rme_id.to_string()),
         }
     }
@@ -174,9 +169,6 @@ pub fn attenuate_macaroon(
         CaveatKey::MaxDelegationDepth,
         &params.max_delegation_depth.to_string(),
     );
-    if params.require_wallet_proof {
-        add_caveat_to_macaroon(&mut mac, CaveatKey::ProofRequired, "wallet_signature");
-    }
     if let Some(rme_id) = &params.related_rme_id {
         add_caveat_to_macaroon(&mut mac, CaveatKey::RelatedRmeId, rme_id);
     }

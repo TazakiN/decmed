@@ -255,7 +255,6 @@ fn build_delegation_params(
         write_functions,
         expires_before,
         max_delegation_depth: 0,
-        require_wallet_proof: true,
         related_rme_id,
     }
 }
@@ -534,7 +533,6 @@ fn admin_delegation_params(
         }
     };
     params.expires_before = expires_before;
-    params.require_wallet_proof = true;
     Ok(params)
 }
 

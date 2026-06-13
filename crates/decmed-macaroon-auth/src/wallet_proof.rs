@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::effective::AccessMode;
 use crate::errors::CaveatVerificationError;
 
-/// Canonical request context signed by the active wallet when `proof_required = wallet_signature`.
+/// Canonical request context signed by the active wallet for every DecMed token request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WalletProofContext {
     pub token_id: String,

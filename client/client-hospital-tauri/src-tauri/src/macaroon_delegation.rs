@@ -15,14 +15,8 @@ pub struct DelegateMacaroonPayload {
     pub write_functions: Vec<String>,
     pub expires_before: String,
     pub max_delegation_depth: u32,
-    #[serde(default = "default_true")]
-    pub require_wallet_proof: bool,
     #[serde(default)]
     pub related_rme_id: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +63,6 @@ pub fn delegate_macaroon(
         write_functions: parse_functions(&payload.write_functions)?,
         expires_before,
         max_delegation_depth: payload.max_delegation_depth,
-        require_wallet_proof: payload.require_wallet_proof,
         related_rme_id: payload.related_rme_id,
     };
 

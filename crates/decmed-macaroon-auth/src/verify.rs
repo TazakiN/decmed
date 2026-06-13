@@ -102,27 +102,25 @@ pub fn verify_decmed_token(
 
     verify_segment_access(&effective, ctx)?;
 
-    if effective.proof_required.is_some() {
-        let sig = ctx
-            .wallet_signature_b64
-            .as_deref()
-            .ok_or(CaveatVerificationError::WalletSignatureRequired)?;
-        let proof_ctx = WalletProofContext {
-            token_id: mac.identifier().to_string(),
-            patient_address: ctx.segment.patient_address.clone(),
-            related_rme_id: ctx.segment.related_rme_id.clone(),
-            operation: ctx.operation,
-            segment_id: ctx.segment.segment_id.clone(),
-            dataset_category: ctx.segment.dataset_category,
-            function_category: ctx.segment.function_category,
-            timestamp: ctx
-                .wallet_timestamp
-                .clone()
-                .unwrap_or_else(|| ctx.now.to_rfc3339()),
-        };
-        let verifier = wallet_verifier.ok_or(CaveatVerificationError::InvalidWalletSignature)?;
-        verifier.verify(&proof_ctx, sig, &delegation.active_subject)?;
-    }
+    let sig = ctx
+        .wallet_signature_b64
+        .as_deref()
+        .ok_or(CaveatVerificationError::WalletSignatureRequired)?;
+    let proof_ctx = WalletProofContext {
+        token_id: mac.identifier().to_string(),
+        patient_address: ctx.segment.patient_address.clone(),
+        related_rme_id: ctx.segment.related_rme_id.clone(),
+        operation: ctx.operation,
+        segment_id: ctx.segment.segment_id.clone(),
+        dataset_category: ctx.segment.dataset_category,
+        function_category: ctx.segment.function_category,
+        timestamp: ctx
+            .wallet_timestamp
+            .clone()
+            .unwrap_or_else(|| ctx.now.to_rfc3339()),
+    };
+    let verifier = wallet_verifier.ok_or(CaveatVerificationError::InvalidWalletSignature)?;
+    verifier.verify(&proof_ctx, sig, &delegation.active_subject)?;
 
     Ok(VerifiedDecmedToken {
         parsed,
@@ -219,7 +217,6 @@ fn verify_legacy_token(
             expires_before: None,
             root_max_delegation_depth: None,
             remaining_max_delegation_depth: None,
-            proof_required: None,
             patient_address: None,
             related_rme_id: None,
         },

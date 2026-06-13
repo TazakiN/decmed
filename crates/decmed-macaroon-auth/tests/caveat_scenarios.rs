@@ -15,7 +15,7 @@ const LAB: &str = "0x33333333333333333333333333333333333333333333333333333333333
 const RME_ID: &str = "RME-001";
 
 struct MockVerifier {
-    expect_address: String,
+    expect_address: Option<String>,
     valid_sig: String,
 }
 
@@ -26,7 +26,12 @@ impl WalletSignatureVerifier for MockVerifier {
         signature_b64: &str,
         expected_address: &str,
     ) -> Result<(), CaveatVerificationError> {
-        if expected_address != self.expect_address || signature_b64 != self.valid_sig {
+        if self
+            .expect_address
+            .as_deref()
+            .is_some_and(|a| a != expected_address)
+            || signature_b64 != self.valid_sig
+        {
             return Err(CaveatVerificationError::InvalidWalletSignature);
         }
         Ok(())
@@ -38,9 +43,7 @@ fn root_key() -> MacaroonKey {
 }
 
 fn doctor_token_params() -> InitialDoctorTokenParams {
-    let mut p = InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR);
-    p.require_wallet_proof = false;
-    p
+    InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR)
 }
 
 fn doctor_token() -> String {
@@ -48,8 +51,7 @@ fn doctor_token() -> String {
 }
 
 fn lab_token(parent: &str) -> String {
-    let mut p = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
-    p.require_wallet_proof = false;
+    let p = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
     attenuate_macaroon(parent, &p).unwrap()
 }
 
@@ -69,16 +71,27 @@ fn verify_ctx(
         dataset_category: dataset,
         function_category: function,
     };
+    let ctx = TokenVerificationContext {
+        operation: op,
+        segment,
+        wallet_signature_b64: sig,
+        wallet_timestamp: None,
+        now: Utc::now(),
+    };
+    if ctx.wallet_signature_b64.is_none() && wallet_verifier.is_none() {
+        let verifier = MockVerifier {
+            expect_address: None,
+            valid_sig: "valid-sig".into(),
+        };
+        let mut signed_ctx = ctx;
+        signed_ctx.wallet_signature_b64 = Some("valid-sig".into());
+        return verify_decmed_token(&mac, &root_key(), &signed_ctx, Some(&verifier)).map(|_| ());
+    }
+
     verify_decmed_token(
         &mac,
         &root_key(),
-        &(TokenVerificationContext {
-            operation: op,
-            segment,
-            wallet_signature_b64: sig,
-            wallet_timestamp: None,
-            now: Utc::now(),
-        }),
+        &ctx,
         wallet_verifier.map(|v| v as &dyn WalletSignatureVerifier),
     )
     .map(|_| ())
@@ -106,7 +119,7 @@ fn admin_read_token() -> String {
     let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
         .unwrap()
         .with_timezone(&Utc);
-    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+    let params = InitialAdminPersonnelTokenParams::for_grant(
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
@@ -114,7 +127,6 @@ fn admin_read_token() -> String {
         expires,
     )
     .unwrap();
-    params.require_wallet_proof = false;
     issue_admin_personnel_token(&root_key(), &params).unwrap()
 }
 
@@ -125,7 +137,7 @@ fn admin_write_token() -> String {
     let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
         .unwrap()
         .with_timezone(&Utc);
-    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+    let params = InitialAdminPersonnelTokenParams::for_grant(
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
@@ -133,21 +145,18 @@ fn admin_write_token() -> String {
         expires,
     )
     .unwrap();
-    params.require_wallet_proof = false;
     issue_admin_personnel_token(&root_key(), &params).unwrap()
 }
 
 fn rm_read_token() -> String {
-    let mut p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
+    let p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
         .into_read_only();
-    p.require_wallet_proof = false;
     issue_initial_token(&root_key(), &p).unwrap()
 }
 
 fn rm_update_token() -> String {
-    let mut p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
+    let p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
         .into_update_only();
-    p.require_wallet_proof = false;
     issue_initial_token(&root_key(), &p).unwrap()
 }
 
@@ -213,6 +222,10 @@ fn admin_read_without_rme_reads_any_episode() {
     .is_ok());
 
     let mac = macaroon::Macaroon::deserialize(&admin_read_token()).unwrap();
+    let verifier = MockVerifier {
+        expect_address: Some(ADMIN.into()),
+        valid_sig: "valid-sig".into(),
+    };
     assert!(verify_decmed_token(
         &mac,
         &root_key(),
@@ -225,11 +238,11 @@ fn admin_read_without_rme_reads_any_episode() {
                 dataset_category: DatasetCategory::LABORATORIUM,
                 function_category: FunctionCategory::LABORATORIUM,
             },
-            wallet_signature_b64: None,
+            wallet_signature_b64: Some("valid-sig".into()),
             wallet_timestamp: None,
             now: Utc::now(),
         }),
-        None
+        Some(&verifier)
     )
     .is_ok());
 }
@@ -243,11 +256,14 @@ fn admin_write_parent_assigns_rme_on_delegate() {
         DELEGATED_RME,
         DatasetCategory::RAWAT_JALAN,
     );
-    params.require_wallet_proof = false;
     params.read_datasets.clear();
     params.read_functions.clear();
     let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
     let mac = macaroon::Macaroon::deserialize(&delegated).unwrap();
+    let verifier = MockVerifier {
+        expect_address: Some(DOCTOR.into()),
+        valid_sig: "valid-sig".into(),
+    };
     assert!(verify_decmed_token(
         &mac,
         &root_key(),
@@ -260,11 +276,11 @@ fn admin_write_parent_assigns_rme_on_delegate() {
                 dataset_category: DatasetCategory::RAWAT_JALAN,
                 function_category: FunctionCategory::DIAGNOSIS,
             },
-            wallet_signature_b64: None,
+            wallet_signature_b64: Some("valid-sig".into()),
             wallet_timestamp: None,
             now: Utc::now(),
         }),
-        None
+        Some(&verifier)
     )
     .is_ok());
 
@@ -475,8 +491,7 @@ fn lab_read_penunjang_ok() {
 
 #[test]
 fn apotek_read_therapy_ok() {
-    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
-    p.require_wallet_proof = false;
+    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     assert!(verify_ctx(
         &token,
@@ -519,8 +534,7 @@ fn lab_denied_write_penunjang() {
 
 #[test]
 fn apotek_denied_write_administrative_general() {
-    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
-    p.require_wallet_proof = false;
+    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     let err = verify_ctx(
         &token,
@@ -536,8 +550,7 @@ fn apotek_denied_write_administrative_general() {
 
 #[test]
 fn apotek_denied_write_therapy() {
-    let mut p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
-    p.require_wallet_proof = false;
+    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     let err = verify_ctx(
         &token,
@@ -558,8 +571,7 @@ fn cannot_delegate_write_function_from_parent_read_only_scope() {
         .write_functions
         .retain(|function| *function != FunctionCategory::PERESEPAN);
     let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
-    let mut params = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
-    params.require_wallet_proof = false;
+    let params = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
     let err = attenuate_macaroon(&parent, &params).unwrap_err();
     assert_eq!(
         err,
@@ -568,16 +580,25 @@ fn cannot_delegate_write_function_from_parent_read_only_scope() {
 }
 
 #[test]
-fn wallet_signature_required_when_proof_caveat_present() {
-    let mut p = doctor_token_params();
-    p.require_wallet_proof = true;
-    let token = issue_initial_token(&root_key(), &p).unwrap();
-    let err = verify_ctx(
-        &token,
-        AccessMode::Read,
-        DatasetCategory::LABORATORIUM,
-        FunctionCategory::LABORATORIUM,
-        None,
+fn wallet_signature_required_for_every_decmed_token() {
+    let token = doctor_token();
+    let mac = macaroon::Macaroon::deserialize(&token).unwrap();
+    let err = verify_decmed_token(
+        &mac,
+        &root_key(),
+        &TokenVerificationContext {
+            operation: AccessMode::Read,
+            segment: SegmentAccessContext {
+                segment_id: "seg-1".into(),
+                patient_address: PATIENT.into(),
+                related_rme_id: RME_ID.into(),
+                dataset_category: DatasetCategory::LABORATORIUM,
+                function_category: FunctionCategory::LABORATORIUM,
+            },
+            wallet_signature_b64: None,
+            wallet_timestamp: None,
+            now: Utc::now(),
+        },
         None,
     )
     .unwrap_err();
@@ -585,12 +606,51 @@ fn wallet_signature_required_when_proof_caveat_present() {
 }
 
 #[test]
+fn newly_issued_token_does_not_include_proof_required() {
+    let mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
+    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+    assert!(parsed.all(CaveatKey::ProofRequired).is_empty());
+}
+
+#[test]
+fn legacy_proof_required_caveat_is_accepted_but_does_not_control_verification() {
+    let mut mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
+    decmed_macaroon_auth::add_caveat_to_macaroon(
+        &mut mac,
+        CaveatKey::ProofRequired,
+        "wallet_signature",
+    );
+    let token = mac.serialize(macaroon::Format::V2).unwrap();
+
+    assert!(verify_ctx(
+        &token,
+        AccessMode::Read,
+        DatasetCategory::LABORATORIUM,
+        FunctionCategory::LABORATORIUM,
+        None,
+        None,
+    )
+    .is_ok());
+
+    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
+    assert_eq!(parsed.all(CaveatKey::ProofRequired).len(), 1);
+}
+
+#[test]
+fn unsupported_legacy_proof_requirement_is_rejected() {
+    let err = parse_caveat_line("proof_required = other").unwrap_err();
+    assert_eq!(
+        err,
+        CaveatVerificationError::UnsupportedProofRequirement("other".into())
+    );
+}
+
+#[test]
 fn invalid_wallet_signature_rejected() {
-    let mut del = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
-    del.require_wallet_proof = true;
+    let del = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
     let token = attenuate_macaroon(&doctor_token(), &del).unwrap();
     let verifier = MockVerifier {
-        expect_address: LAB.to_string(),
+        expect_address: Some(LAB.to_string()),
         valid_sig: "valid-sig".into(),
     };
     let err = verify_ctx(
@@ -724,7 +784,6 @@ fn admin_write_delegates_doctor_preset_succeeds() {
         "RME-DOC-001",
         DatasetCategory::RAWAT_JALAN,
     );
-    params.require_wallet_proof = false;
     params.read_datasets.clear();
     params.read_functions.clear();
     let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
@@ -763,7 +822,6 @@ fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 0,
-            require_wallet_proof: false,
             related_rme_id: Some(DELEGATED_RME.into()),
         };
         let seed_token = attenuate_macaroon(&admin_write_token(), &params).unwrap();
@@ -775,6 +833,10 @@ fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
         assert!(effective
             .write_functions
             .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
+        let verifier = MockVerifier {
+            expect_address: Some(ADMIN.into()),
+            valid_sig: "valid-sig".into(),
+        };
         assert!(verify_decmed_token(
             &mac,
             &root_key(),
@@ -787,11 +849,11 @@ fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
                     dataset_category: dataset,
                     function_category: FunctionCategory::ADMINISTRATIVE_GENERAL,
                 },
-                wallet_signature_b64: None,
+                wallet_signature_b64: Some("valid-sig".into()),
                 wallet_timestamp: None,
                 now: Utc::now(),
             }),
-            None,
+            Some(&verifier),
         )
         .is_ok());
     }
@@ -810,7 +872,6 @@ fn admin_write_rejects_delegation_with_scope_beyond_write_parent() {
             .unwrap()
             .with_timezone(&Utc),
         max_delegation_depth: 0,
-        require_wallet_proof: false,
         related_rme_id: Some("RME-REJECT".into()),
     };
     let err = attenuate_macaroon(&admin_write_token(), &params).unwrap_err();
@@ -833,7 +894,6 @@ fn admin_write_true_expansion_still_fails() {
             .unwrap()
             .with_timezone(&Utc),
         max_delegation_depth: 0,
-        require_wallet_proof: false,
         related_rme_id: Some("RME-EXPAND".into()),
     };
     let err = attenuate_macaroon(&admin_write_token(), &params).unwrap_err();

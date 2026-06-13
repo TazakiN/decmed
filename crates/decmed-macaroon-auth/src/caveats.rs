@@ -20,6 +20,7 @@ pub enum CaveatKey {
     WriteFunctionIn,
     ExpiresBefore,
     MaxDelegationDepth,
+    // Legacy compatibility only; wallet proof is mandatory for all DecMed tokens.
     ProofRequired,
     HospitalId,
     ParentTokenHash,
@@ -65,12 +66,6 @@ pub enum CaveatValue {
     FunctionList(HashSet<FunctionCategory>),
     Expiry(DateTime<Utc>),
     Depth(u32),
-    ProofKind(ProofKind),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ProofKind {
-    WalletSignature,
 }
 
 #[derive(Clone, Debug)]
@@ -153,15 +148,13 @@ fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVer
             Ok(CaveatValue::Depth(depth))
         }
         CaveatKey::ProofRequired => {
-            let kind = match value_str {
-                "wallet_signature" => ProofKind::WalletSignature,
-                other => {
-                    return Err(CaveatVerificationError::UnsupportedProofRequirement(
-                        other.to_string(),
-                    ))
-                }
-            };
-            Ok(CaveatValue::ProofKind(kind))
+            if value_str != "wallet_signature" {
+                return Err(CaveatVerificationError::UnsupportedProofRequirement(
+                    value_str.to_string(),
+                ));
+            }
+            // Compatibility only: wallet proof is now mandatory for every DecMed token.
+            Ok(CaveatValue::Text(value_str.to_string()))
         }
         CaveatKey::Time => Ok(CaveatValue::Text(value_str.to_string())),
         _ => Ok(CaveatValue::Text(value_str.to_string())),

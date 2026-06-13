@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 use serde::{Deserialize, Serialize};
 
-use crate::caveats::{CaveatKey, CaveatValue, ParsedCaveats, ProofKind};
+use crate::caveats::{CaveatKey, CaveatValue, ParsedCaveats};
 use crate::errors::CaveatVerificationError;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -24,7 +24,6 @@ pub struct EffectiveCapability {
     pub root_max_delegation_depth: Option<u32>,
     /// Strictest / remaining `max_delegation_depth` after attenuation.
     pub remaining_max_delegation_depth: Option<u32>,
-    pub proof_required: Option<ProofKind>,
     pub patient_address: Option<String>,
     pub related_rme_id: Option<String>,
 }
@@ -39,8 +38,6 @@ impl EffectiveCapability {
         let expires_before = earliest_expiry(parsed)?;
         let (root_max_delegation_depth, remaining_max_delegation_depth) =
             delegation_depth_limits(parsed)?;
-        let proof_required = proof_from_parsed(parsed)?;
-
         let patient_address = single_text(parsed, CaveatKey::PatientAddress)?;
         let related_rme_id = single_text(parsed, CaveatKey::RelatedRmeId)?;
 
@@ -52,7 +49,6 @@ impl EffectiveCapability {
             expires_before,
             root_max_delegation_depth,
             remaining_max_delegation_depth,
-            proof_required,
             patient_address,
             related_rme_id,
         })
@@ -188,28 +184,6 @@ fn delegation_depth_limits(
         });
     }
     Ok((root, remaining))
-}
-
-fn proof_from_parsed(parsed: &ParsedCaveats) -> Result<Option<ProofKind>, CaveatVerificationError> {
-    let entries = parsed.all(CaveatKey::ProofRequired);
-    if entries.is_empty() {
-        return Ok(None);
-    }
-    let mut kinds = HashSet::new();
-    for entry in entries {
-        let CaveatValue::ProofKind(k) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError(
-                "proof kind expected".into(),
-            ));
-        };
-        kinds.insert(*k);
-    }
-    if kinds.len() > 1 {
-        return Err(CaveatVerificationError::ParseError(
-            "conflicting proof_required".into(),
-        ));
-    }
-    Ok(kinds.into_iter().next())
 }
 
 fn single_text(

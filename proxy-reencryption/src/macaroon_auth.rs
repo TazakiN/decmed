@@ -86,23 +86,21 @@ pub fn verify_segment_for_token(
         now: chrono::Utc::now(),
     };
     verify_segment_access(&verified.effective, &ctx).map_err(map_caveat_error)?;
-    if verified.effective.proof_required.is_some() {
-        let sig = wallet_signature
-            .ok_or_else(|| map_caveat_error(CaveatVerificationError::WalletSignatureRequired))?;
-        let proof_ctx = WalletProofContext {
-            token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
-            patient_address: metadata.patient_address.clone(),
-            related_rme_id: metadata.related_rme_id.clone(),
-            operation,
-            segment_id: metadata.segment_id.clone(),
-            dataset_category: metadata.dataset_category,
-            function_category: metadata.function_category,
-            timestamp: ctx.now.to_rfc3339(),
-        };
-        IotaWalletVerifier
-            .verify(&proof_ctx, sig, &verified.delegation.active_subject)
-            .map_err(map_caveat_error)?;
-    }
+    let sig = wallet_signature
+        .ok_or_else(|| map_caveat_error(CaveatVerificationError::WalletSignatureRequired))?;
+    let proof_ctx = WalletProofContext {
+        token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
+        patient_address: metadata.patient_address.clone(),
+        related_rme_id: metadata.related_rme_id.clone(),
+        operation,
+        segment_id: metadata.segment_id.clone(),
+        dataset_category: metadata.dataset_category,
+        function_category: metadata.function_category,
+        timestamp: ctx.now.to_rfc3339(),
+    };
+    IotaWalletVerifier
+        .verify(&proof_ctx, sig, &verified.delegation.active_subject)
+        .map_err(map_caveat_error)?;
     Ok(())
 }
 

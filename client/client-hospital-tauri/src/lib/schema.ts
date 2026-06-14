@@ -293,16 +293,7 @@ export const createRmeSegmentSchema = z
 		function_category: functionCategorySchema,
 		payload: z.record(z.unknown()).refine((payload) => Object.keys(payload).length > 0, {
 			message: 'Payload is required.'
-		}),
-		attachments: z
-			.array(
-				z.object({
-					cid: z.string().trim().min(1),
-					file_name: z.string().trim().min(1),
-					mime_type: z.string().trim().min(1)
-				})
-			)
-			.default([])
+		})
 	})
 	.superRefine((value, ctx) => {
 		if (!isValidSegmentCategory(value.dataset_category, value.function_category)) {

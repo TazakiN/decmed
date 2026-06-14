@@ -9,13 +9,6 @@ use crate::validation::{
     assert_no_plaintext_medical_fields, assert_valid_segment_category, is_empty_payload,
 };
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SegmentAttachment {
-    pub cid: String,
-    pub file_name: String,
-    pub mime_type: String,
-}
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct CreateRmeSegmentRequest {
     pub related_rme_id: String,
@@ -28,8 +21,6 @@ pub struct CreateRmeSegmentRequest {
     pub dataset_category: DatasetCategory,
     pub function_category: FunctionCategory,
     pub payload: Value,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<SegmentAttachment>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -44,8 +35,6 @@ pub struct RmeSegmentData {
     pub author_address: String,
     pub payload: Value,
     pub payload_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachments: Option<Vec<SegmentAttachment>>,
 }
 
 impl RmeSegmentData {
@@ -59,12 +48,6 @@ impl RmeSegmentData {
             return Err(SegmentValidationError::EmptyPayload);
         }
 
-        let attachments = if request.attachments.is_empty() {
-            None
-        } else {
-            Some(request.attachments)
-        };
-
         Ok(Self {
             segment_id: segment_id.to_string(),
             related_rme_id: request.related_rme_id,
@@ -76,7 +59,6 @@ impl RmeSegmentData {
             author_address: request.author_address,
             payload_hash: payload_hash(&request.payload),
             payload: request.payload,
-            attachments,
         })
     }
 

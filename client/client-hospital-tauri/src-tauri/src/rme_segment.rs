@@ -238,7 +238,6 @@ mod tests {
             payload: json!({
                 "keluhan_utama": "Demam dan batuk sejak 3 hari"
             }),
-            attachments: vec![],
         };
 
         let (off_chain, encrypted_segment) =

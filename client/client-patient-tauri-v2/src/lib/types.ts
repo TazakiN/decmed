@@ -123,12 +123,6 @@ export type FunctionCategory =
 	| 'PERESEPAN'
 	| 'DISPENSING';
 
-export type RmeSegmentAttachment = {
-	cid: string;
-	file_name: string;
-	mime_type: string;
-};
-
 export type RmeSegmentData = {
 	segment_id: string;
 	related_rme_id: string;
@@ -140,7 +134,6 @@ export type RmeSegmentData = {
 	author_address: string;
 	payload: Record<string, unknown>;
 	payload_hash: string;
-	attachments?: RmeSegmentAttachment[];
 };
 
 export type RmeSegmentMetadata = {

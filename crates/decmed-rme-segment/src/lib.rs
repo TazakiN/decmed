@@ -20,7 +20,7 @@ pub use crypto::{
 pub use error::SegmentValidationError;
 pub use types::{
     ClientEncryptedRmeSegment, CreateRmeSegmentRequest, CreateRmeSegmentResponse, RmeSegmentData,
-    RmeSegmentMetadata, SegmentAttachment,
+    RmeSegmentMetadata,
 };
 pub use validation::{
     assert_no_plaintext_medical_fields, assert_segment_pair_consistent,
@@ -46,7 +46,6 @@ mod tests {
             dataset_category: DatasetCategory::RAWAT_JALAN,
             function_category: FunctionCategory::ANAMNESIS,
             payload,
-            attachments: vec![],
         }
     }
 

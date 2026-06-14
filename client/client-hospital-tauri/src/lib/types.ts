@@ -120,12 +120,6 @@ export type AccessCapabilitiesResponse = {
 	write: AccessCapabilityData[];
 };
 
-export type RmeSegmentAttachment = {
-	cid: string;
-	file_name: string;
-	mime_type: string;
-};
-
 export type RmeSegmentData = {
 	segment_id: string;
 	related_rme_id: string;
@@ -137,7 +131,6 @@ export type RmeSegmentData = {
 	author_address: string;
 	payload: Record<string, unknown>;
 	payload_hash: string;
-	attachments?: RmeSegmentAttachment[];
 };
 
 export type RmeSegmentMetadata = {
@@ -178,7 +171,6 @@ export type CreateRmeSegmentRequest = {
 	dataset_category: DatasetCategory;
 	function_category: FunctionCategory;
 	payload: Record<string, unknown>;
-	attachments?: RmeSegmentAttachment[];
 };
 
 export type TauriPatientPrivateAdministrativeData = {

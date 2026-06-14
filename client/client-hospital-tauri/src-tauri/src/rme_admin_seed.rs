@@ -232,7 +232,6 @@ pub async fn seed_administrative_general_segments(
             dataset_category: dataset,
             function_category: FunctionCategory::ADMINISTRATIVE_GENERAL,
             payload: payload.clone(),
-            attachments: vec![],
         };
 
         let encrypted = match build_encrypted_rme_segment(request, patient_pre_public_key.clone()) {

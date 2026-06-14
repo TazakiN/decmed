@@ -98,8 +98,7 @@
 						author_address: 'self',
 						dataset_category: selectedDataset,
 						function_category: entry.functionCategory,
-						payload: { text: entry.text },
-						attachments: []
+						payload: { text: entry.text }
 					},
 					patientPrePublicKey: data.patientPrePublicKey,
 					pin: null,

@@ -1,29 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::error::SegmentValidationError;
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum EncryptionAlgorithm {
-    #[serde(rename = "AES-256-GCM")]
-    Aes256Gcm,
-}
-
-impl Default for EncryptionAlgorithm {
-    fn default() -> Self {
-        Self::Aes256Gcm
-    }
-}
-
-impl EncryptionAlgorithm {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Aes256Gcm => "AES-256-GCM",
-        }
-    }
-}
 
 pub fn canonical_json(value: &Value) -> String {
     match value {

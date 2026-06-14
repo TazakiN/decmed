@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use decmed_rme_segment::{
     sha256_hex, ClientEncryptedRmeSegment, CreateRmeSegmentRequest, CreateRmeSegmentResponse,
-    EncryptionAlgorithm, RmeSegmentData,
+    RmeSegmentData,
 };
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{EncodeDecodeBase64, IotaKeyPair, Signature};
@@ -71,7 +71,6 @@ pub fn build_encrypted_rme_segment(
         capsule: serde_serialize_to_base64(&segment_key_nonce_capsule).context(current_fn!())?,
         enc_data: STANDARD.encode(encrypted_segment),
         enc_key_and_nonce: STANDARD.encode(enc_segment_key_nonce),
-        encryption_algo: EncryptionAlgorithm::Aes256Gcm,
         author_address,
     };
 

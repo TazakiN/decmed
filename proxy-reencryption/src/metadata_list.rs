@@ -223,7 +223,6 @@ mod tests {
             integrity_hash: "abc".to_string(),
             capsule: "cap".to_string(),
             enc_key_and_nonce: "key".to_string(),
-            encryption_algo: Default::default(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
             author_address: "0xauthor".to_string(),
             updated_at: None,

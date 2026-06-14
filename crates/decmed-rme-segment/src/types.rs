@@ -3,7 +3,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::category::{DatasetCategory, FunctionCategory};
-use crate::crypto::{ciphertext_integrity_hash_from_base64, payload_hash, EncryptionAlgorithm};
+use crate::crypto::{ciphertext_integrity_hash_from_base64, payload_hash};
 use crate::error::SegmentValidationError;
 use crate::validation::{
     assert_no_plaintext_medical_fields, assert_valid_segment_category, is_empty_payload,
@@ -93,8 +93,6 @@ pub struct ClientEncryptedRmeSegment {
     pub capsule: String,
     pub enc_data: String,
     pub enc_key_and_nonce: String,
-    #[serde(default)]
-    pub encryption_algo: EncryptionAlgorithm,
     pub author_address: String,
 }
 
@@ -140,7 +138,6 @@ impl ClientEncryptedRmeSegment {
             integrity_hash: self.integrity_hash,
             capsule: self.capsule,
             enc_key_and_nonce: self.enc_key_and_nonce,
-            encryption_algo: self.encryption_algo,
             created_at,
             author_address: self.author_address,
             updated_at: None,
@@ -160,8 +157,6 @@ pub struct RmeSegmentMetadata {
     pub integrity_hash: String,
     pub capsule: String,
     pub enc_key_and_nonce: String,
-    #[serde(default)]
-    pub encryption_algo: EncryptionAlgorithm,
     pub created_at: String,
     pub author_address: String,
     pub updated_at: Option<String>,

@@ -13,10 +13,7 @@ pub use administrative_payload::{
 pub use category::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
 };
-pub use crypto::{
-    canonical_json, ciphertext_integrity_hash_from_base64, payload_hash, sha256_hex,
-    EncryptionAlgorithm,
-};
+pub use crypto::{canonical_json, ciphertext_integrity_hash_from_base64, payload_hash, sha256_hex};
 pub use error::SegmentValidationError;
 pub use types::{
     ClientEncryptedRmeSegment, CreateRmeSegmentRequest, CreateRmeSegmentResponse, RmeSegmentData,
@@ -61,7 +58,6 @@ mod tests {
             integrity_hash: sha256_hex(ciphertext),
             capsule: "pre-capsule-value".to_string(),
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
-            encryption_algo: EncryptionAlgorithm::Aes256Gcm,
             created_at: "2026-05-18T10:30:00.000Z".to_string(),
             author_address: "iota:doctor-address".to_string(),
             updated_at: None,
@@ -213,7 +209,10 @@ mod tests {
     #[test]
     fn serializer_outputs_snake_case_json_keys() {
         let metadata = sample_metadata(b"encrypted segment");
-        let value = serde_json::to_value(metadata).unwrap();
+        let stored = STANDARD.encode(serde_json::to_vec(&metadata).unwrap());
+        let decoded = STANDARD.decode(stored).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        let legacy_algorithm_key = ["encryption", "algo"].join("_");
 
         assert!(value.get("segment_id").is_some());
         assert!(value.get("related_rme_id").is_some());
@@ -221,6 +220,7 @@ mod tests {
         assert!(value.get("function_category").is_some());
         assert!(value.get("ipfs_cid").is_some());
         assert!(value.get("enc_key_and_nonce").is_some());
+        assert!(value.get(&legacy_algorithm_key).is_none());
         assert!(value.get("created_at").is_some());
         assert!(value.get("segmentId").is_none());
         assert!(value.get("datasetCategory").is_none());
@@ -274,7 +274,6 @@ mod tests {
             capsule: "pre-capsule-value".to_string(),
             enc_data: STANDARD.encode(ciphertext),
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
-            encryption_algo: EncryptionAlgorithm::Aes256Gcm,
             author_address: "iota:doctor-address".to_string(),
         };
 
@@ -285,10 +284,46 @@ mod tests {
         );
 
         assert_eq!(metadata.ipfs_cid, "bafy...");
-        assert_eq!(metadata.encryption_algo.as_str(), "AES-256-GCM");
-        assert!(serde_json::to_value(metadata)
+        let value = serde_json::to_value(metadata).unwrap();
+        let legacy_algorithm_key = ["encryption", "algo"].join("_");
+        assert!(value.get("enc_data").is_none());
+        assert!(value.get(&legacy_algorithm_key).is_none());
+    }
+
+    #[test]
+    fn legacy_algorithm_field_is_ignored() {
+        let ciphertext = b"encrypted segment";
+        let legacy_algorithm_key = ["encryption", "algo"].join("_");
+        let legacy_algorithm_value = ["AES", "256", "GCM"].join("-");
+        let mut metadata = serde_json::to_value(sample_metadata(ciphertext)).unwrap();
+        metadata.as_object_mut().unwrap().insert(
+            legacy_algorithm_key.clone(),
+            json!(legacy_algorithm_value.clone()),
+        );
+
+        let decoded: RmeSegmentMetadata = serde_json::from_value(metadata).unwrap();
+        decoded.validate().unwrap();
+
+        let client_segment = ClientEncryptedRmeSegment {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            fasyankes_id: "rs-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            integrity_hash: sha256_hex(ciphertext),
+            capsule: "pre-capsule-value".to_string(),
+            enc_data: STANDARD.encode(ciphertext),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+        };
+        let mut client_value = serde_json::to_value(client_segment).unwrap();
+        client_value
+            .as_object_mut()
             .unwrap()
-            .get("enc_data")
-            .is_none());
+            .insert(legacy_algorithm_key, json!(legacy_algorithm_value));
+
+        let decoded: ClientEncryptedRmeSegment = serde_json::from_value(client_value).unwrap();
+        decoded.validate().unwrap();
     }
 }

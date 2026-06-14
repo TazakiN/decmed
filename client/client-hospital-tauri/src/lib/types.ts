@@ -144,7 +144,6 @@ export type RmeSegmentMetadata = {
 	integrity_hash: string;
 	capsule: string;
 	enc_key_and_nonce: string;
-	encryption_algo: 'AES-256-GCM';
 	created_at: string;
 	author_address: string;
 	updated_at: string | null;

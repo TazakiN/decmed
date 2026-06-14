@@ -1,13 +1,12 @@
 use axum::http::StatusCode;
 use decmed_macaroon_auth::{
-    verify_decmed_token, verify_segment_access, AccessMode, CaveatVerificationError,
-    SegmentAccessContext, TokenVerificationContext, VerifiedDecmedToken, WalletProofContext,
-    WalletSignatureVerifier,
+    verify_decmed_token, verify_segment_access, AccessMode, CaveatVerificationError, Macaroon,
+    MacaroonKey, SegmentAccessContext, TokenVerificationContext, VerifiedDecmedToken,
+    WalletProofContext, WalletSignatureVerifier,
 };
 use decmed_rme_segment::RmeSegmentMetadata;
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{IotaSignature, SignatureScheme};
-use macaroon::{Macaroon, MacaroonKey};
 use shared_crypto::intent::{Intent, IntentMessage};
 use std::str::FromStr;
 

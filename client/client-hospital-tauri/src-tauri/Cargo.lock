@@ -1479,7 +1479,6 @@ dependencies = [
  "iota-types",
  "k256",
  "keyring",
- "macaroon",
  "move-core-types",
  "rand 0.9.2",
  "regex",

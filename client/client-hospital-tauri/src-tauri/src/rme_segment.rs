@@ -93,9 +93,9 @@ pub async fn post_encrypted_rme_segment(
     delegation_signature: Option<String>,
     req_client: &reqwest::Client,
 ) -> Result<CreateRmeSegmentResponse, HospitalError> {
-    use decmed_macaroon_auth::AccessMode;
+    use decmed_macaroon_auth::{AccessMode, Macaroon};
 
-    let mac = macaroon::Macaroon::deserialize(access_token)
+    let mac = Macaroon::deserialize(access_token)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
     let wallet_timestamp = chrono::Utc::now().to_rfc3339();
     let wallet_ctx = decmed_macaroon_auth::WalletProofContext {

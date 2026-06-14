@@ -14,6 +14,11 @@ mod rme_id;
 mod verify;
 mod wallet_proof;
 
+/// Compatibility facade for consumers that still need selected low-level
+/// macaroon operations. Keep this list explicit so the upstream crate remains
+/// an implementation detail rather than an unrestricted public dependency.
+pub use macaroon::{ByteString, Caveat, Format, Macaroon, MacaroonKey, Verifier};
+
 pub use attenuation::{attenuate_macaroon, DelegationAttenuationParams};
 pub use caveats::{
     add_caveat_to_macaroon, caveat_line, format_dataset_list, format_function_list,

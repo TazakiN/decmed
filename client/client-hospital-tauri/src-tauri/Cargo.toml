@@ -57,4 +57,3 @@ thiserror = "2.0"
 tauri-plugin-http = { version = "2", features = ["json", "multipart"] }
 decmed-rme-segment = { path = "../../../crates/decmed-rme-segment" }
 decmed-macaroon-auth = { path = "../../../crates/decmed-macaroon-auth" }
-macaroon = { path = "../../../../macaroon-decmed" }

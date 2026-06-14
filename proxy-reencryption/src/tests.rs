@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use macaroon::{Macaroon, MacaroonKey, Verifier};
+use decmed_macaroon_auth::{Format, Macaroon, MacaroonKey, Verifier};
 use umbral_pre::{
     decrypt_original, decrypt_reencrypted, encrypt, generate_kfrags, reencrypt, SecretKey, Signer,
 };
@@ -42,7 +42,7 @@ fn test_macaroon_flow() {
     mac.add_first_party_caveat(format!("time < {}", future_time).into());
 
     // Serialize
-    let serialized_mac = mac.serialize(macaroon::Format::V2).unwrap();
+    let serialized_mac = mac.serialize(Format::V2).unwrap();
 
     // Deserialize
     let deserialized_mac = Macaroon::deserialize(&serialized_mac).unwrap();

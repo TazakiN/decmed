@@ -14,8 +14,8 @@ use axum::{
     response::Response,
 };
 use decmed_macaroon_auth::{
-    compute_revocation_keys, hash_token, verify_macaroon_signature, DelegationChain,
-    EffectiveCapability, ParsedCaveats, VerifiedDecmedToken,
+    compute_revocation_keys, hash_token, verify_macaroon_signature, Caveat, DelegationChain,
+    EffectiveCapability, Macaroon, MacaroonKey, ParsedCaveats, VerifiedDecmedToken, Verifier,
 };
 use iota_types::base_types::IotaAddress;
 use redis::Commands;
@@ -35,11 +35,11 @@ pub async fn auth_middleware(
 
     let bearer_token = Utils::decode_authorization_header(authorization_header)?;
 
-    let mac = macaroon::Macaroon::deserialize(&bearer_token)
+    let mac = Macaroon::deserialize(&bearer_token)
         .map_err(|_| anyhow!("Invalid access token format"))
         .code(StatusCode::UNAUTHORIZED)?;
 
-    let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+    let root_key = MacaroonKey::generate(&state.macaroon_root_key);
 
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(map_caveat_error)?;
 
@@ -123,7 +123,7 @@ pub async fn auth_middleware(
     let mut purpose_str = String::new();
 
     for caveat in mac.first_party_caveats() {
-        if let macaroon::Caveat::FirstParty(fp) = caveat {
+        if let Caveat::FirstParty(fp) = caveat {
             if let Ok(pred) = String::from_utf8(fp.predicate().0) {
                 if let Some(s) = pred.strip_prefix("subject = ") {
                     subject = s.to_string();
@@ -143,7 +143,7 @@ pub async fn auth_middleware(
         });
     }
 
-    let mut verifier = macaroon::Verifier::default();
+    let mut verifier = Verifier::default();
     verifier.satisfy_exact(format!("subject = {}", subject).into());
     verifier.satisfy_exact(format!("role = {}", role_str).into());
     verifier.satisfy_exact(format!("purpose = {}", purpose_str).into());

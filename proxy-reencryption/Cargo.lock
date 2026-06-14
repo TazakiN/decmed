@@ -5844,7 +5844,6 @@ dependencies = [
  "iota-sdk 1.2.0-alpha",
  "iota-types",
  "k256",
- "macaroon",
  "move-core-types",
  "r2d2",
  "rand 0.9.2",

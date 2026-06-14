@@ -41,7 +41,8 @@ use crate::types::{
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
     generate_related_rme_id, issue_admin_personnel_token, issue_initial_token, AccessMode,
-    AdminTokenKind, InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+    AdminTokenKind, Format, InitialAdminPersonnelTokenParams, InitialDoctorTokenParams, Macaroon,
+    MacaroonKey,
 };
 use decmed_macaroon_auth::{
     verify_decmed_token, CaveatVerificationError, SegmentAccessContext, TokenVerificationContext,
@@ -185,7 +186,7 @@ fn get_access_keys_for_current_user(
 }
 
 fn issue_legacy_role_macaroons(
-    root_key: &macaroon::MacaroonKey,
+    root_key: &MacaroonKey,
     role_str: &str,
     subject: &str,
     hospital_id: Option<&str>,
@@ -199,7 +200,7 @@ fn issue_legacy_role_macaroons(
         + read_keys_duration;
 
     let mut read_macaroon =
-        macaroon::Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
+        Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
             .map_err(|_| anyhow!("Failed to create macaroon"))
             .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -212,7 +213,7 @@ fn issue_legacy_role_macaroons(
     read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
 
     let read_token = read_macaroon
-        .serialize(macaroon::Format::V2)
+        .serialize(Format::V2)
         .map_err(|_| anyhow!("Failed to serialize macaroon"))
         .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -224,7 +225,7 @@ fn issue_legacy_role_macaroons(
             + update_keys_duration;
 
         let mut update_macaroon =
-            macaroon::Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
+            Macaroon::create(Some("proxy-reencryption".into()), root_key, subject.into())
                 .map_err(|_| anyhow!("Failed to create macaroon"))
                 .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -238,7 +239,7 @@ fn issue_legacy_role_macaroons(
 
         Some(
             update_macaroon
-                .serialize(macaroon::Format::V2)
+                .serialize(Format::V2)
                 .map_err(|_| anyhow!("Failed to serialize macaroon"))
                 .code(StatusCode::INTERNAL_SERVER_ERROR)?,
         )
@@ -403,14 +404,13 @@ impl Handlers {
             let wallet_timestamp = headers
                 .get(WALLET_TIMESTAMP_HEADER)
                 .and_then(|v| v.to_str().ok());
-            let mac =
-                macaroon::Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
-                    ProxyError::Anyhow {
-                        source: anyhow!("Invalid access token"),
-                        code: StatusCode::UNAUTHORIZED,
-                    }
-                })?;
-            let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+            let mac = Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
+                ProxyError::Anyhow {
+                    source: anyhow!("Invalid access token"),
+                    code: StatusCode::UNAUTHORIZED,
+                }
+            })?;
+            let root_key = MacaroonKey::generate(&state.macaroon_root_key);
             let segment = SegmentAccessContext {
                 segment_id: segment_metadata_preview.segment_id.clone(),
                 patient_address: segment_metadata_preview.patient_address.clone(),
@@ -734,12 +734,14 @@ impl Handlers {
                         let wallet_timestamp = headers
                             .get(WALLET_TIMESTAMP_HEADER)
                             .and_then(|v| v.to_str().ok());
-                        let mac = macaroon::Macaroon::deserialize(&current_user.bearer_token)
-                            .map_err(|_| ProxyError::Anyhow {
-                                source: anyhow!("Invalid access token"),
-                                code: StatusCode::UNAUTHORIZED,
+                        let mac =
+                            Macaroon::deserialize(&current_user.bearer_token).map_err(|_| {
+                                ProxyError::Anyhow {
+                                    source: anyhow!("Invalid access token"),
+                                    code: StatusCode::UNAUTHORIZED,
+                                }
                             })?;
-                        let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+                        let root_key = MacaroonKey::generate(&state.macaroon_root_key);
                         let segment = SegmentAccessContext {
                             segment_id: segment_meta.segment_id.clone(),
                             patient_address: segment_meta.patient_address.clone(),
@@ -1313,7 +1315,7 @@ impl Handlers {
         };
 
         // Create access token for hospital personnel
-        let root_key = macaroon::MacaroonKey::generate(&state.macaroon_root_key);
+        let root_key = MacaroonKey::generate(&state.macaroon_root_key);
 
         let role_str = match hospital_personnel_role {
             AuthRole::AdministrativePersonnel => "AdministrativePersonnel",

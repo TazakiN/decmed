@@ -3,7 +3,8 @@ use std::str::FromStr;
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
-    attenuate_macaroon, DelegationAttenuationParams, EffectiveCapability, ParsedCaveats,
+    attenuate_macaroon, CaveatKey, CaveatValue, DelegationAttenuationParams, EffectiveCapability,
+    Macaroon, ParsedCaveats,
 };
 use decmed_rme_segment::{
     administrative_general_payload_from_fields, CreateRmeSegmentRequest, DatasetCategory,
@@ -20,8 +21,6 @@ use crate::{
     rme_segment::{build_encrypted_rme_segment, post_encrypted_rme_segment},
     types::{KeysEntry, PatientPrivateAdministrativeData},
 };
-use decmed_macaroon_auth::{CaveatKey, CaveatValue};
-
 #[derive(Debug, Default)]
 pub struct SeedAdministrativeGeneralResult {
     pub seeded: u32,
@@ -31,7 +30,7 @@ pub struct SeedAdministrativeGeneralResult {
 pub fn is_administrative_personnel_write_token(
     parent_write_token: &str,
 ) -> Result<bool, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(parent_write_token)
+    let mac = Macaroon::deserialize(parent_write_token)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
     let parsed = ParsedCaveats::from_macaroon(&mac)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
@@ -62,7 +61,7 @@ pub fn is_administrative_personnel_write_token(
 }
 
 fn effective_from_write_token(token: &str) -> Result<EffectiveCapability, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(token)
+    let mac = Macaroon::deserialize(token)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
     let parsed = ParsedCaveats::from_macaroon(&mac)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
@@ -279,7 +278,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use decmed_macaroon_auth::{
-        issue_admin_personnel_token, AdminTokenKind, InitialAdminPersonnelTokenParams,
+        issue_admin_personnel_token, AdminTokenKind, InitialAdminPersonnelTokenParams, MacaroonKey,
     };
 
     fn admin_write_token() -> String {
@@ -294,7 +293,7 @@ mod tests {
             expires,
         )
         .unwrap();
-        let root_key = macaroon::MacaroonKey::generate(b"decmed-hospital-admin-seed-test-key!!");
+        let root_key = MacaroonKey::generate(b"decmed-hospital-admin-seed-test-key!!");
         issue_admin_personnel_token(&root_key, &params).unwrap()
     }
 
@@ -318,7 +317,7 @@ mod tests {
             expires,
         )
         .unwrap();
-        let mac = macaroon::Macaroon::deserialize(&seed).unwrap();
+        let mac = Macaroon::deserialize(&seed).unwrap();
         let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
         let effective = EffectiveCapability::from_parsed(&parsed).unwrap();
         assert!(effective.read_datasets.is_empty());

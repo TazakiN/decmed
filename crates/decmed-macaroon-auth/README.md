@@ -2,6 +2,14 @@
 
 DecMed Macaroon caveat layer for fine-grained RME access control.
 
+## Compatibility facade
+
+Consumers that still need low-level macaroon operations should import the
+selected compatibility types from this crate: `Macaroon`, `MacaroonKey`,
+`Format`, `Verifier`, `Caveat`, and `ByteString`. The underlying
+`macaroon-decmed` crate remains an implementation dependency of
+`decmed-macaroon-auth` and should not be declared directly by consumers.
+
 ## Supported caveats
 
 | Caveat | Example |

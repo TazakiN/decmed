@@ -203,10 +203,9 @@ pub fn active_metadata_page(
 mod tests {
     use super::*;
     use decmed_macaroon_auth::{
-        issue_initial_token, EffectiveCapability, InitialDoctorTokenParams,
+        issue_initial_token, EffectiveCapability, InitialDoctorTokenParams, Macaroon, MacaroonKey,
     };
     use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-    use macaroon::MacaroonKey;
 
     fn sample_segment(
         patient: &str,
@@ -261,7 +260,7 @@ mod tests {
         params.read_datasets = vec![DatasetCategory::RAWAT_JALAN];
         params.read_functions = vec![FunctionCategory::ANAMNESIS];
         let mac_str = issue_initial_token(&root_key, &params).unwrap();
-        let mac = macaroon::Macaroon::deserialize(&mac_str).unwrap();
+        let mac = Macaroon::deserialize(&mac_str).unwrap();
         let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac).unwrap();
         let effective = EffectiveCapability::from_parsed(&parsed).unwrap();
         let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();

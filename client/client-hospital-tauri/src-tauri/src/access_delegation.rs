@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
     attenuate_macaroon, generate_related_rme_id, hash_macaroon_token, CaveatKey, CaveatValue,
     DelegationAttenuationParams, DelegationChain, DelegationProofContext, EffectiveCapability,
-    ParsedCaveats,
+    Macaroon, ParsedCaveats,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
@@ -155,7 +155,7 @@ fn token_effective_capability(
     access: &AccessData,
     fallback_purpose: &str,
 ) -> Result<AccessCapabilityData, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(&access.access_token).map_err(|e| {
+    let mac = Macaroon::deserialize(&access.access_token).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
@@ -221,7 +221,7 @@ fn token_effective_capability(
 }
 
 fn related_rme_from_token(token: &str) -> Result<Option<String>, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(token).map_err(|e| {
+    let mac = Macaroon::deserialize(token).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
@@ -394,7 +394,7 @@ fn build_delegation_audit_input(
     fallback_related_rme_id: Option<String>,
     fallback_expires_before: DateTime<Utc>,
 ) -> Result<PatientDelegationAuditInput, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(token).map_err(|e| {
+    let mac = Macaroon::deserialize(token).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
@@ -465,7 +465,7 @@ fn build_delegated_access_metadata(
 }
 
 fn encounter_from_write_token(token: &str) -> Result<DatasetCategory, HospitalError> {
-    let mac = macaroon::Macaroon::deserialize(token).map_err(|e| {
+    let mac = Macaroon::deserialize(token).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
     let effective =

@@ -228,7 +228,6 @@ mod tests {
                 .to_string(),
             patient_ref: "patient-001".to_string(),
             fasyankes_id: "rs-001".to_string(),
-            encounter_id: "enc-rawat-jalan-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "0x2222222222222222222222222222222222222222222222222222222222222222"
                 .to_string(),

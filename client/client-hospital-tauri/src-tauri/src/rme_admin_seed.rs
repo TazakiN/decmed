@@ -225,7 +225,6 @@ pub async fn seed_administrative_general_segments(
             patient_address: patient_address.clone(),
             patient_ref: patient_address.clone(),
             fasyankes_id: "decmed-hospital".to_string(),
-            encounter_id: related_rme_id.to_string(),
             service_date: service_date.clone(),
             author_address: author_address.to_string(),
             dataset_category: dataset,

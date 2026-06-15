@@ -93,7 +93,6 @@
 						patient_address: data.patientIotaAddress,
 						patient_ref: data.patientIotaAddress,
 						fasyankes_id: 'decmed-hospital',
-						encounter_id: data.relatedRmeId,
 						service_date: new Date().toISOString(),
 						author_address: 'self',
 						dataset_category: selectedDataset,

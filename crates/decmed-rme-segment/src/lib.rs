@@ -37,7 +37,6 @@ mod tests {
             patient_address: "iota:patient-address".to_string(),
             patient_ref: "patient-001".to_string(),
             fasyankes_id: "rs-001".to_string(),
-            encounter_id: "enc-rawat-jalan-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "iota:doctor-address".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
@@ -191,6 +190,9 @@ mod tests {
 
         assert_eq!(segment.payload, payload);
         assert_eq!(segment.payload_hash, payload_hash(&payload));
+        let value = serde_json::to_value(&segment).unwrap();
+        let removed_encounter_key = ["encounter", "id"].join("_");
+        assert!(value.get(&removed_encounter_key).is_none());
         segment.validate().unwrap();
     }
 

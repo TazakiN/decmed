@@ -96,6 +96,12 @@ pub struct CommandGetMedicalRecordsResponseData {
     pub index: u64,
     #[serde(rename = "relatedRmeId")]
     pub related_rme_id: String,
+    #[serde(rename = "correctionOfIndex")]
+    pub correction_of_index: Option<u64>,
+    #[serde(rename = "correctionReason")]
+    pub correction_reason: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

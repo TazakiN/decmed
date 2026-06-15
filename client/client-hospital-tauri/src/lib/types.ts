@@ -130,6 +130,8 @@ export type RmeSegmentData = {
 	author_address: string;
 	payload: Record<string, unknown>;
 	payload_hash: string;
+	correction_of_index: number | null;
+	correction_reason: string | null;
 };
 
 export type RmeSegmentMetadata = {
@@ -145,7 +147,9 @@ export type RmeSegmentMetadata = {
 	enc_key_and_nonce: string;
 	created_at: string;
 	author_address: string;
-	updated_at: string | null;
+	correction_of_index: number | null;
+	correction_reason: string | null;
+	updated_at: number | null;
 };
 
 export type CreateRmeSegmentResponse = {
@@ -156,6 +160,9 @@ export type CreateRmeSegmentResponse = {
 	ipfs_cid: string;
 	integrity_hash: string;
 	created_at: string;
+	correction_of_index: number | null;
+	correction_reason: string | null;
+	updated_at: number | null;
 };
 
 export type CreateRmeSegmentRequest = {
@@ -166,6 +173,8 @@ export type CreateRmeSegmentRequest = {
 	dataset_category: DatasetCategory;
 	function_category: FunctionCategory;
 	payload: Record<string, unknown>;
+	correction_of_index?: number | null;
+	correction_reason?: string | null;
 };
 
 export type TauriPatientPrivateAdministrativeData = {
@@ -209,6 +218,9 @@ export type RmeSegmentListItem = {
 	created_at: string;
 	author_address: string;
 	list_index: number;
+	correction_of_index: number | null;
+	correction_reason: string | null;
+	updated_at: number | null;
 };
 
 export type RmeDatasetGroup = {

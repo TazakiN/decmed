@@ -31,6 +31,12 @@ pub struct MedicalRecordMetadataFlatItem {
     pub ipfs_cid: String,
     pub created_at: String,
     pub author_address: String,
+    #[serde(default)]
+    pub correction_of_index: Option<u64>,
+    #[serde(default)]
+    pub correction_reason: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -48,6 +54,9 @@ pub struct RmeSegmentListItem {
     pub author_address: String,
     /// Offset from newest for `get_medical_record` query param.
     pub list_index: u64,
+    pub correction_of_index: Option<u64>,
+    pub correction_reason: Option<String>,
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -160,6 +169,9 @@ pub fn group_medical_record_metadata(
                         created_at: seg.created_at.clone(),
                         author_address: seg.author_address.clone(),
                         list_index: seg.list_index,
+                        correction_of_index: seg.correction_of_index,
+                        correction_reason: seg.correction_reason.clone(),
+                        updated_at: seg.updated_at,
                     });
             }
 
@@ -438,6 +450,9 @@ mod tests {
             ipfs_cid: "bafy".to_string(),
             created_at: created_at.to_string(),
             author_address: "0xauthor".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
+            updated_at: None,
         }
     }
 
@@ -460,6 +475,9 @@ mod tests {
             ipfs_cid: "bafy".to_string(),
             created_at: format!("2024-01-0{}T00:00:00Z", index + 1),
             author_address: author.to_string(),
+            correction_of_index: None,
+            correction_reason: None,
+            updated_at: None,
         }
     }
 
@@ -504,15 +522,20 @@ mod tests {
 
     #[test]
     fn group_medical_record_metadata_keeps_latest_duplicate_function_slot() {
+        let mut correction = item_with_author(
+            "rme-a",
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+            5,
+            0,
+            "0xdoctor",
+        );
+        correction.correction_of_index = Some(2);
+        correction.correction_reason = Some("Koreksi anamnesis".to_string());
+        correction.updated_at = Some(1_768_000_000_000);
+
         let grouped = group_medical_record_metadata(vec![
-            item_with_author(
-                "rme-a",
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::ANAMNESIS,
-                5,
-                0,
-                "0xdoctor",
-            ),
+            correction,
             item_with_author(
                 "rme-a",
                 DatasetCategory::RAWAT_JALAN,
@@ -531,6 +554,12 @@ mod tests {
         assert_eq!(segment.index, 5);
         assert_eq!(segment.list_index, 0);
         assert_eq!(segment.author_address, "0xdoctor");
+        assert_eq!(segment.correction_of_index, Some(2));
+        assert_eq!(
+            segment.correction_reason.as_deref(),
+            Some("Koreksi anamnesis")
+        );
+        assert_eq!(segment.updated_at, Some(1_768_000_000_000));
     }
 
     #[test]

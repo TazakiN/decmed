@@ -394,9 +394,12 @@ impl Handlers {
         )?;
 
         let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
+        let updated_at = encrypted_segment
+            .correction_of_index
+            .map(|_| chrono::Utc::now().timestamp_millis().max(0) as u64);
         let segment_metadata_preview = encrypted_segment
             .clone()
-            .into_metadata(String::new(), created_at.clone());
+            .into_metadata(String::new(), created_at.clone(), updated_at);
         if current_user.decmed_token.is_some() {
             let wallet_sig = headers
                 .get(WALLET_SIGNATURE_HEADER)
@@ -438,7 +441,7 @@ impl Handlers {
         let cid = Utils::add_and_pin_to_ipfs(encrypted_segment.enc_data.clone())
             .await
             .context(current_fn!())?;
-        let segment_metadata = encrypted_segment.into_metadata(cid, created_at);
+        let segment_metadata = encrypted_segment.into_metadata(cid, created_at, updated_at);
         segment_metadata
             .validate()
             .map_err(|e| anyhow!(e.to_string()))

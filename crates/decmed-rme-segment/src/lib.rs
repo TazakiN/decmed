@@ -21,6 +21,7 @@ pub use types::{
 };
 pub use validation::{
     assert_no_plaintext_medical_fields, assert_segment_pair_consistent,
+    assert_valid_correction_metadata, assert_valid_correction_request,
     assert_valid_segment_category, get_allowed_function_categories, is_valid_segment_category,
 };
 
@@ -40,6 +41,8 @@ mod tests {
             dataset_category: DatasetCategory::RAWAT_JALAN,
             function_category: FunctionCategory::ANAMNESIS,
             payload,
+            correction_of_index: None,
+            correction_reason: None,
         }
     }
 
@@ -57,6 +60,8 @@ mod tests {
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
             created_at: "2026-05-18T10:30:00.000Z".to_string(),
             author_address: "iota:doctor-address".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
             updated_at: None,
         }
     }
@@ -195,6 +200,109 @@ mod tests {
     }
 
     #[test]
+    fn regular_segment_has_no_correction_metadata() {
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let segment =
+            RmeSegmentData::new(segment_id, sample_request(json!({"text": "regular"}))).unwrap();
+
+        assert_eq!(segment.correction_of_index, None);
+        assert_eq!(segment.correction_reason, None);
+    }
+
+    #[test]
+    fn correction_metadata_is_propagated_to_stored_metadata() {
+        let ciphertext = b"encrypted correction";
+        let client_segment = ClientEncryptedRmeSegment {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            hospital_cid: "hospital-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            integrity_hash: sha256_hex(ciphertext),
+            capsule: "pre-capsule-value".to_string(),
+            enc_data: STANDARD.encode(ciphertext),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+            correction_of_index: Some(7),
+            correction_reason: Some("Memperbaiki salah ketik".to_string()),
+        };
+
+        client_segment.validate().unwrap();
+        let metadata = client_segment.into_metadata(
+            "bafy-correction".to_string(),
+            "2026-05-18T10:30:00.000Z".to_string(),
+            Some(1_768_000_000_000),
+        );
+        metadata.validate().unwrap();
+
+        assert_eq!(metadata.correction_of_index, Some(7));
+        assert_eq!(
+            metadata.correction_reason.as_deref(),
+            Some("Memperbaiki salah ketik")
+        );
+        assert_eq!(metadata.updated_at, Some(1_768_000_000_000));
+    }
+
+    #[test]
+    fn correction_requires_non_empty_reason() {
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let mut request = sample_request(json!({"text": "corrected"}));
+        request.correction_of_index = Some(3);
+        request.correction_reason = Some("   ".to_string());
+
+        assert_eq!(
+            RmeSegmentData::new(segment_id, request).unwrap_err(),
+            SegmentValidationError::MissingField("correction_reason")
+        );
+    }
+
+    #[test]
+    fn correction_reason_without_target_is_rejected() {
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let mut request = sample_request(json!({"text": "corrected"}));
+        request.correction_reason = Some("Alasan".to_string());
+
+        assert!(matches!(
+            RmeSegmentData::new(segment_id, request),
+            Err(SegmentValidationError::InvalidCorrection(_))
+        ));
+    }
+
+    #[test]
+    fn correction_metadata_requires_consistent_updated_at() {
+        let mut missing_updated_at = sample_metadata(b"encrypted segment");
+        missing_updated_at.correction_of_index = Some(2);
+        missing_updated_at.correction_reason = Some("Alasan".to_string());
+        assert_eq!(
+            missing_updated_at.validate().unwrap_err(),
+            SegmentValidationError::MissingField("updated_at")
+        );
+
+        let mut unexpected_updated_at = sample_metadata(b"encrypted segment");
+        unexpected_updated_at.updated_at = Some(1_768_000_000_000);
+        assert!(matches!(
+            unexpected_updated_at.validate(),
+            Err(SegmentValidationError::InvalidCorrection(_))
+        ));
+    }
+
+    #[test]
+    fn legacy_metadata_without_correction_fields_defaults_to_none() {
+        let mut value = serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("correction_of_index");
+        object.remove("correction_reason");
+        object.remove("updated_at");
+
+        let decoded: RmeSegmentMetadata = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.correction_of_index, None);
+        assert_eq!(decoded.correction_reason, None);
+        assert_eq!(decoded.updated_at, None);
+        decoded.validate().unwrap();
+    }
+
+    #[test]
     fn segment_identity_is_consistent_between_off_chain_and_on_chain() {
         let payload = json!({
             "keluhan_utama": "Demam dan batuk sejak 3 hari"
@@ -275,12 +383,15 @@ mod tests {
             enc_data: STANDARD.encode(ciphertext),
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
             author_address: "iota:doctor-address".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
         };
 
         client_segment.validate().unwrap();
         let metadata = client_segment.into_metadata(
             "bafy...".to_string(),
             "2026-05-18T10:30:00.000Z".to_string(),
+            None,
         );
 
         assert_eq!(metadata.ipfs_cid, "bafy...");
@@ -319,6 +430,8 @@ mod tests {
             enc_data: STANDARD.encode(ciphertext),
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
             author_address: "iota:doctor-address".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
         };
         let mut client_value = serde_json::to_value(client_segment).unwrap();
         client_value
@@ -374,6 +487,8 @@ mod tests {
             enc_data: STANDARD.encode(b"encrypted segment"),
             enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
             author_address: "iota:doctor-address".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
         };
         let mut value = serde_json::to_value(client_segment).unwrap();
         let hospital_cid = value
@@ -401,6 +516,8 @@ mod tests {
                 enc_data: STANDARD.encode(b"encrypted segment"),
                 enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
                 author_address: "iota:doctor-address".to_string(),
+                correction_of_index: None,
+                correction_reason: None,
             })
             .unwrap();
         value.as_object_mut().unwrap().remove("hospital_cid");

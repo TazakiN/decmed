@@ -13,6 +13,7 @@ pub enum SegmentValidationError {
         function_category: FunctionCategory,
     },
     InvalidCiphertext,
+    InvalidCorrection(&'static str),
     InvalidIntegrityHash,
     InvalidPayloadHash,
     InvalidUuid,
@@ -45,6 +46,9 @@ impl fmt::Display for SegmentValidationError {
                 dataset_category, function_category
             ),
             Self::InvalidCiphertext => write!(f, "encrypted segment is not valid base64"),
+            Self::InvalidCorrection(message) => {
+                write!(f, "invalid segment correction: {message}")
+            }
             Self::InvalidIntegrityHash => {
                 write!(f, "integrity_hash does not match encrypted segment")
             }

@@ -291,7 +291,9 @@ export const createRmeSegmentSchema = z
 		function_category: functionCategorySchema,
 		payload: z.record(z.unknown()).refine((payload) => Object.keys(payload).length > 0, {
 			message: 'Payload is required.'
-		})
+		}),
+		correction_of_index: z.number().int().nonnegative().nullable().optional(),
+		correction_reason: z.string().trim().nullable().optional()
 	})
 	.superRefine((value, ctx) => {
 		if (!isValidSegmentCategory(value.dataset_category, value.function_category)) {
@@ -299,6 +301,20 @@ export const createRmeSegmentSchema = z
 				code: z.ZodIssueCode.custom,
 				path: ['function_category'],
 				message: 'Invalid dataset_category and function_category combination.'
+			});
+		}
+		if (value.correction_of_index != null && !value.correction_reason?.trim()) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['correction_reason'],
+				message: 'Correction reason is required.'
+			});
+		}
+		if (value.correction_of_index == null && value.correction_reason != null) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['correction_reason'],
+				message: 'Correction reason requires correction_of_index.'
 			});
 		}
 	});

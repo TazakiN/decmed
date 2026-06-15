@@ -230,6 +230,9 @@ pub struct MedicalRecordMetadataItem {
     pub ipfs_cid: String,
     pub created_at: String,
     pub author_address: String,
+    pub correction_of_index: Option<u64>,
+    pub correction_reason: Option<String>,
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

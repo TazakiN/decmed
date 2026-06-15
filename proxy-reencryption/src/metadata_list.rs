@@ -144,6 +144,9 @@ pub fn to_metadata_item(
         ipfs_cid: segment.ipfs_cid.clone(),
         created_at: segment.created_at.clone(),
         author_address: segment.author_address.clone(),
+        correction_of_index: segment.correction_of_index,
+        correction_reason: segment.correction_reason.clone(),
+        updated_at: segment.updated_at,
     }
 }
 
@@ -225,6 +228,8 @@ mod tests {
             enc_key_and_nonce: "key".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
             author_address: "0xauthor".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
             updated_at: None,
         }
     }
@@ -248,6 +253,9 @@ mod tests {
             ipfs_cid: "bafy".to_string(),
             created_at: format!("2024-01-0{}T00:00:00Z", index + 1),
             author_address: author.to_string(),
+            correction_of_index: None,
+            correction_reason: None,
+            updated_at: None,
         }
     }
 
@@ -407,6 +415,39 @@ mod tests {
         assert_eq!(
             items.iter().map(|item| item.index).collect::<Vec<_>>(),
             vec![4, 3, 2, 1]
+        );
+    }
+
+    #[test]
+    fn collapse_keeps_correction_metadata_on_latest_item() {
+        let original = metadata_item(
+            "rme-1",
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+            2,
+            1,
+            "0xnurse",
+        );
+        let mut correction = metadata_item(
+            "rme-1",
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+            5,
+            0,
+            "0xdoctor",
+        );
+        correction.correction_of_index = Some(2);
+        correction.correction_reason = Some("Koreksi isi anamnesis".to_string());
+        correction.updated_at = Some(1_768_000_000_000);
+
+        let items = collapse_to_active_metadata_items(vec![original, correction]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].index, 5);
+        assert_eq!(items[0].correction_of_index, Some(2));
+        assert_eq!(
+            items[0].correction_reason.as_deref(),
+            Some("Koreksi isi anamnesis")
         );
     }
 }

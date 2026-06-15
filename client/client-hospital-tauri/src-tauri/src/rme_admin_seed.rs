@@ -251,6 +251,8 @@ pub async fn seed_administrative_general_segments(
             dataset_category: dataset,
             function_category: FunctionCategory::ADMINISTRATIVE_GENERAL,
             payload: payload.clone(),
+            correction_of_index: None,
+            correction_reason: None,
         };
 
         let encrypted = match build_encrypted_rme_segment(

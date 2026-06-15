@@ -73,6 +73,8 @@ pub fn build_encrypted_rme_segment(
         enc_data: STANDARD.encode(encrypted_segment),
         enc_key_and_nonce: STANDARD.encode(enc_segment_key_nonce),
         author_address,
+        correction_of_index: off_chain_segment.correction_of_index,
+        correction_reason: off_chain_segment.correction_reason.clone(),
     };
 
     encrypted_segment_metadata
@@ -240,6 +242,8 @@ mod tests {
             payload: json!({
                 "keluhan_utama": "Demam dan batuk sejak 3 hari"
             }),
+            correction_of_index: None,
+            correction_reason: None,
         };
 
         let (off_chain, encrypted_segment) = build_encrypted_rme_segment(
@@ -267,6 +271,41 @@ mod tests {
         assert_ne!(
             encrypted_segment.integrity_hash,
             decmed_rme_segment::payload_hash(&off_chain.payload)
+        );
+    }
+
+    #[test]
+    fn builds_correction_segment_metadata() {
+        let seed = [8u8; 32];
+        let patient_secret_key = SecretKeyFactory::from_secure_randomness(&seed)
+            .unwrap()
+            .make_key(&seed);
+        let request = CreateRmeSegmentRequest {
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "0x1111111111111111111111111111111111111111111111111111111111111111"
+                .to_string(),
+            service_date: "2026-05-18".to_string(),
+            author_address: "0x2222222222222222222222222222222222222222222222222222222222222222"
+                .to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            payload: json!({"text": "Isi yang diperbaiki"}),
+            correction_of_index: Some(4),
+            correction_reason: Some("Salah ketik".to_string()),
+        };
+
+        let (off_chain, encrypted_segment) = build_encrypted_rme_segment(
+            request,
+            "hospital-001".to_string(),
+            patient_secret_key.public_key(),
+        )
+        .unwrap();
+
+        assert_eq!(off_chain.correction_of_index, Some(4));
+        assert_eq!(encrypted_segment.correction_of_index, Some(4));
+        assert_eq!(
+            encrypted_segment.correction_reason.as_deref(),
+            Some("Salah ketik")
         );
     }
 }

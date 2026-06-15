@@ -7,6 +7,36 @@ use crate::category::{
 use crate::error::SegmentValidationError;
 use crate::types::{RmeSegmentData, RmeSegmentMetadata};
 
+pub fn assert_valid_correction_request(
+    correction_of_index: Option<u64>,
+    correction_reason: Option<&str>,
+) -> Result<(), SegmentValidationError> {
+    match (correction_of_index, correction_reason) {
+        (None, None) => Ok(()),
+        (Some(_), Some(reason)) if !reason.trim().is_empty() => Ok(()),
+        (Some(_), _) => Err(SegmentValidationError::MissingField("correction_reason")),
+        (None, Some(_)) => Err(SegmentValidationError::InvalidCorrection(
+            "correction_reason requires correction_of_index",
+        )),
+    }
+}
+
+pub fn assert_valid_correction_metadata(
+    correction_of_index: Option<u64>,
+    correction_reason: Option<&str>,
+    updated_at: Option<u64>,
+) -> Result<(), SegmentValidationError> {
+    assert_valid_correction_request(correction_of_index, correction_reason)?;
+
+    match (correction_of_index, updated_at) {
+        (None, None) | (Some(_), Some(_)) => Ok(()),
+        (Some(_), None) => Err(SegmentValidationError::MissingField("updated_at")),
+        (None, Some(_)) => Err(SegmentValidationError::InvalidCorrection(
+            "updated_at requires correction_of_index",
+        )),
+    }
+}
+
 pub fn get_allowed_function_categories(dataset_category: DatasetCategory) -> Vec<FunctionCategory> {
     allowed_function_categories_slice(dataset_category).to_vec()
 }
@@ -50,6 +80,16 @@ pub fn assert_segment_pair_consistent(
     if off_chain.function_category != on_chain.function_category {
         return Err(SegmentValidationError::InconsistentField(
             "function_category",
+        ));
+    }
+    if off_chain.correction_of_index != on_chain.correction_of_index {
+        return Err(SegmentValidationError::InconsistentField(
+            "correction_of_index",
+        ));
+    }
+    if off_chain.correction_reason != on_chain.correction_reason {
+        return Err(SegmentValidationError::InconsistentField(
+            "correction_reason",
         ));
     }
 

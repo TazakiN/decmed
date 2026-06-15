@@ -3,12 +3,30 @@
 	import { datasetLabels, functionLabels } from '$lib/capabilities';
 	import AdministrativeDataGrid from '$lib/components/administrative-data-grid.svelte';
 	import { parseAdministrativeGeneralPayload } from '$lib/administrative-payload';
+	import type {
+		AccessCapabilitiesResponse,
+		AccessCapabilityData,
+		DatasetCategory,
+		RmeSegmentListItem,
+		SuccessResponse
+	} from '$lib/types';
+	import { tryCatchAsVal } from '$lib/utils';
 	import { EmrDetailState } from './detail-state.svelte.js';
 	import { emrAccessQueryString } from '../metadata-state.svelte.js';
 	import { Loader2, LucideInfo } from '@lucide/svelte';
+	import { invoke } from '@tauri-apps/api/core';
+	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
 
 	let { data } = $props();
 	let visibleSegmentInfo = $state<Record<string, boolean>>({});
+	let writeCapabilities = $state<AccessCapabilityData[]>([]);
+	let correctingSegmentId = $state<string | null>(null);
+	let correctionReason = $state('');
+	let correctionPayload = $state('');
+	let correctionPayloadMode = $state<'text' | 'json'>('text');
+	let correctionOriginalPayload = $state<Record<string, unknown>>({});
+	let isSubmittingCorrection = $state(false);
 
 	const detailState = new EmrDetailState({
 		accessToken: data.accessToken,
@@ -24,7 +42,7 @@
 		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
 	});
 
-	const formatDate = (value: string) => {
+	const formatDate = (value: string | number) => {
 		const parsed = new Date(value);
 		if (Number.isNaN(parsed.getTime())) return value;
 		return parsed.toLocaleDateString('id-ID', {
@@ -48,6 +66,142 @@
 			[segmentId]: !visibleSegmentInfo[segmentId]
 		};
 	};
+
+	const loadWriteCapabilities = async () => {
+		const res = await tryCatchAsVal(async () => {
+			return (await invoke(
+				'get_current_access_capabilities'
+			)) as SuccessResponse<AccessCapabilitiesResponse>;
+		});
+		if (res.success) writeCapabilities = res.data.data.write;
+	};
+
+	const correctionCapability = (
+		datasetCategory: DatasetCategory,
+		segment: RmeSegmentListItem
+	) => {
+		const relatedRmeId = decodeURIComponent(data.relatedRmeId);
+		return (
+			writeCapabilities.find((capability) => {
+				const capabilityRmeId =
+					capability.relatedRmeId ?? capability.access.relatedRmeId ?? null;
+				return (
+					capability.access.patientIotaAddress === data.patientIotaAddress &&
+					(!capabilityRmeId || capabilityRmeId === relatedRmeId) &&
+					capability.writeDatasets.includes(datasetCategory) &&
+					capability.writeFunctions.includes(segment.function_category) &&
+					Boolean(capability.access.patientPrePublicKey)
+				);
+			}) ?? null
+		);
+	};
+
+	const openCorrection = async (segment: RmeSegmentListItem) => {
+		await detailState.loadPayload(segment.list_index);
+		const record = detailState.payloadByListIndex[segment.list_index];
+		if (record?.recordKind !== 'segment' || !record.segment) {
+			toast.error('Payload segmen tidak tersedia untuk diperbaiki');
+			return;
+		}
+
+		correctionOriginalPayload = record.segment.payload;
+		if (typeof record.segment.payload.text === 'string') {
+			correctionPayloadMode = 'text';
+			correctionPayload = record.segment.payload.text;
+		} else {
+			correctionPayloadMode = 'json';
+			correctionPayload = JSON.stringify(record.segment.payload, null, 2);
+		}
+		correctionReason = '';
+		correctingSegmentId = segment.segment_id;
+	};
+
+	const closeCorrection = () => {
+		correctingSegmentId = null;
+		correctionReason = '';
+		correctionPayload = '';
+		correctionOriginalPayload = {};
+	};
+
+	const submitCorrection = async (
+		datasetCategory: DatasetCategory,
+		segment: RmeSegmentListItem
+	) => {
+		const capability = correctionCapability(datasetCategory, segment);
+		const record = detailState.payloadByListIndex[segment.list_index];
+		const reason = correctionReason.trim();
+		if (
+			!capability?.access.patientPrePublicKey ||
+			record?.recordKind !== 'segment' ||
+			!record.segment
+		) {
+			toast.error('Write capability atau payload segmen tidak tersedia');
+			return;
+		}
+		if (!reason) {
+			toast.error('Alasan perbaikan wajib diisi');
+			return;
+		}
+
+		let payload: Record<string, unknown>;
+		if (correctionPayloadMode === 'text') {
+			if (!correctionPayload.trim()) {
+				toast.error('Payload perbaikan wajib diisi');
+				return;
+			}
+			payload = { ...correctionOriginalPayload, text: correctionPayload };
+		} else {
+			try {
+				const parsed = JSON.parse(correctionPayload) as unknown;
+				if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+					throw new Error('Payload harus berupa object JSON');
+				}
+				payload = parsed as Record<string, unknown>;
+				if (Object.keys(payload).length === 0) {
+					throw new Error('Payload tidak boleh kosong');
+				}
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : 'Payload JSON tidak valid');
+				return;
+			}
+		}
+
+		isSubmittingCorrection = true;
+		const res = await tryCatchAsVal(async () => {
+			return (await invoke('new_medical_record_segment', {
+				accessToken: capability.access.accessToken,
+				data: {
+					related_rme_id: decodeURIComponent(data.relatedRmeId),
+					patient_address: data.patientIotaAddress,
+					service_date: record.segment.service_date,
+					author_address: 'self',
+					dataset_category: datasetCategory,
+					function_category: segment.function_category,
+					payload,
+					correction_of_index: segment.index,
+					correction_reason: reason
+				},
+				patientPrePublicKey: capability.access.patientPrePublicKey,
+				pin: null,
+				delegationSignature: capability.access.delegationSignature ?? null
+			})) as SuccessResponse<unknown>;
+		});
+		isSubmittingCorrection = false;
+
+		if (!res.success) {
+			toast.error(res.error);
+			return;
+		}
+
+		closeCorrection();
+		await detailState.load();
+		detailState.activateDatasetTab(datasetCategory);
+		toast.success('Perbaikan segmen berhasil disimpan');
+	};
+
+	onMount(() => {
+		void loadWriteCapabilities();
+	});
 </script>
 
 <a
@@ -92,9 +246,16 @@
 				{#each dataset.segments as segment (segment.segment_id)}
 					<div class="bg-white border border-zinc-200 rounded-md p-4">
 						<div class="flex items-start justify-between gap-3">
-							<div class="grid grid-cols-[80px_1fr] gap-2 text-sm">
-								<span class="text-zinc-500">Fungsi</span>
-								<span class="font-medium">{functionLabels[segment.function_category]}</span>
+								<div class="grid grid-cols-[80px_1fr] gap-2 text-sm">
+									<span class="text-zinc-500">Fungsi</span>
+									<span class="font-medium">
+										{functionLabels[segment.function_category]}
+										{#if segment.correction_of_index !== null}
+											<span class="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+												Correction
+											</span>
+										{/if}
+									</span>
 							</div>
 							<button
 								type="button"
@@ -112,11 +273,21 @@
 								<span class="text-zinc-500">Waktu</span>
 								<span>{formatDate(segment.created_at)}</span>
 								<span class="text-zinc-500">Author</span>
-								<span class="break-all"
-									>{detailState.authorNameMap[segment.author_address] ||
-										segment.author_address}</span
-								>
-							</div>
+									<span class="break-all"
+										>{detailState.authorNameMap[segment.author_address] ||
+											segment.author_address}</span
+									>
+									{#if segment.correction_of_index !== null}
+										<span class="text-zinc-500">Correction</span>
+										<span>Index #{segment.correction_of_index}</span>
+										<span class="text-zinc-500">Alasan</span>
+										<span>{segment.correction_reason}</span>
+										{#if segment.updated_at !== null}
+											<span class="text-zinc-500">Diperbarui</span>
+											<span>{formatDate(segment.updated_at)}</span>
+										{/if}
+									{/if}
+								</div>
 						{/if}
 
 						{#if detailState.errorByListIndex[segment.list_index]}
@@ -149,9 +320,60 @@
 											disabled
 											value={segmentPayloadText(record.segment.payload)}
 											class="border border-zinc-300 p-2 w-full focus:outline-none focus:ring-3 ring-zinc-500 rounded-md min-h-28"
-										></textarea>
-									{/if}
-								{:else if record.medicalData}
+											></textarea>
+										{/if}
+
+										{#if correctionCapability(dataset.dataset_category, segment)}
+											{#if correctingSegmentId === segment.segment_id}
+												<div
+													class="mt-4 space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3"
+												>
+													<p class="text-sm font-medium">Perbaikan Segmen</p>
+													<label class="block text-sm">
+														<span class="mb-1 block font-medium">Alasan perbaikan</span>
+														<input
+															class="input-text w-full"
+															bind:value={correctionReason}
+															placeholder="Alasan singkat, tanpa data klinis sensitif"
+														/>
+													</label>
+													<label class="block text-sm">
+														<span class="mb-1 block font-medium">Payload perbaikan</span>
+														<textarea
+															class="input-text min-h-32 w-full font-mono text-sm"
+															bind:value={correctionPayload}
+														></textarea>
+													</label>
+													<div class="flex gap-2">
+														<button
+															type="button"
+															class="button-dark px-3 py-1.5 text-sm disabled:opacity-50"
+															disabled={isSubmittingCorrection}
+															onclick={() => submitCorrection(dataset.dataset_category, segment)}
+														>
+															{isSubmittingCorrection ? 'Menyimpan...' : 'Simpan correction'}
+														</button>
+														<button
+															type="button"
+															class="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+															disabled={isSubmittingCorrection}
+															onclick={closeCorrection}
+														>
+															Batal
+														</button>
+													</div>
+												</div>
+											{:else}
+												<button
+													type="button"
+													class="mt-4 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50"
+													onclick={() => openCorrection(segment)}
+												>
+													Buat correction
+												</button>
+											{/if}
+										{/if}
+									{:else if record.medicalData}
 									<p class="text-sm text-zinc-600">Data legacy (bukan segment RME).</p>
 									<pre
 										class="text-xs mt-2 p-2 bg-zinc-50 border rounded-md overflow-auto">{JSON.stringify(

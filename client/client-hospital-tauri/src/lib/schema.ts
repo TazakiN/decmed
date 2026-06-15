@@ -284,7 +284,7 @@ export const createRmeSegmentSchema = z
 	.object({
 		related_rme_id: z.string().trim().min(1),
 		patient_address: z.string().trim().min(1),
-		patient_ref: z.string().trim().min(1),
+
 		service_date: z.string().trim().min(1),
 		author_address: z.string().trim().min(1),
 		dataset_category: datasetCategorySchema,

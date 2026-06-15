@@ -60,9 +60,8 @@ pub fn assert_segment_pair_consistent(
 }
 
 pub fn assert_no_plaintext_medical_fields(value: &Value) -> Result<(), SegmentValidationError> {
-    const FORBIDDEN_FIELDS: [&str; 8] = [
+    const FORBIDDEN_FIELDS: [&str; 7] = [
         "payload",
-        "patient_ref",
         "encounter_id",
         "service_date",
         "diagnose",

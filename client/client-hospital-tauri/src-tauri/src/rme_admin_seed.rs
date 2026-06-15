@@ -246,7 +246,6 @@ pub async fn seed_administrative_general_segments(
         let request = CreateRmeSegmentRequest {
             related_rme_id: related_rme_id.to_string(),
             patient_address: patient_address.clone(),
-            patient_ref: patient_address.clone(),
             service_date: service_date.clone(),
             author_address: author_address.to_string(),
             dataset_category: dataset,

@@ -125,7 +125,7 @@ export type RmeSegmentData = {
 	related_rme_id: string;
 	dataset_category: DatasetCategory;
 	function_category: FunctionCategory;
-	patient_ref: string;
+	patient_address: string;
 	service_date: string;
 	author_address: string;
 	payload: Record<string, unknown>;
@@ -161,7 +161,6 @@ export type CreateRmeSegmentResponse = {
 export type CreateRmeSegmentRequest = {
 	related_rme_id: string;
 	patient_address: string;
-	patient_ref: string;
 	service_date: string;
 	author_address: string;
 	dataset_category: DatasetCategory;

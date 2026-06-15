@@ -35,7 +35,6 @@ mod tests {
         CreateRmeSegmentRequest {
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "iota:patient-address".to_string(),
-            patient_ref: "patient-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "iota:doctor-address".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
@@ -174,7 +173,7 @@ mod tests {
 
         let value = serde_json::to_value(metadata).unwrap();
         assert!(value.get("payload").is_none());
-        assert!(value.get("patient_ref").is_none());
+        assert!(value.get("patient_address").is_some());
         assert!(assert_no_plaintext_medical_fields(&value).is_ok());
     }
 

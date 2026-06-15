@@ -232,7 +232,6 @@ mod tests {
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "0x1111111111111111111111111111111111111111111111111111111111111111"
                 .to_string(),
-            patient_ref: "patient-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "0x2222222222222222222222222222222222222222222222222222222222222222"
                 .to_string(),

@@ -85,7 +85,7 @@ pub async fn auth_middleware(
 
         // DecMed token caveat role is legacy/deprecated for delegated tokens.
         // Identity role must come from on-chain registry for the active subject.
-        // TODO: resolve sub_role, hospital_id, and activation status here when
+        // TODO: resolve sub_role, hospital_cid, and activation status here when
         // proxy.move exposes a compact auth-info helper.
         let role = auth_role_from_move_role(
             state
@@ -94,6 +94,7 @@ pub async fn auth_middleware(
                 .await?,
         )?;
         let purpose = decmed_purpose_from_parsed(&parsed)?;
+        let hospital_cid = effective.hospital_cid.clone();
 
         let verified = VerifiedDecmedToken {
             parsed,
@@ -108,6 +109,7 @@ pub async fn auth_middleware(
 
         let current_user = CurrentUser {
             iota_address: active_subject,
+            hospital_cid,
             purpose,
             role,
             decmed_token: Some(verified),
@@ -121,6 +123,8 @@ pub async fn auth_middleware(
     let mut subject = String::new();
     let mut role_str = String::new();
     let mut purpose_str = String::new();
+    let mut hospital_cid = None;
+    let mut legacy_hospital_id = None;
 
     for caveat in mac.first_party_caveats() {
         if let Caveat::FirstParty(fp) = caveat {
@@ -131,6 +135,10 @@ pub async fn auth_middleware(
                     role_str = r.to_string();
                 } else if let Some(p) = pred.strip_prefix("purpose = ") {
                     purpose_str = p.to_string();
+                } else if let Some(cid) = pred.strip_prefix("hospital_cid = ") {
+                    hospital_cid = Some(cid.to_string());
+                } else if let Some(id) = pred.strip_prefix("hospital_id = ") {
+                    legacy_hospital_id = Some(id.to_string());
                 }
             }
         }
@@ -147,6 +155,12 @@ pub async fn auth_middleware(
     verifier.satisfy_exact(format!("subject = {}", subject).into());
     verifier.satisfy_exact(format!("role = {}", role_str).into());
     verifier.satisfy_exact(format!("purpose = {}", purpose_str).into());
+    if let Some(hospital_cid) = hospital_cid.as_deref() {
+        verifier.satisfy_exact(format!("hospital_cid = {}", hospital_cid).into());
+    }
+    if let Some(hospital_id) = legacy_hospital_id.as_deref() {
+        verifier.satisfy_exact(format!("hospital_id = {}", hospital_id).into());
+    }
 
     verifier.satisfy_general(|pred| {
         if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
@@ -193,6 +207,7 @@ pub async fn auth_middleware(
 
     let current_user = CurrentUser {
         iota_address: subject,
+        hospital_cid,
         purpose,
         role,
         decmed_token: None,

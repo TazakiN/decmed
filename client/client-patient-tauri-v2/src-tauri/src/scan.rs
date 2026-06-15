@@ -81,7 +81,7 @@ pub async fn create_access(
     };
 
     let (
-        hospital_id,
+        hospital_cid,
         hospital_personnel_iota_address,
         hospital_personnel_pre_public_key,
         data_pre_secret_key_seed_capsule,
@@ -99,7 +99,7 @@ pub async fn create_access(
 
         let hospital_personnel_iota_address = grant.personnel_iota_address;
         let hospital_personnel_pre_public_key = grant.personnel_pre_public_key;
-        let hospital_id = grant.hospital_id;
+        let hospital_cid = grant.hospital_cid;
 
         let data_pre_secret_key_seed = generate_64_bytes_seed();
         let (data_pre_secret_key_seed_capsule, enc_data_pre_secret_key_seed) = encrypt(
@@ -112,7 +112,7 @@ pub async fn create_access(
             compute_pre_keys(&data_pre_secret_key_seed[0..32]).context(current_fn!())?;
 
         (
-            hospital_id,
+            hospital_cid,
             hospital_personnel_iota_address,
             hospital_personnel_pre_public_key,
             data_pre_secret_key_seed_capsule,
@@ -177,6 +177,7 @@ pub async fn create_access(
 
     let mut payload = json!({
         "enc_data_pre_secret_key_seed": enc_data_pre_secret_key_seed_b64,
+        "hospital_cid": hospital_cid,
         "hospital_personnel_iota_address": hospital_personnel_iota_address.to_string(),
         "k_frag": serde_serialize_to_base64(&k_frag).context(current_fn!())?,
         "data_pre_public_key": serde_serialize_to_base64(&data_pre_public_key).context(current_fn!())?,
@@ -188,9 +189,6 @@ pub async fn create_access(
             .context(current_fn!())?,
         "root_subject": hospital_personnel_iota_address.to_string(),
     });
-    if !hospital_id.is_empty() {
-        payload["hospital_id"] = json!(hospital_id);
-    }
     payload["encounter_dataset"] = json!(encounter_dataset);
 
     let access_token = do_http_post_json_request::<

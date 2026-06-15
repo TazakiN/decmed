@@ -219,6 +219,7 @@ fn verify_legacy_token(
             remaining_max_delegation_depth: None,
             patient_address: None,
             related_rme_id: None,
+            hospital_cid: None,
         },
         delegation: DelegationChain {
             root_subject: subject.clone(),

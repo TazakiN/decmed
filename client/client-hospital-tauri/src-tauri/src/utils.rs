@@ -831,6 +831,11 @@ pub fn decode_hospital_personnel_id_to_argon(
     Ok((id_part, hospital_part))
 }
 
+pub fn hospital_cid_from_personnel_id(id: &str) -> Result<String, HospitalError> {
+    let (_, hospital_cid) = decode_hospital_personnel_id(id.to_string())?;
+    Ok(hospital_cid)
+}
+
 /// ## Params:
 /// - `activation_key`: raw_uuid_v4
 /// - `id`: raw_id
@@ -856,4 +861,21 @@ pub fn encode_activation_key_from_keys_entry(
         .ok_or(anyhow!("Id not found on keys entry").context(current_fn!()))?;
 
     encode_activation_key(activation_key, id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hospital_cid_from_personnel_id;
+
+    #[test]
+    fn hospital_cid_is_derived_from_personnel_hospital_part() {
+        let derived = hospital_cid_from_personnel_id("doctor-001@hospital-001").unwrap();
+        assert_eq!(derived, "hospital-001");
+    }
+
+    #[test]
+    fn hospital_cid_rejects_malformed_personnel_id() {
+        assert!(hospital_cid_from_personnel_id("doctor-001").is_err());
+        assert!(hospital_cid_from_personnel_id("doctor@hospital@extra").is_err());
+    }
 }

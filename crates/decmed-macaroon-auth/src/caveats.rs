@@ -22,6 +22,8 @@ pub enum CaveatKey {
     MaxDelegationDepth,
     // Legacy compatibility only; wallet proof is mandatory for all DecMed tokens.
     ProofRequired,
+    HospitalCid,
+    // Legacy token compatibility only. New tokens use `hospital_cid`.
     HospitalId,
     ParentTokenHash,
     // Legacy coarse-grained caveats (still parsed for migration)
@@ -47,6 +49,7 @@ impl CaveatKey {
             "expires_before" => Some(Self::ExpiresBefore),
             "max_delegation_depth" => Some(Self::MaxDelegationDepth),
             "proof_required" => Some(Self::ProofRequired),
+            "hospital_cid" => Some(Self::HospitalCid),
             "hospital_id" => Some(Self::HospitalId),
             "parent_token_hash" => Some(Self::ParentTokenHash),
             "role" => Some(Self::Role),
@@ -244,6 +247,7 @@ pub fn caveat_line(key: CaveatKey, value: &str) -> String {
         CaveatKey::ExpiresBefore => "expires_before",
         CaveatKey::MaxDelegationDepth => "max_delegation_depth",
         CaveatKey::ProofRequired => "proof_required",
+        CaveatKey::HospitalCid => "hospital_cid",
         CaveatKey::HospitalId => "hospital_id",
         CaveatKey::Role => "role",
         CaveatKey::Purpose => "purpose",

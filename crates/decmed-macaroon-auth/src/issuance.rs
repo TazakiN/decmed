@@ -34,7 +34,7 @@ pub struct InitialAdminPersonnelTokenParams {
     pub write_functions: Vec<FunctionCategory>,
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
-    pub hospital_id: Option<String>,
+    pub hospital_cid: Option<String>,
     pub purpose: Option<String>,
 }
 
@@ -85,7 +85,7 @@ impl InitialAdminPersonnelTokenParams {
             write_functions,
             expires_before,
             max_delegation_depth: 3,
-            hospital_id: None,
+            hospital_cid: None,
             purpose: Some(purpose.into()),
         })
     }
@@ -137,7 +137,7 @@ pub struct InitialDoctorTokenParams {
     pub write_functions: Vec<FunctionCategory>,
     pub expires_before: DateTime<Utc>,
     pub max_delegation_depth: u32,
-    pub hospital_id: Option<String>,
+    pub hospital_cid: Option<String>,
     pub purpose: Option<String>,
 }
 
@@ -159,7 +159,7 @@ impl InitialDoctorTokenParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 1,
-            hospital_id: None,
+            hospital_cid: None,
             purpose: None,
         }
     }
@@ -206,7 +206,7 @@ impl InitialDoctorTokenParams {
                 .unwrap()
                 .with_timezone(&Utc),
             max_delegation_depth: 3,
-            hospital_id: None,
+            hospital_cid: None,
             purpose: Some("Read".into()),
         }
     }
@@ -236,7 +236,7 @@ struct DecmedTokenFields<'a> {
     write_functions: &'a [FunctionCategory],
     expires_before: DateTime<Utc>,
     max_delegation_depth: u32,
-    hospital_id: Option<&'a str>,
+    hospital_cid: Option<&'a str>,
     purpose: Option<&'a str>,
 }
 
@@ -310,8 +310,8 @@ fn issue_decmed_token(
         CaveatKey::MaxDelegationDepth,
         &fields.max_delegation_depth.to_string(),
     );
-    if let Some(hospital_id) = fields.hospital_id {
-        add_caveat_to_macaroon(&mut mac, CaveatKey::HospitalId, hospital_id);
+    if let Some(hospital_cid) = fields.hospital_cid {
+        add_caveat_to_macaroon(&mut mac, CaveatKey::HospitalCid, hospital_cid);
     }
     if let Some(purpose) = fields.purpose {
         add_caveat_to_macaroon(&mut mac, CaveatKey::Purpose, purpose);
@@ -353,7 +353,7 @@ pub fn issue_admin_personnel_token(
             write_functions: &params.write_functions,
             expires_before: params.expires_before,
             max_delegation_depth: params.max_delegation_depth,
-            hospital_id: params.hospital_id.as_deref(),
+            hospital_cid: params.hospital_cid.as_deref(),
             purpose: params.purpose.as_deref(),
         },
     )
@@ -375,7 +375,7 @@ pub fn issue_initial_token(
             write_functions: &params.write_functions,
             expires_before: params.expires_before,
             max_delegation_depth: params.max_delegation_depth,
-            hospital_id: params.hospital_id.as_deref(),
+            hospital_cid: params.hospital_cid.as_deref(),
             purpose: params.purpose.as_deref(),
         },
     )

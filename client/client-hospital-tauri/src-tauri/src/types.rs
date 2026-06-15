@@ -231,6 +231,8 @@ pub struct CommandGetDelegateeCandidatesResponseData {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandGetProfileResponseData {
     pub hospital: String,
+    #[serde(rename = "hospitalCid")]
+    pub hospital_cid: String,
     #[serde(rename = "hospitalIdHash")]
     pub hospital_id_hash: String,
     #[serde(rename = "hospitalPrePublicKey")]

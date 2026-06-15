@@ -216,7 +216,7 @@ mod tests {
             segment_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             related_rme_id: "rme-1".to_string(),
             patient_address: patient.to_string(),
-            fasyankes_id: "f1".to_string(),
+            hospital_cid: "hospital-1".to_string(),
             dataset_category: dataset,
             function_category: function,
             ipfs_cid: "bafy".to_string(),

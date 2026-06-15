@@ -27,7 +27,7 @@ use crate::current_fn;
 use crate::macaroon_auth::{map_caveat_error, IotaWalletVerifier};
 use crate::middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER};
 use crate::proxy_error::{ProxyError, ResultExt};
-use crate::segment_authorization::authorize_create_rme_segment;
+use crate::segment_authorization::{authorize_create_rme_segment, authorize_segment_hospital};
 use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateMacaroonKeyHandlerResponse, GenerateSignatureHandlerPayload, GetNonceHandlerPayload,
@@ -189,7 +189,7 @@ fn issue_legacy_role_macaroons(
     root_key: &MacaroonKey,
     role_str: &str,
     subject: &str,
-    hospital_id: Option<&str>,
+    hospital_cid: &str,
     read_keys_duration: u64,
     update_keys_duration: Option<u64>,
 ) -> Result<(String, Option<String>), ProxyError> {
@@ -207,9 +207,7 @@ fn issue_legacy_role_macaroons(
     read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
     read_macaroon.add_first_party_caveat("purpose = Read".into());
     read_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
-    if let Some(hospital_id) = hospital_id.filter(|id| !id.is_empty()) {
-        read_macaroon.add_first_party_caveat(format!("hospital_id = {}", hospital_id).into());
-    }
+    read_macaroon.add_first_party_caveat(format!("hospital_cid = {}", hospital_cid).into());
     read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
 
     let read_token = read_macaroon
@@ -232,9 +230,7 @@ fn issue_legacy_role_macaroons(
         update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
         update_macaroon.add_first_party_caveat("purpose = Update".into());
         update_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
-        if let Some(hospital_id) = hospital_id.filter(|id| !id.is_empty()) {
-            update_macaroon.add_first_party_caveat(format!("hospital_id = {}", hospital_id).into());
-        }
+        update_macaroon.add_first_party_caveat(format!("hospital_cid = {}", hospital_cid).into());
         update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
 
         Some(
@@ -391,6 +387,10 @@ impl Handlers {
             current_user.role,
             current_user.purpose,
             encrypted_segment.function_category,
+        )?;
+        authorize_segment_hospital(
+            current_user.hospital_cid.as_deref(),
+            &encrypted_segment.hospital_cid,
         )?;
 
         let created_at = Utils::sys_time_to_iso(std::time::SystemTime::now());
@@ -1328,7 +1328,13 @@ impl Handlers {
             .clone()
             .unwrap_or_else(|| hospital_personnel_iota_address.to_string());
 
-        let hospital_id_opt = payload.hospital_id.as_deref().filter(|id| !id.is_empty());
+        let hospital_cid = payload.hospital_cid.trim();
+        if hospital_cid.is_empty() {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("hospital_cid is required"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
         let mut access_keys_duration = update_keys_duration.unwrap_or(read_keys_duration);
 
         let mut response_related_rme_id: Option<String> = None;
@@ -1370,9 +1376,7 @@ impl Handlers {
                             code: StatusCode::BAD_REQUEST.as_u16(),
                             error: e.to_string(),
                         })?;
-                        if let Some(hospital_id) = payload.hospital_id.clone() {
-                            read_params.hospital_id = Some(hospital_id);
-                        }
+                        read_params.hospital_cid = Some(hospital_cid.to_string());
 
                         let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
                             &patient_iota_address.to_string(),
@@ -1385,9 +1389,7 @@ impl Handlers {
                             code: StatusCode::BAD_REQUEST.as_u16(),
                             error: e.to_string(),
                         })?;
-                        if let Some(hospital_id) = payload.hospital_id.clone() {
-                            write_params.hospital_id = Some(hospital_id);
-                        }
+                        write_params.hospital_cid = Some(hospital_cid.to_string());
                         write_params.related_rme_id = Some(related_rme_id);
 
                         let read_token = issue_admin_personnel_token(&root_key, &read_params)
@@ -1430,9 +1432,7 @@ impl Handlers {
                         )
                         .into_read_only();
                         read_params.expires_before = expires_before;
-                        if let Some(hospital_id) = payload.hospital_id.clone() {
-                            read_params.hospital_id = Some(hospital_id);
-                        }
+                        read_params.hospital_cid = Some(hospital_cid.to_string());
 
                         let read_token =
                             issue_initial_token(&root_key, &read_params).map_err(|e| {
@@ -1454,9 +1454,7 @@ impl Handlers {
                                 )
                                 .into_update_only();
                             update_params.expires_before = update_expires;
-                            if let Some(hospital_id) = payload.hospital_id.clone() {
-                                update_params.hospital_id = Some(hospital_id);
-                            }
+                            update_params.hospital_cid = Some(hospital_cid.to_string());
                             Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
                                 ProxyError::Caveat {
                                     code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
@@ -1472,7 +1470,7 @@ impl Handlers {
                             &root_key,
                             role_str,
                             &root_subject,
-                            hospital_id_opt,
+                            hospital_cid,
                             read_keys_duration,
                             update_keys_duration,
                         )?

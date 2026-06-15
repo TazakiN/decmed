@@ -192,12 +192,10 @@ pub async fn get_profile(
         )
     };
 
-    let hospital_id_hash = {
-        let (_, hospital_personnel_hospital_part_hash) =
-            decode_hospital_personnel_id_to_argon(private_administrative_data.id.clone())
-                .context(current_fn!())?;
-        hospital_personnel_hospital_part_hash
-    };
+    let (_, hospital_cid) =
+        crate::utils::decode_hospital_personnel_id(private_administrative_data.id.clone())
+            .context(current_fn!())?;
+    let hospital_id_hash = crate::utils::argon_hash(hospital_cid.clone()).context(current_fn!())?;
 
     let hospital_pre_public_key =
         hospital_pre_public_key_for_personnel(&keys_entry, &hospital_id_hash)
@@ -207,6 +205,7 @@ pub async fn get_profile(
 
     let data = CommandGetProfileResponseData {
         hospital: hospital_metadata.name.clone(),
+        hospital_cid,
         hospital_id_hash,
         hospital_pre_public_key,
         id: private_administrative_data.id.clone(),

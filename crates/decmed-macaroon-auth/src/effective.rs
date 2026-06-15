@@ -26,6 +26,7 @@ pub struct EffectiveCapability {
     pub remaining_max_delegation_depth: Option<u32>,
     pub patient_address: Option<String>,
     pub related_rme_id: Option<String>,
+    pub hospital_cid: Option<String>,
 }
 
 impl EffectiveCapability {
@@ -40,6 +41,7 @@ impl EffectiveCapability {
             delegation_depth_limits(parsed)?;
         let patient_address = single_text(parsed, CaveatKey::PatientAddress)?;
         let related_rme_id = single_text(parsed, CaveatKey::RelatedRmeId)?;
+        let hospital_cid = single_text(parsed, CaveatKey::HospitalCid)?;
 
         Ok(Self {
             read_datasets,
@@ -51,6 +53,7 @@ impl EffectiveCapability {
             remaining_max_delegation_depth,
             patient_address,
             related_rme_id,
+            hospital_cid,
         })
     }
 
@@ -239,5 +242,23 @@ mod tests {
         let eff = EffectiveCapability::from_parsed(&p).unwrap();
         let exp = eff.expires_before.unwrap();
         assert_eq!(exp.format("%H:%M:%S").to_string(), "14:00:00");
+    }
+
+    #[test]
+    fn extracts_hospital_cid() {
+        let p = parsed(&["hospital_cid = hospital-001"]);
+        let eff = EffectiveCapability::from_parsed(&p).unwrap();
+
+        assert_eq!(eff.hospital_cid.as_deref(), Some("hospital-001"));
+    }
+
+    #[test]
+    fn rejects_multiple_hospital_cids() {
+        let p = parsed(&[
+            "hospital_cid = hospital-001",
+            "hospital_cid = hospital-002",
+        ]);
+
+        assert!(EffectiveCapability::from_parsed(&p).is_err());
     }
 }

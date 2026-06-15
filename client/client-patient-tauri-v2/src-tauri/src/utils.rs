@@ -395,43 +395,40 @@ pub fn decode_hospital_personnel_qr(content: String) -> Result<(IotaAddress, Pub
 
 #[derive(Clone, Debug)]
 pub struct HospitalGrantQr {
-    pub hospital_id: String,
+    pub hospital_cid: String,
     pub hospital_pre_public_key: Option<PublicKey>,
     pub personnel_iota_address: IotaAddress,
     pub personnel_pre_public_key: PublicKey,
 }
 
-/// Combined grant QR: `{hospital_id}@{hospital_pre_pk}@{personnel_iota}@{personnel_pre_pk}`
-/// Legacy 2-part: `{personnel_iota}@{personnel_pre_pk}`
+/// Combined grant QR: `{hospital_cid}@{hospital_pre_pk}@{personnel_iota}@{personnel_pre_pk}`
 /// Legacy 5-part (with trailing role) is accepted but role is ignored.
 pub fn decode_hospital_grant_qr(content: String) -> Result<HospitalGrantQr> {
     let parts: Vec<&str> = content.split('@').collect();
     if parts.len() == 2 {
-        let personnel_iota_address = IotaAddress::from_str(parts[0]).context(current_fn!())?;
-        let personnel_pre_public_key =
-            serde_deserialize_from_base64(parts[1].to_string()).context(current_fn!())?;
-        return Ok(HospitalGrantQr {
-            hospital_id: String::new(),
-            hospital_pre_public_key: None,
-            personnel_iota_address,
-            personnel_pre_public_key,
-        });
+        return Err(anyhow!(
+            "Legacy hospital QR is no longer supported; scan a QR containing hospital_cid"
+        )
+        .context(current_fn!()));
     }
     if parts.len() == 4 || parts.len() == 5 {
+        if parts[0].trim().is_empty() {
+            return Err(anyhow!("Hospital QR contains an empty hospital_cid").context(current_fn!()));
+        }
         let hospital_pre_public_key =
             serde_deserialize_from_base64(parts[1].to_string()).context(current_fn!())?;
         let personnel_iota_address = IotaAddress::from_str(parts[2]).context(current_fn!())?;
         let personnel_pre_public_key =
             serde_deserialize_from_base64(parts[3].to_string()).context(current_fn!())?;
         return Ok(HospitalGrantQr {
-            hospital_id: parts[0].to_string(),
+            hospital_cid: parts[0].to_string(),
             hospital_pre_public_key: Some(hospital_pre_public_key),
             personnel_iota_address,
             personnel_pre_public_key,
         });
     }
     Err(anyhow!(
-        "Invalid QR content length, expected 2 or 4 parts found {}",
+        "Invalid QR content length, expected 4 or 5 parts found {}",
         parts.len()
     ))
     .context(current_fn!())
@@ -629,4 +626,22 @@ pub async fn get_data_ipfs(cid: String) -> Result<String> {
     .context(current_fn!())?;
 
     Ok(content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_hospital_grant_qr;
+
+    #[test]
+    fn legacy_hospital_qr_without_hospital_cid_is_rejected() {
+        let err = decode_hospital_grant_qr("personnel@public-key".to_string()).unwrap_err();
+        assert!(format!("{err:#}").contains("Legacy hospital QR is no longer supported"));
+    }
+
+    #[test]
+    fn hospital_qr_with_empty_hospital_cid_is_rejected() {
+        let err = decode_hospital_grant_qr("@hospital-key@address@personnel-key".to_string())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("empty hospital_cid"));
+    }
 }

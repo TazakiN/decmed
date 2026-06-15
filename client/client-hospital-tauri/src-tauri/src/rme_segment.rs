@@ -25,7 +25,8 @@ use crate::{
     },
     utils::{
         aes_encrypt, do_http_post_request_json, get_iota_key_pair_from_keys_entry,
-        parse_keys_entry, serde_deserialize_from_base64, serde_serialize_to_base64,
+        hospital_cid_from_personnel_id, parse_keys_entry, serde_deserialize_from_base64,
+        serde_serialize_to_base64,
     },
 };
 
@@ -37,10 +38,10 @@ struct ProxyCreateRmeSegmentPayload {
 
 pub fn build_encrypted_rme_segment(
     request: CreateRmeSegmentRequest,
+    hospital_cid: String,
     patient_pre_public_key: PublicKey,
 ) -> Result<(RmeSegmentData, ClientEncryptedRmeSegment), HospitalError> {
     let patient_address = request.patient_address.clone();
-    let fasyankes_id = request.fasyankes_id.clone();
     let author_address = request.author_address.clone();
     let segment_id = Uuid::new_v4();
     let off_chain_segment = RmeSegmentData::new(segment_id, request)
@@ -64,7 +65,7 @@ pub fn build_encrypted_rme_segment(
         segment_id: off_chain_segment.segment_id.clone(),
         related_rme_id: off_chain_segment.related_rme_id.clone(),
         patient_address,
-        fasyankes_id,
+        hospital_cid,
         dataset_category: off_chain_segment.dataset_category,
         function_category: off_chain_segment.function_category,
         integrity_hash: sha256_hex(&encrypted_segment),
@@ -164,11 +165,16 @@ pub async fn new_medical_record_segment(
     let iota_key_pair =
         get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
     let author_address = crate::utils::get_iota_address_from_keys_entry(&keys_entry)?.to_string();
+    let personnel_id = keys_entry
+        .id
+        .as_deref()
+        .ok_or_else(|| HospitalError::Anyhow(anyhow!("Id not found on keys entry")))?;
+    let hospital_cid = hospital_cid_from_personnel_id(personnel_id)?;
     let mut segment_request = data;
     segment_request.author_address = author_address;
 
     let (_, encrypted_segment) =
-        build_encrypted_rme_segment(segment_request, patient_pre_public_key)
+        build_encrypted_rme_segment(segment_request, hospital_cid, patient_pre_public_key)
             .context(current_fn!())?;
 
     let data = post_encrypted_rme_segment(
@@ -227,7 +233,6 @@ mod tests {
             patient_address: "0x1111111111111111111111111111111111111111111111111111111111111111"
                 .to_string(),
             patient_ref: "patient-001".to_string(),
-            fasyankes_id: "rs-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "0x2222222222222222222222222222222222222222222222222222222222222222"
                 .to_string(),
@@ -238,11 +243,16 @@ mod tests {
             }),
         };
 
-        let (off_chain, encrypted_segment) =
-            build_encrypted_rme_segment(request, patient_pre_public_key).unwrap();
+        let (off_chain, encrypted_segment) = build_encrypted_rme_segment(
+            request,
+            "hospital-001".to_string(),
+            patient_pre_public_key,
+        )
+        .unwrap();
 
         assert_eq!(off_chain.segment_id, encrypted_segment.segment_id);
         assert_eq!(off_chain.related_rme_id, encrypted_segment.related_rme_id);
+        assert_eq!(encrypted_segment.hospital_cid, "hospital-001");
         assert_eq!(
             off_chain.dataset_category,
             encrypted_segment.dataset_category

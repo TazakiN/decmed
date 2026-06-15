@@ -36,7 +36,6 @@ mod tests {
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "iota:patient-address".to_string(),
             patient_ref: "patient-001".to_string(),
-            fasyankes_id: "rs-001".to_string(),
             service_date: "2026-05-18".to_string(),
             author_address: "iota:doctor-address".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
@@ -50,7 +49,7 @@ mod tests {
             segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "iota:patient-address".to_string(),
-            fasyankes_id: "rs-001".to_string(),
+            hospital_cid: "hospital-001".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
             function_category: FunctionCategory::ANAMNESIS,
             ipfs_cid: "bafy...".to_string(),
@@ -269,7 +268,7 @@ mod tests {
             segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "iota:patient-address".to_string(),
-            fasyankes_id: "rs-001".to_string(),
+            hospital_cid: "hospital-001".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
             function_category: FunctionCategory::ANAMNESIS,
             integrity_hash: sha256_hex(ciphertext),
@@ -288,6 +287,9 @@ mod tests {
         assert_eq!(metadata.ipfs_cid, "bafy...");
         let value = serde_json::to_value(metadata).unwrap();
         let legacy_algorithm_key = ["encryption", "algo"].join("_");
+        assert_eq!(value.get("hospital_cid"), Some(&json!("hospital-001")));
+        assert!(value.get("hospital_id").is_none());
+        assert!(value.get("fasyankes_id").is_none());
         assert!(value.get("enc_data").is_none());
         assert!(value.get(&legacy_algorithm_key).is_none());
     }
@@ -310,7 +312,7 @@ mod tests {
             segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
             related_rme_id: "rme-2026-0001".to_string(),
             patient_address: "iota:patient-address".to_string(),
-            fasyankes_id: "rs-001".to_string(),
+            hospital_cid: "hospital-001".to_string(),
             dataset_category: DatasetCategory::RAWAT_JALAN,
             function_category: FunctionCategory::ANAMNESIS,
             integrity_hash: sha256_hex(ciphertext),
@@ -327,5 +329,86 @@ mod tests {
 
         let decoded: ClientEncryptedRmeSegment = serde_json::from_value(client_value).unwrap();
         decoded.validate().unwrap();
+    }
+
+    #[test]
+    fn legacy_hospital_identifiers_deserialize_as_hospital_cid() {
+        let mut metadata = serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
+        let hospital_cid = metadata
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid")
+            .unwrap();
+        metadata
+            .as_object_mut()
+            .unwrap()
+            .insert("hospital_id".to_string(), hospital_cid.clone());
+
+        let decoded: RmeSegmentMetadata = serde_json::from_value(metadata).unwrap();
+        assert_eq!(decoded.hospital_cid, "hospital-001");
+
+        let mut legacy_fasyankes =
+            serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
+        legacy_fasyankes
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid");
+        legacy_fasyankes
+            .as_object_mut()
+            .unwrap()
+            .insert("fasyankes_id".to_string(), hospital_cid);
+        let decoded: RmeSegmentMetadata = serde_json::from_value(legacy_fasyankes).unwrap();
+        assert_eq!(decoded.hospital_cid, "hospital-001");
+    }
+
+    #[test]
+    fn legacy_hospital_identifiers_are_rejected_for_new_write_payloads() {
+        let client_segment = ClientEncryptedRmeSegment {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            hospital_cid: "hospital-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            integrity_hash: sha256_hex(b"encrypted segment"),
+            capsule: "pre-capsule-value".to_string(),
+            enc_data: STANDARD.encode(b"encrypted segment"),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+        };
+        let mut value = serde_json::to_value(client_segment).unwrap();
+        let hospital_cid = value
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid")
+            .unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("hospital_id".to_string(), hospital_cid.clone());
+
+        assert!(serde_json::from_value::<ClientEncryptedRmeSegment>(value).is_err());
+
+        let mut value =
+            serde_json::to_value(ClientEncryptedRmeSegment {
+                segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+                related_rme_id: "rme-2026-0001".to_string(),
+                patient_address: "iota:patient-address".to_string(),
+                hospital_cid: "hospital-001".to_string(),
+                dataset_category: DatasetCategory::RAWAT_JALAN,
+                function_category: FunctionCategory::ANAMNESIS,
+                integrity_hash: sha256_hex(b"encrypted segment"),
+                capsule: "pre-capsule-value".to_string(),
+                enc_data: STANDARD.encode(b"encrypted segment"),
+                enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+                author_address: "iota:doctor-address".to_string(),
+            })
+            .unwrap();
+        value.as_object_mut().unwrap().remove("hospital_cid");
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("fasyankes_id".to_string(), hospital_cid);
+        assert!(serde_json::from_value::<ClientEncryptedRmeSegment>(value).is_err());
     }
 }

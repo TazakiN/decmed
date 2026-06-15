@@ -64,6 +64,7 @@ pub struct ClientMedicalMetadata {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CurrentUser {
     pub iota_address: String,
+    pub hospital_cid: Option<String>,
     pub purpose: ReencryptionPurposeType,
     pub role: AuthRole,
     #[serde(skip)]
@@ -266,8 +267,7 @@ pub struct HandlerStoreKeysPayload {
     pub signer_pre_public_key: String,
     #[serde(default)]
     pub related_rme_id: Option<String>,
-    #[serde(default)]
-    pub hospital_id: Option<String>,
+    pub hospital_cid: String,
     #[serde(default)]
     pub root_subject: Option<String>,
     /// RAWAT_JALAN or RAWAT_INAP — required for AdministrativePersonnel DecMed dual issuance.

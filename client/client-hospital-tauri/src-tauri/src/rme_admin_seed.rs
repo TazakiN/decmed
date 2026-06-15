@@ -20,6 +20,7 @@ use crate::{
     hospital_error::HospitalError,
     rme_segment::{build_encrypted_rme_segment, post_encrypted_rme_segment},
     types::{KeysEntry, PatientPrivateAdministrativeData},
+    utils::hospital_cid_from_personnel_id,
 };
 #[derive(Debug, Default)]
 pub struct SeedAdministrativeGeneralResult {
@@ -67,6 +68,22 @@ fn effective_from_write_token(token: &str) -> Result<EffectiveCapability, Hospit
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
     EffectiveCapability::from_parsed(&parsed)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))
+}
+
+fn validate_parent_hospital(
+    parent: &EffectiveCapability,
+    hospital_cid: &str,
+) -> Result<(), HospitalError> {
+    match parent.hospital_cid.as_deref() {
+        Some(token_hospital_cid) if token_hospital_cid == hospital_cid => Ok(()),
+        Some(_) => Err(HospitalError::Anyhow(
+            anyhow!("parent write token is bound to a different hospital_cid")
+                .context(current_fn!()),
+        )),
+        None => Err(HospitalError::Anyhow(
+            anyhow!("parent write token is missing hospital_cid").context(current_fn!()),
+        )),
+    }
 }
 
 fn seed_token_for_dataset(
@@ -147,6 +164,12 @@ pub async fn seed_administrative_general_segments(
     };
 
     let parent_effective = effective_from_write_token(parent_write_token)?;
+    let personnel_id = keys_entry
+        .id
+        .as_deref()
+        .ok_or_else(|| HospitalError::Anyhow(anyhow!("Id not found on keys entry")))?;
+    let hospital_cid = hospital_cid_from_personnel_id(personnel_id)?;
+    validate_parent_hospital(&parent_effective, &hospital_cid)?;
     if !parent_effective
         .write_functions
         .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL)
@@ -224,7 +247,6 @@ pub async fn seed_administrative_general_segments(
             related_rme_id: related_rme_id.to_string(),
             patient_address: patient_address.clone(),
             patient_ref: patient_address.clone(),
-            fasyankes_id: "decmed-hospital".to_string(),
             service_date: service_date.clone(),
             author_address: author_address.to_string(),
             dataset_category: dataset,
@@ -232,7 +254,11 @@ pub async fn seed_administrative_general_segments(
             payload: payload.clone(),
         };
 
-        let encrypted = match build_encrypted_rme_segment(request, patient_pre_public_key.clone()) {
+        let encrypted = match build_encrypted_rme_segment(
+            request,
+            hospital_cid.clone(),
+            patient_pre_public_key.clone(),
+        ) {
             Ok((_, enc)) => enc,
             Err(e) => {
                 result.warnings.push(format!(
@@ -280,11 +306,11 @@ mod tests {
         issue_admin_personnel_token, AdminTokenKind, InitialAdminPersonnelTokenParams, MacaroonKey,
     };
 
-    fn admin_write_token() -> String {
+    fn admin_write_token_with_hospital(hospital_cid: Option<&str>) -> String {
         let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
             .unwrap()
             .with_timezone(&Utc);
-        let params = InitialAdminPersonnelTokenParams::for_grant(
+        let mut params = InitialAdminPersonnelTokenParams::for_grant(
             "0x1111111111111111111111111111111111111111111111111111111111111111",
             "0x7777777777777777777777777777777777777777777777777777777777777777",
             DatasetCategory::RAWAT_JALAN,
@@ -292,8 +318,13 @@ mod tests {
             expires,
         )
         .unwrap();
+        params.hospital_cid = hospital_cid.map(str::to_string);
         let root_key = MacaroonKey::generate(b"decmed-hospital-admin-seed-test-key!!");
         issue_admin_personnel_token(&root_key, &params).unwrap()
+    }
+
+    fn admin_write_token() -> String {
+        admin_write_token_with_hospital(Some("hospital-001"))
     }
 
     #[test]
@@ -331,5 +362,20 @@ mod tests {
             effective.related_rme_id.as_deref(),
             Some("RME-2026-seed-test")
         );
+        assert_eq!(
+            effective.hospital_cid.as_deref(),
+            Some("hospital-001")
+        );
+    }
+
+    #[test]
+    fn parent_hospital_validation_rejects_missing_and_mismatched_caveats() {
+        let without_hospital =
+            effective_from_write_token(&admin_write_token_with_hospital(None)).unwrap();
+        assert!(validate_parent_hospital(&without_hospital, "hospital-001").is_err());
+
+        let other_hospital = effective_from_write_token(&admin_write_token()).unwrap();
+        assert!(validate_parent_hospital(&other_hospital, "hospital-002").is_err());
+        validate_parent_hospital(&other_hospital, "hospital-001").unwrap();
     }
 }

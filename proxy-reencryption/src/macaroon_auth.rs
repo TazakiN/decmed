@@ -39,9 +39,9 @@ pub fn caveat_error_to_status(err: &CaveatVerificationError) -> StatusCode {
         CaveatVerificationError::InvalidMacaroonSignature => StatusCode::UNAUTHORIZED,
         CaveatVerificationError::MissingRequiredCaveat(_)
         | CaveatVerificationError::LegacyTokenIncomplete => StatusCode::UNAUTHORIZED,
-        CaveatVerificationError::PatientMismatch | CaveatVerificationError::RmeMismatch => {
-            StatusCode::FORBIDDEN
-        }
+        CaveatVerificationError::PatientMismatch
+        | CaveatVerificationError::RmeMismatch
+        | CaveatVerificationError::HospitalCidMismatch => StatusCode::FORBIDDEN,
         CaveatVerificationError::ExpiredToken => StatusCode::UNAUTHORIZED,
         CaveatVerificationError::RevokedToken => StatusCode::UNAUTHORIZED,
         CaveatVerificationError::InvalidDelegationChain

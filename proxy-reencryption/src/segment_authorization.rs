@@ -1,7 +1,9 @@
 use anyhow::anyhow;
 use axum::http::StatusCode;
+use decmed_macaroon_auth::CaveatVerificationError;
 use decmed_rme_segment::FunctionCategory;
 
+use crate::macaroon_auth::map_caveat_error;
 use crate::proxy_error::ProxyError;
 use crate::types::{AuthRole, ReencryptionPurposeType};
 
@@ -42,6 +44,25 @@ pub fn authorize_create_rme_segment(
     }
 }
 
+pub fn authorize_segment_hospital(
+    token_hospital_cid: Option<&str>,
+    segment_hospital_cid: &str,
+) -> Result<(), ProxyError> {
+    let token_hospital_cid = token_hospital_cid.ok_or_else(|| {
+        map_caveat_error(CaveatVerificationError::MissingRequiredCaveat(
+            "hospital_cid",
+        ))
+    })?;
+
+    if token_hospital_cid != segment_hospital_cid {
+        return Err(map_caveat_error(
+            CaveatVerificationError::HospitalCidMismatch,
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,6 +91,9 @@ mod tests {
     fn assert_proxy_status(err: ProxyError, expected: StatusCode) {
         match err {
             ProxyError::Anyhow { code, .. } => assert_eq!(code, expected),
+            ProxyError::Caveat { code, .. } => {
+                assert_eq!(code, expected.as_u16())
+            }
             other => panic!("expected Anyhow variant, got {other:?}"),
         }
     }
@@ -105,5 +129,22 @@ mod tests {
         )
         .unwrap_err();
         assert_proxy_status(err, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn matching_hospital_is_allowed() {
+        assert!(authorize_segment_hospital(Some("hospital-001"), "hospital-001").is_ok());
+    }
+
+    #[test]
+    fn missing_hospital_caveat_is_unauthorized() {
+        let err = authorize_segment_hospital(None, "hospital-001").unwrap_err();
+        assert_proxy_status(err, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn mismatched_hospital_is_forbidden() {
+        let err = authorize_segment_hospital(Some("hospital-002"), "hospital-001").unwrap_err();
+        assert_proxy_status(err, StatusCode::FORBIDDEN);
     }
 }

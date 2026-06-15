@@ -136,7 +136,7 @@ export type RmeSegmentMetadata = {
 	segment_id: string;
 	related_rme_id: string;
 	patient_address: string;
-	fasyankes_id: string;
+	hospital_cid: string;
 	dataset_category: DatasetCategory;
 	function_category: FunctionCategory;
 	ipfs_cid: string;
@@ -162,7 +162,6 @@ export type CreateRmeSegmentRequest = {
 	related_rme_id: string;
 	patient_address: string;
 	patient_ref: string;
-	fasyankes_id: string;
 	service_date: string;
 	author_address: string;
 	dataset_category: DatasetCategory;
@@ -191,6 +190,7 @@ export type AdministrativeData = {
 
 export type GetProfileData = {
 	hospital: string | null;
+	hospitalCid: string;
 	hospitalIdHash?: string | null;
 	hospitalPrePublicKey?: string | null;
 	id: string;

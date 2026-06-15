@@ -10,6 +10,8 @@ pub enum CaveatVerificationError {
     PatientMismatch,
     #[error("Related RME id mismatch")]
     RmeMismatch,
+    #[error("Hospital CID mismatch")]
+    HospitalCidMismatch,
     #[error("Token expired")]
     ExpiredToken,
     #[error("Invalid delegation chain")]

@@ -139,7 +139,7 @@ export type RmeSegmentMetadata = {
 	segment_id: string;
 	related_rme_id: string;
 	patient_address: string;
-	fasyankes_id: string;
+	hospital_cid: string;
 	dataset_category: DatasetCategory;
 	function_category: FunctionCategory;
 	ipfs_cid: string;

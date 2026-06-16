@@ -1,5 +1,5 @@
-use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-use serde::{Deserialize, Serialize};
+use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
+use serde::{ Deserialize, Serialize };
 
 use crate::effective::AccessMode;
 use crate::errors::CaveatVerificationError;
@@ -28,6 +28,6 @@ pub trait WalletSignatureVerifier {
         &self,
         context: &WalletProofContext,
         signature_b64: &str,
-        expected_address: &str,
+        expected_address: &str
     ) -> Result<(), CaveatVerificationError>;
 }

@@ -28,6 +28,14 @@ pub enum MoveHospitalPersonnelRole {
     MedicalPersonnel,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HospitalPersonnelSubRole {
+    Doctor,
+    Nurse,
+    LaboratoryStaff,
+    Pharmacist,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ReencryptionPurposeType {
     Read,
@@ -67,6 +75,7 @@ pub struct CurrentUser {
     pub hospital_cid: Option<String>,
     pub purpose: ReencryptionPurposeType,
     pub role: AuthRole,
+    pub sub_role: Option<HospitalPersonnelSubRole>,
     #[serde(skip)]
     pub decmed_token: Option<VerifiedDecmedToken>,
     #[serde(skip)]

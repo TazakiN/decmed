@@ -11,6 +11,7 @@ use decmed::std_enum_hospital_personnel_role::{
 use decmed::std_enum_hospital_personnel_role::{
     HospitalPersonnelRole,
 };
+use decmed::std_enum_hospital_personnel_sub_role::HospitalPersonnelSubRole;
 use decmed::shared::{
     GlobalAdminCap,
     ProxyCap,
@@ -296,6 +297,24 @@ entry fun get_hospital_personnel_role(
     let role = *hospital_personnel_account.borrow_role();
 
     role
+}
+
+entry fun get_hospital_personnel_auth_info(
+    address_id: &AddressId,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    hospital_personnel_address: address,
+    _: &ProxyCap,
+): (HospitalPersonnelRole, Option<HospitalPersonnelSubRole>)
+{
+    let address_id_table = address_id.borrow_table();
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow(hospital_personnel_id);
+    let role = *hospital_personnel_account.borrow_role();
+    let sub_role = *hospital_personnel_account.borrow_sub_role();
+
+    (role, sub_role)
 }
 
 /// ## Returns:

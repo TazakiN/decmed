@@ -123,7 +123,7 @@
 						</div>
 						{#if visibleRecordInfo[record.segmentData.segment_id]}
 							<div class="flex flex-col gap-0.5 text-xs text-zinc-500">
-								<p class="break-all">Author: {record.segmentData.author_address}</p>
+								<!-- <p class="break-all">Author: {record.segmentData.author_address}</p> -->
 								<p>{formatDateTime(record.createdAt)}</p>
 							</div>
 						{/if}

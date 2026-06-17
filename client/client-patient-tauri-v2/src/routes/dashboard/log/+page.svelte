@@ -42,20 +42,20 @@
 							<p class="text-sm text-zinc-400">Access Type:</p>
 							<p>{access.access_type}</p>
 						</div>
-						{#if access.is_delegated}
+						<!-- {#if access.is_delegated}
 							<div class="flex flex-col">
 								<p class="text-sm text-zinc-400">Delegated By:</p>
 								<p class="break-all">{access.delegated_by_address ?? '-'}</p>
 							</div>
-						{/if}
-						<div class="flex flex-col">
+						{/if} -->
+						<!-- <div class="flex flex-col">
 							<p class="text-sm text-zinc-400">Access Data Type:</p>
 							<div class="flex items-center gap-2">
 								{#each access.access_data_type as dtType}
 									<p class="bg-white px-2">{dtType}</p>
 								{/each}
 							</div>
-						</div>
+						</div> -->
 						{#if !access.is_revoked && moment(access.date)
 								.add(access.exp_dur, 'minutes')
 								.isAfter(moment())}

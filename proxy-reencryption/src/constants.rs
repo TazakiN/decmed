@@ -19,9 +19,9 @@ pub const DECMED_MODULE_PROXY: &str = "proxy";
 pub const DECMED_MODULE_SHARED: &str = "shared";
 
 pub const DECMED_ORIGINAL_PACKAGE_ID: &str =
-    "0xa9e7d6d9927c37fd31f3fde15f8bd3587f628f2fbadde35d04a685ef87587ca2";
-pub const DECMED_PACKAGE_ID: &str =
     "0x728e2ae15c732ba68814ef7720b649b11a184a95aadb6b1a2ec93ade4590185e";
+pub const DECMED_PACKAGE_ID: &str =
+    "0x77e3824ed86d5bb9e0b1bc7e71d2b644c775d0d54f59a29a3b4c3ac9e1fb82ab";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

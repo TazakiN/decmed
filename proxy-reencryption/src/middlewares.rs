@@ -84,15 +84,12 @@ pub async fn auth_middleware(
             .code(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // DecMed token caveat role is legacy/deprecated for delegated tokens.
-        // Identity role must come from on-chain registry for the active subject.
-        // TODO: resolve sub_role, hospital_cid, and activation status here when
-        // proxy.move exposes a compact auth-info helper.
-        let role = auth_role_from_move_role(
-            state
-                .move_call
-                .get_hospital_personnel_role(&active_subject_address, proxy_iota_address)
-                .await?,
-        )?;
+        // Identity role/sub-role must come from on-chain registry for the active subject.
+        let (move_role, sub_role) = state
+            .move_call
+            .get_hospital_personnel_auth_info(&active_subject_address, proxy_iota_address)
+            .await?;
+        let role = auth_role_from_move_role(move_role)?;
         let purpose = decmed_purpose_from_parsed(&parsed)?;
         let hospital_cid = effective.hospital_cid.clone();
 
@@ -112,6 +109,7 @@ pub async fn auth_middleware(
             hospital_cid,
             purpose,
             role,
+            sub_role,
             decmed_token: Some(verified),
             bearer_token: bearer_token.clone(),
         };
@@ -205,11 +203,36 @@ pub async fn auth_middleware(
         }
     };
 
+    let sub_role =
+        if role == AuthRole::MedicalPersonnel && purpose == ReencryptionPurposeType::Update {
+            let subject_address = IotaAddress::from_str(&subject)
+                .map_err(|_| anyhow!("Invalid subject address"))
+                .code(StatusCode::UNAUTHORIZED)?;
+            let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
+                .map_err(|_| anyhow!("Invalid proxy IOTA address"))
+                .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+            let (move_role, sub_role) = state
+                .move_call
+                .get_hospital_personnel_auth_info(&subject_address, proxy_iota_address)
+                .await?;
+            let registry_role = auth_role_from_move_role(move_role)?;
+            if registry_role != role {
+                return Err(ProxyError::Anyhow {
+                    source: anyhow!("Token role does not match on-chain personnel role"),
+                    code: StatusCode::UNAUTHORIZED,
+                });
+            }
+            sub_role
+        } else {
+            None
+        };
+
     let current_user = CurrentUser {
         iota_address: subject,
         hospital_cid,
         purpose,
         role,
+        sub_role,
         decmed_token: None,
         bearer_token: bearer_token.clone(),
     };

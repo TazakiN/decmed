@@ -1,19 +1,21 @@
 use anyhow::anyhow;
 use axum::http::StatusCode;
 use decmed_macaroon_auth::CaveatVerificationError;
-use decmed_rme_segment::FunctionCategory;
+use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
 use crate::macaroon_auth::map_caveat_error;
 use crate::proxy_error::ProxyError;
-use crate::types::{AuthRole, ReencryptionPurposeType};
+use crate::types::{AuthRole, HospitalPersonnelSubRole, ReencryptionPurposeType};
 
 /// Role and function gate for `POST /medical-record-segment`.
 ///
-/// - `MedicalPersonnel` + `Update`: any function allowed by DecMed token verification.
+/// - `MedicalPersonnel` + `Update`: dataset must match the on-chain personnel sub-role.
 /// - `AdministrativePersonnel` + `Update`: only `ADMINISTRATIVE_GENERAL`.
 pub fn authorize_create_rme_segment(
     role: AuthRole,
+    sub_role: Option<HospitalPersonnelSubRole>,
     purpose: ReencryptionPurposeType,
+    dataset_category: DatasetCategory,
     function_category: FunctionCategory,
 ) -> Result<(), ProxyError> {
     if purpose != ReencryptionPurposeType::Update {
@@ -24,7 +26,23 @@ pub fn authorize_create_rme_segment(
     }
 
     match role {
-        AuthRole::MedicalPersonnel => Ok(()),
+        AuthRole::MedicalPersonnel => {
+            let sub_role = sub_role.ok_or_else(|| ProxyError::Anyhow {
+                source: anyhow!("Medical personnel sub-role is required to write RME segments"),
+                code: StatusCode::FORBIDDEN,
+            })?;
+
+            if sub_role_can_write_dataset(sub_role, dataset_category) {
+                Ok(())
+            } else {
+                Err(ProxyError::Anyhow {
+                    source: anyhow!(
+                        "Medical personnel sub-role is not allowed to write {dataset_category:?} dataset"
+                    ),
+                    code: StatusCode::FORBIDDEN,
+                })
+            }
+        }
         AuthRole::AdministrativePersonnel => {
             if function_category == FunctionCategory::ADMINISTRATIVE_GENERAL {
                 Ok(())
@@ -41,6 +59,22 @@ pub fn authorize_create_rme_segment(
             source: anyhow!("Illegal action. Invalid role"),
             code: StatusCode::UNAUTHORIZED,
         }),
+    }
+}
+
+fn sub_role_can_write_dataset(
+    sub_role: HospitalPersonnelSubRole,
+    dataset_category: DatasetCategory,
+) -> bool {
+    match sub_role {
+        HospitalPersonnelSubRole::Doctor | HospitalPersonnelSubRole::Nurse => matches!(
+            dataset_category,
+            DatasetCategory::RAWAT_JALAN | DatasetCategory::RAWAT_INAP
+        ),
+        HospitalPersonnelSubRole::LaboratoryStaff => {
+            dataset_category == DatasetCategory::LABORATORIUM
+        }
+        HospitalPersonnelSubRole::Pharmacist => dataset_category == DatasetCategory::APOTEK,
     }
 }
 
@@ -66,23 +100,112 @@ pub fn authorize_segment_hospital(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use decmed_rme_segment::FunctionCategory;
+    use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
     #[test]
-    fn medical_personnel_update_any_function_allowed_at_role_gate() {
+    fn doctor_and_nurse_can_write_rawat_jalan_and_rawat_inap() {
         assert!(authorize_create_rme_segment(
             AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::Doctor),
             ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
             FunctionCategory::ANAMNESIS,
         )
         .is_ok());
+        assert!(authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::Nurse),
+            ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_INAP,
+            FunctionCategory::PEMERIKSAAN_FISIK,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn doctor_and_nurse_cannot_write_laboratorium_or_apotek() {
+        for sub_role in [
+            HospitalPersonnelSubRole::Doctor,
+            HospitalPersonnelSubRole::Nurse,
+        ] {
+            for dataset in [DatasetCategory::LABORATORIUM, DatasetCategory::APOTEK] {
+                let err = authorize_create_rme_segment(
+                    AuthRole::MedicalPersonnel,
+                    Some(sub_role),
+                    ReencryptionPurposeType::Update,
+                    dataset,
+                    FunctionCategory::LABORATORIUM,
+                )
+                .unwrap_err();
+                assert_proxy_status(err, StatusCode::FORBIDDEN);
+            }
+        }
+    }
+
+    #[test]
+    fn laboratory_staff_can_only_write_laboratorium() {
+        assert!(authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::LaboratoryStaff),
+            ReencryptionPurposeType::Update,
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::LABORATORIUM,
+        )
+        .is_ok());
+
+        let err = authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::LaboratoryStaff),
+            ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+        )
+        .unwrap_err();
+        assert_proxy_status(err, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn pharmacist_can_only_write_apotek() {
+        assert!(authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::Pharmacist),
+            ReencryptionPurposeType::Update,
+            DatasetCategory::APOTEK,
+            FunctionCategory::DISPENSING,
+        )
+        .is_ok());
+
+        let err = authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::Pharmacist),
+            ReencryptionPurposeType::Update,
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::LABORATORIUM,
+        )
+        .unwrap_err();
+        assert_proxy_status(err, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn medical_personnel_without_sub_role_is_denied() {
+        let err = authorize_create_rme_segment(
+            AuthRole::MedicalPersonnel,
+            None,
+            ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+        )
+        .unwrap_err();
+        assert_proxy_status(err, StatusCode::FORBIDDEN);
     }
 
     #[test]
     fn administrative_personnel_update_administrative_general_allowed() {
         assert!(authorize_create_rme_segment(
             AuthRole::AdministrativePersonnel,
+            None,
             ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
             FunctionCategory::ADMINISTRATIVE_GENERAL,
         )
         .is_ok());
@@ -102,7 +225,9 @@ mod tests {
     fn administrative_personnel_denied_clinical_function() {
         let err = authorize_create_rme_segment(
             AuthRole::AdministrativePersonnel,
+            None,
             ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
             FunctionCategory::DIAGNOSIS,
         )
         .unwrap_err();
@@ -113,7 +238,9 @@ mod tests {
     fn read_purpose_denied_for_segment_create() {
         let err = authorize_create_rme_segment(
             AuthRole::MedicalPersonnel,
+            Some(HospitalPersonnelSubRole::Doctor),
             ReencryptionPurposeType::Read,
+            DatasetCategory::RAWAT_JALAN,
             FunctionCategory::ADMINISTRATIVE_GENERAL,
         )
         .unwrap_err();
@@ -124,7 +251,9 @@ mod tests {
     fn patient_role_denied() {
         let err = authorize_create_rme_segment(
             AuthRole::Patient,
+            None,
             ReencryptionPurposeType::Update,
+            DatasetCategory::RAWAT_JALAN,
             FunctionCategory::ADMINISTRATIVE_GENERAL,
         )
         .unwrap_err();

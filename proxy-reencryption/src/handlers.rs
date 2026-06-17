@@ -385,7 +385,9 @@ impl Handlers {
 
         authorize_create_rme_segment(
             current_user.role,
+            current_user.sub_role,
             current_user.purpose,
+            encrypted_segment.dataset_category,
             encrypted_segment.function_category,
         )?;
         authorize_segment_hospital(
@@ -397,9 +399,10 @@ impl Handlers {
         let updated_at = encrypted_segment
             .correction_of_index
             .map(|_| chrono::Utc::now().timestamp_millis().max(0) as u64);
-        let segment_metadata_preview = encrypted_segment
-            .clone()
-            .into_metadata(String::new(), created_at.clone(), updated_at);
+        let segment_metadata_preview =
+            encrypted_segment
+                .clone()
+                .into_metadata(String::new(), created_at.clone(), updated_at);
         if current_user.decmed_token.is_some() {
             let wallet_sig = headers
                 .get(WALLET_SIGNATURE_HEADER)
@@ -916,8 +919,8 @@ impl Handlers {
         });
 
         if include_administrative {
-            let administrative_data_capsule =
-                administrative_data_capsule.ok_or_else(|| anyhow!("Missing administrative data"))?;
+            let administrative_data_capsule = administrative_data_capsule
+                .ok_or_else(|| anyhow!("Missing administrative data"))?;
             let c_frag_administrative =
                 c_frag_administrative.ok_or_else(|| anyhow!("Missing administrative cfrag"))?;
             let enc_administrative_data =

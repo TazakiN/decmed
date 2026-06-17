@@ -3,12 +3,9 @@
 
 	let { data } = $props();
 
-	const shortAddress = (address: string) =>
-		address.length > 18 ? `${address.slice(0, 10)}...${address.slice(-6)}` : address;
-
 	const personLabel = (person: DelegationAuditPersonnelSummary) => {
 		const role = person.subRole ?? person.role;
-		const name = person.name ?? shortAddress(person.address);
+		const name = person.name ?? '-';
 		return role ? `${name} (${role})` : name;
 	};
 
@@ -48,9 +45,8 @@
 								<p class="font-medium">
 									{chain.rootGrant
 										? personLabel(chain.rootGrant.personnel)
-										: shortAddress(chain.rootSubject)}
+										: '-'}
 								</p>
-								<p class="text-xs text-zinc-500 break-all">{chain.rootSubject}</p>
 							</div>
 							<span class={`px-2 py-1 rounded text-xs font-medium ${statusClass(chain.status)}`}>
 								{chain.status}
@@ -76,9 +72,6 @@
 										<p class="font-medium">
 											{personLabel(edge.delegatedBy)} -> {personLabel(edge.delegatedTo)}
 										</p>
-										<p class="text-xs text-zinc-500 break-all">
-											{edge.delegatedBy.address} -> {edge.delegatedTo.address}
-										</p>
 									</div>
 									<div class="mt-2 flex flex-wrap gap-2 text-xs">
 										<span class="bg-zinc-100 px-2 py-1 rounded">Depth: {edge.depth}</span>
@@ -91,7 +84,7 @@
 											</span>
 										{:else}
 											<span class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">
-												Active edge
+												Active
 											</span>
 										{/if}
 									</div>

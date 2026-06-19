@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use serde_json::Value;
 
 use crate::error::SegmentValidationError;
@@ -28,9 +28,9 @@ pub struct AdministrativeGeneralPayload {
 impl AdministrativeGeneralPayload {
     pub fn validate(&self) -> Result<(), SegmentValidationError> {
         if self.id.trim().is_empty() {
-            return Err(SegmentValidationError::InvalidAdministrativePayload(
-                "id must not be empty".into(),
-            ));
+            return Err(
+                SegmentValidationError::InvalidAdministrativePayload("id must not be empty".into())
+            );
         }
         Ok(())
     }
@@ -41,12 +41,11 @@ impl AdministrativeGeneralPayload {
 }
 
 pub fn administrative_general_payload_from_value(
-    value: &Value,
+    value: &Value
 ) -> Result<AdministrativeGeneralPayload, SegmentValidationError> {
-    let payload: AdministrativeGeneralPayload =
-        serde_json::from_value(value.clone()).map_err(|e| {
-            SegmentValidationError::InvalidAdministrativePayload(e.to_string())
-        })?;
+    let payload: AdministrativeGeneralPayload = serde_json
+        ::from_value(value.clone())
+        .map_err(|e| { SegmentValidationError::InvalidAdministrativePayload(e.to_string()) })?;
     payload.validate()?;
     Ok(payload)
 }
@@ -60,7 +59,7 @@ pub fn administrative_general_payload_from_fields(
     religion: Option<String>,
     education: Option<String>,
     occupation: Option<String>,
-    marital_status: Option<String>,
+    marital_status: Option<String>
 ) -> Result<Value, SegmentValidationError> {
     let payload = AdministrativeGeneralPayload {
         id,
@@ -90,7 +89,8 @@ mod tests {
 
     #[test]
     fn round_trips_payload() {
-        let value = json!({
+        let value =
+            json!({
             "id": "3201010101010001",
             "name": "Pasien Test"
         });

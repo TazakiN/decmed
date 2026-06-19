@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
-use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-use serde::{Deserialize, Serialize};
+use chrono::{ DateTime, Utc };
+use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
+use serde::{ Deserialize, Serialize };
 
-use crate::caveats::{CaveatKey, CaveatValue, ParsedCaveats};
+use crate::caveats::{ CaveatKey, CaveatValue, ParsedCaveats };
 use crate::errors::CaveatVerificationError;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -80,7 +80,7 @@ impl EffectiveCapability {
 
 fn intersect_datasets(
     parsed: &ParsedCaveats,
-    key: CaveatKey,
+    key: CaveatKey
 ) -> Result<HashSet<DatasetCategory>, CaveatVerificationError> {
     let entries = parsed.all(key);
     if entries.is_empty() {
@@ -91,16 +91,12 @@ fn intersect_datasets(
     let mut acc = match &first.value {
         CaveatValue::DatasetList(s) => s.clone(),
         _ => {
-            return Err(CaveatVerificationError::ParseError(
-                "dataset list expected".into(),
-            ))
+            return Err(CaveatVerificationError::ParseError("dataset list expected".into()));
         }
     };
     for entry in iter {
         let CaveatValue::DatasetList(set) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError(
-                "dataset list expected".into(),
-            ));
+            return Err(CaveatVerificationError::ParseError("dataset list expected".into()));
         };
         acc = acc.intersection(set).copied().collect();
     }
@@ -109,7 +105,7 @@ fn intersect_datasets(
 
 fn intersect_functions(
     parsed: &ParsedCaveats,
-    key: CaveatKey,
+    key: CaveatKey
 ) -> Result<HashSet<FunctionCategory>, CaveatVerificationError> {
     let entries = parsed.all(key);
     if entries.is_empty() {
@@ -120,16 +116,12 @@ fn intersect_functions(
     let mut acc = match &first.value {
         CaveatValue::FunctionList(s) => s.clone(),
         _ => {
-            return Err(CaveatVerificationError::ParseError(
-                "function list expected".into(),
-            ))
+            return Err(CaveatVerificationError::ParseError("function list expected".into()));
         }
     };
     for entry in iter {
         let CaveatValue::FunctionList(set) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError(
-                "function list expected".into(),
-            ));
+            return Err(CaveatVerificationError::ParseError("function list expected".into()));
         };
         acc = acc.intersection(set).copied().collect();
     }
@@ -137,7 +129,7 @@ fn intersect_functions(
 }
 
 fn earliest_expiry(
-    parsed: &ParsedCaveats,
+    parsed: &ParsedCaveats
 ) -> Result<Option<DateTime<Utc>>, CaveatVerificationError> {
     let entries = parsed.all(CaveatKey::ExpiresBefore);
     if entries.is_empty() {
@@ -146,9 +138,7 @@ fn earliest_expiry(
     let mut earliest: Option<DateTime<Utc>> = None;
     for entry in entries {
         let CaveatValue::Expiry(dt) = &entry.value else {
-            return Err(CaveatVerificationError::ParseError(
-                "expiry expected".into(),
-            ));
+            return Err(CaveatVerificationError::ParseError("expiry expected".into()));
         };
         earliest = Some(match earliest {
             None => *dt,
@@ -159,7 +149,7 @@ fn earliest_expiry(
 }
 
 fn delegation_depth_limits(
-    parsed: &ParsedCaveats,
+    parsed: &ParsedCaveats
 ) -> Result<(Option<u32>, Option<u32>), CaveatVerificationError> {
     let entries = parsed.all(CaveatKey::MaxDelegationDepth);
     if entries.is_empty() {
@@ -191,16 +181,16 @@ fn delegation_depth_limits(
 
 fn single_text(
     parsed: &ParsedCaveats,
-    key: CaveatKey,
+    key: CaveatKey
 ) -> Result<Option<String>, CaveatVerificationError> {
     let entries = parsed.all(key);
     if entries.is_empty() {
         return Ok(None);
     }
     if entries.len() != 1 {
-        return Err(CaveatVerificationError::ParseError(format!(
-            "{key:?} must appear exactly once"
-        )));
+        return Err(
+            CaveatVerificationError::ParseError(format!("{key:?} must appear exactly once"))
+        );
     }
     match &entries[0].value {
         CaveatValue::Text(s) => Ok(Some(s.clone())),
@@ -224,10 +214,9 @@ mod tests {
 
     #[test]
     fn intersects_repeated_read_dataset() {
-        let p = parsed(&[
-            "read_dataset_in = [RAWAT_JALAN, LABORATORIUM]",
-            "read_dataset_in = [LABORATORIUM]",
-        ]);
+        let p = parsed(
+            &["read_dataset_in = [RAWAT_JALAN, LABORATORIUM]", "read_dataset_in = [LABORATORIUM]"]
+        );
         let eff = EffectiveCapability::from_parsed(&p).unwrap();
         assert_eq!(eff.read_datasets.len(), 1);
         assert!(eff.read_datasets.contains(&DatasetCategory::LABORATORIUM));
@@ -235,10 +224,9 @@ mod tests {
 
     #[test]
     fn earliest_expires_before_wins() {
-        let p = parsed(&[
-            "expires_before = 2026-05-16T18:00:00",
-            "expires_before = 2026-05-16T14:00:00",
-        ]);
+        let p = parsed(
+            &["expires_before = 2026-05-16T18:00:00", "expires_before = 2026-05-16T14:00:00"]
+        );
         let eff = EffectiveCapability::from_parsed(&p).unwrap();
         let exp = eff.expires_before.unwrap();
         assert_eq!(exp.format("%H:%M:%S").to_string(), "14:00:00");
@@ -254,10 +242,7 @@ mod tests {
 
     #[test]
     fn rejects_multiple_hospital_cids() {
-        let p = parsed(&[
-            "hospital_cid = hospital-001",
-            "hospital_cid = hospital-002",
-        ]);
+        let p = parsed(&["hospital_cid = hospital-001", "hospital_cid = hospital-002"]);
 
         assert!(EffectiveCapability::from_parsed(&p).is_err());
     }

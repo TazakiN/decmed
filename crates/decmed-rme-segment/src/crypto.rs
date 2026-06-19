@@ -1,6 +1,6 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{ engine::general_purpose::STANDARD, Engine as _ };
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2::{ Digest, Sha256 };
 
 use crate::error::SegmentValidationError;
 
@@ -42,11 +42,11 @@ pub fn sha256_hex(data: impl AsRef<[u8]>) -> String {
 }
 
 pub fn ciphertext_integrity_hash_from_base64(
-    enc_data: &str,
+    enc_data: &str
 ) -> Result<String, SegmentValidationError> {
-    let ciphertext = STANDARD
-        .decode(enc_data)
-        .map_err(|_| SegmentValidationError::InvalidCiphertext)?;
+    let ciphertext = STANDARD.decode(enc_data).map_err(
+        |_| SegmentValidationError::InvalidCiphertext
+    )?;
 
     Ok(sha256_hex(ciphertext))
 }

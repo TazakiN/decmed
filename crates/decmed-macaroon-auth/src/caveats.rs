@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
-use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-use macaroon::{Caveat, Macaroon};
+use chrono::{ DateTime, Utc };
+use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
+use macaroon::{ Caveat, Macaroon };
 
 use crate::errors::CaveatVerificationError;
 
@@ -88,8 +88,9 @@ impl ParsedCaveats {
         let mut entries = Vec::new();
         for caveat in mac.first_party_caveats() {
             if let Caveat::FirstParty(fp) = caveat {
-                let raw = String::from_utf8(fp.predicate().0.clone())
-                    .map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?;
+                let raw = String::from_utf8(fp.predicate().0.clone()).map_err(|e|
+                    CaveatVerificationError::ParseError(e.to_string())
+                )?;
                 entries.push(parse_caveat_line(&raw)?);
             }
         }
@@ -97,7 +98,10 @@ impl ParsedCaveats {
     }
 
     pub fn all(&self, key: CaveatKey) -> Vec<&DecmedCaveat> {
-        self.entries.iter().filter(|c| c.key == key).collect()
+        self.entries
+            .iter()
+            .filter(|c| c.key == key)
+            .collect()
     }
 
     pub fn is_decmed_token(&self) -> bool {
@@ -128,16 +132,15 @@ pub fn parse_caveat_line(raw: &str) -> Result<DecmedCaveat, CaveatVerificationEr
 
 fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVerificationError> {
     match key {
-        CaveatKey::ReadDatasetIn | CaveatKey::WriteDatasetIn => Ok(CaveatValue::DatasetList(
-            parse_bracket_list(value_str, parse_dataset)?,
-        )),
-        CaveatKey::ReadFunctionIn | CaveatKey::WriteFunctionIn => Ok(CaveatValue::FunctionList(
-            parse_bracket_list(value_str, parse_function)?,
-        )),
+        CaveatKey::ReadDatasetIn | CaveatKey::WriteDatasetIn =>
+            Ok(CaveatValue::DatasetList(parse_bracket_list(value_str, parse_dataset)?)),
+        CaveatKey::ReadFunctionIn | CaveatKey::WriteFunctionIn =>
+            Ok(CaveatValue::FunctionList(parse_bracket_list(value_str, parse_function)?)),
         CaveatKey::ExpiresBefore => {
             let dt = DateTime::parse_from_rfc3339(value_str)
                 .or_else(|_| {
-                    chrono::NaiveDateTime::parse_from_str(value_str, "%Y-%m-%dT%H:%M:%S")
+                    chrono::NaiveDateTime
+                        ::parse_from_str(value_str, "%Y-%m-%dT%H:%M:%S")
                         .map(|ndt| ndt.and_utc().fixed_offset())
                 })
                 .map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?
@@ -145,16 +148,18 @@ fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVer
             Ok(CaveatValue::Expiry(dt))
         }
         CaveatKey::MaxDelegationDepth => {
-            let depth: u32 = value_str.parse().map_err(|e| {
-                CaveatVerificationError::ParseError(format!("max_delegation_depth: {e}"))
-            })?;
+            let depth: u32 = value_str
+                .parse()
+                .map_err(|e| {
+                    CaveatVerificationError::ParseError(format!("max_delegation_depth: {e}"))
+                })?;
             Ok(CaveatValue::Depth(depth))
         }
         CaveatKey::ProofRequired => {
             if value_str != "wallet_signature" {
-                return Err(CaveatVerificationError::UnsupportedProofRequirement(
-                    value_str.to_string(),
-                ));
+                return Err(
+                    CaveatVerificationError::UnsupportedProofRequirement(value_str.to_string())
+                );
             }
             // Compatibility only: wallet proof is now mandatory for every DecMed token.
             Ok(CaveatValue::Text(value_str.to_string()))
@@ -166,12 +171,10 @@ fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVer
 
 fn parse_bracket_list<T, E, F>(
     value_str: &str,
-    mut parse_item: F,
-) -> Result<HashSet<T>, CaveatVerificationError>
-where
-    T: Eq + std::hash::Hash,
-    E: std::error::Error,
-    F: FnMut(&str) -> Result<T, E>,
+    mut parse_item: F
+)
+    -> Result<HashSet<T>, CaveatVerificationError>
+    where T: Eq + std::hash::Hash, E: std::error::Error, F: FnMut(&str) -> Result<T, E>
 {
     let inner = value_str
         .strip_prefix('[')
@@ -186,13 +189,11 @@ where
             continue;
         }
         set.insert(
-            parse_item(item).map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?,
+            parse_item(item).map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?
         );
     }
     if set.is_empty() {
-        return Err(CaveatVerificationError::ParseError(
-            "empty category list".to_string(),
-        ));
+        return Err(CaveatVerificationError::ParseError("empty category list".to_string()));
     }
     Ok(set)
 }
@@ -210,12 +211,7 @@ fn parse_function(name: &str) -> Result<FunctionCategory, serde_json::Error> {
 pub fn format_dataset_list(categories: &[DatasetCategory]) -> String {
     let names: Vec<String> = categories
         .iter()
-        .map(|c| {
-            serde_json::to_string(c)
-                .unwrap_or_default()
-                .trim_matches('"')
-                .to_string()
-        })
+        .map(|c| { serde_json::to_string(c).unwrap_or_default().trim_matches('"').to_string() })
         .collect();
     format!("[{}]", names.join(", "))
 }
@@ -223,12 +219,7 @@ pub fn format_dataset_list(categories: &[DatasetCategory]) -> String {
 pub fn format_function_list(categories: &[FunctionCategory]) -> String {
     let names: Vec<String> = categories
         .iter()
-        .map(|c| {
-            serde_json::to_string(c)
-                .unwrap_or_default()
-                .trim_matches('"')
-                .to_string()
-        })
+        .map(|c| { serde_json::to_string(c).unwrap_or_default().trim_matches('"').to_string() })
         .collect();
     format!("[{}]", names.join(", "))
 }
@@ -281,9 +272,11 @@ mod tests {
 
     #[test]
     fn rejects_holder_address() {
-        assert!(matches!(
-            parse_caveat_line("holder_address = 0xABC"),
-            Err(CaveatVerificationError::HolderAddressForbidden)
-        ));
+        assert!(
+            matches!(
+                parse_caveat_line("holder_address = 0xABC"),
+                Err(CaveatVerificationError::HolderAddressForbidden)
+            )
+        );
     }
 }

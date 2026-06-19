@@ -17,29 +17,50 @@ mod wallet_proof;
 /// Compatibility facade for consumers that still need selected low-level
 /// macaroon operations. Keep this list explicit so the upstream crate remains
 /// an implementation detail rather than an unrestricted public dependency.
-pub use macaroon::{ByteString, Caveat, Format, Macaroon, MacaroonKey, Verifier};
+pub use macaroon::{ ByteString, Caveat, Format, Macaroon, MacaroonKey, Verifier };
 
-pub use attenuation::{attenuate_macaroon, DelegationAttenuationParams};
+pub use attenuation::{ attenuate_macaroon, DelegationAttenuationParams };
 pub use caveats::{
-    add_caveat_to_macaroon, caveat_line, format_dataset_list, format_function_list,
-    parse_caveat_line, CaveatKey, CaveatValue, DecmedCaveat, ParsedCaveats,
+    add_caveat_to_macaroon,
+    caveat_line,
+    format_dataset_list,
+    format_function_list,
+    parse_caveat_line,
+    CaveatKey,
+    CaveatValue,
+    DecmedCaveat,
+    ParsedCaveats,
 };
-pub use delegation::{DelegationChain, DelegationStep};
-pub use delegation_proof::{hash_macaroon_token, scope_fingerprint, DelegationProofContext};
-pub use effective::{AccessMode, EffectiveCapability};
+pub use delegation::{ DelegationChain, DelegationStep };
+pub use delegation_proof::{ hash_macaroon_token, scope_fingerprint, DelegationProofContext };
+pub use effective::{ AccessMode, EffectiveCapability };
 pub use errors::CaveatVerificationError;
 pub use issuance::{
-    admin_all_datasets, admin_all_functions, admin_write_datasets, admin_write_functions,
-    issue_admin_personnel_token, issue_initial_token, AdminTokenKind,
-    InitialAdminPersonnelTokenParams, InitialDoctorTokenParams,
+    admin_all_datasets,
+    admin_all_functions,
+    admin_write_datasets,
+    admin_write_functions,
+    issue_admin_personnel_token,
+    issue_initial_token,
+    AdminTokenKind,
+    InitialAdminPersonnelTokenParams,
+    InitialDoctorTokenParams,
 };
 pub use revocation::{
-    compute_revocation_keys, edge_revocation_key, hash_token, root_revocation_key,
+    compute_revocation_keys,
+    edge_revocation_key,
+    hash_token,
+    root_revocation_key,
     token_revocation_key,
 };
 pub use rme_id::generate_related_rme_id;
 pub use verify::{
-    decmed_caveat_satisfier, verify_decmed_token, verify_macaroon_signature, verify_segment_access,
-    SegmentAccessContext, TokenVerificationContext, VerifiedDecmedToken,
+    decmed_caveat_satisfier,
+    verify_decmed_token,
+    verify_macaroon_signature,
+    verify_segment_access,
+    SegmentAccessContext,
+    TokenVerificationContext,
+    VerifiedDecmedToken,
 };
-pub use wallet_proof::{WalletProofContext, WalletSignatureVerifier};
+pub use wallet_proof::{ WalletProofContext, WalletSignatureVerifier };

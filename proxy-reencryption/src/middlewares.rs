@@ -1,21 +1,30 @@
-use std::{str::FromStr, sync::Arc};
+use std::{ str::FromStr, sync::Arc };
 
 use crate::{
     macaroon_auth::map_caveat_error,
-    proxy_error::{ProxyError, ResultExt},
-    types::{AppState, AuthRole, CurrentUser, MoveHospitalPersonnelRole, ReencryptionPurposeType},
+    proxy_error::{ ProxyError, ResultExt },
+    types::{ AppState, AuthRole, CurrentUser, MoveHospitalPersonnelRole, ReencryptionPurposeType },
     utils::Utils,
 };
 use anyhow::anyhow;
 use axum::{
-    extract::{Request, State},
-    http::{self, StatusCode},
+    extract::{ Request, State },
+    http::{ self, StatusCode },
     middleware::Next,
     response::Response,
 };
 use decmed_macaroon_auth::{
-    compute_revocation_keys, hash_token, verify_macaroon_signature, Caveat, DelegationChain,
-    EffectiveCapability, Macaroon, MacaroonKey, ParsedCaveats, VerifiedDecmedToken, Verifier,
+    compute_revocation_keys,
+    hash_token,
+    verify_macaroon_signature,
+    Caveat,
+    DelegationChain,
+    EffectiveCapability,
+    Macaroon,
+    MacaroonKey,
+    ParsedCaveats,
+    VerifiedDecmedToken,
+    Verifier,
 };
 use iota_types::base_types::IotaAddress;
 use redis::Commands;
@@ -26,7 +35,7 @@ pub const WALLET_TIMESTAMP_HEADER: &str = "x-decmed-wallet-timestamp";
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
-    next: Next,
+    next: Next
 ) -> Result<Response, ProxyError> {
     let authorization_header = request
         .headers()
@@ -85,10 +94,10 @@ pub async fn auth_middleware(
 
         // DecMed token caveat role is legacy/deprecated for delegated tokens.
         // Identity role/sub-role must come from on-chain registry for the active subject.
-        let (move_role, sub_role) = state
-            .move_call
-            .get_hospital_personnel_auth_info(&active_subject_address, proxy_iota_address)
-            .await?;
+        let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
+            &active_subject_address,
+            proxy_iota_address
+        ).await?;
         let role = auth_role_from_move_role(move_role)?;
         let purpose = decmed_purpose_from_parsed(&parsed)?;
         let hospital_cid = effective.hospital_cid.clone();
@@ -164,7 +173,8 @@ pub async fn auth_middleware(
         if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
             if let Some(time_str) = pred_str.strip_prefix("time < ") {
                 if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = std::time::SystemTime::now()
+                    let now = std::time::SystemTime
+                        ::now()
                         .duration_since(std::time::SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
@@ -188,7 +198,7 @@ pub async fn auth_middleware(
             return Err(ProxyError::Anyhow {
                 source: anyhow!("Invalid role in token"),
                 code: StatusCode::UNAUTHORIZED,
-            })
+            });
         }
     };
 
@@ -199,33 +209,35 @@ pub async fn auth_middleware(
             return Err(ProxyError::Anyhow {
                 source: anyhow!("Invalid purpose in token"),
                 code: StatusCode::UNAUTHORIZED,
-            })
+            });
         }
     };
 
-    let sub_role =
-        if role == AuthRole::MedicalPersonnel && purpose == ReencryptionPurposeType::Update {
-            let subject_address = IotaAddress::from_str(&subject)
-                .map_err(|_| anyhow!("Invalid subject address"))
-                .code(StatusCode::UNAUTHORIZED)?;
-            let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
-                .map_err(|_| anyhow!("Invalid proxy IOTA address"))
-                .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-            let (move_role, sub_role) = state
-                .move_call
-                .get_hospital_personnel_auth_info(&subject_address, proxy_iota_address)
-                .await?;
-            let registry_role = auth_role_from_move_role(move_role)?;
-            if registry_role != role {
-                return Err(ProxyError::Anyhow {
-                    source: anyhow!("Token role does not match on-chain personnel role"),
-                    code: StatusCode::UNAUTHORIZED,
-                });
-            }
-            sub_role
-        } else {
-            None
-        };
+    let sub_role = if
+        role == AuthRole::MedicalPersonnel &&
+        purpose == ReencryptionPurposeType::Update
+    {
+        let subject_address = IotaAddress::from_str(&subject)
+            .map_err(|_| anyhow!("Invalid subject address"))
+            .code(StatusCode::UNAUTHORIZED)?;
+        let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
+            .map_err(|_| anyhow!("Invalid proxy IOTA address"))
+            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
+            &subject_address,
+            proxy_iota_address
+        ).await?;
+        let registry_role = auth_role_from_move_role(move_role)?;
+        if registry_role != role {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Token role does not match on-chain personnel role"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+        sub_role
+    } else {
+        None
+    };
 
     let current_user = CurrentUser {
         iota_address: subject,
@@ -242,17 +254,19 @@ pub async fn auth_middleware(
 }
 
 fn decmed_purpose_from_parsed(
-    parsed: &ParsedCaveats,
+    parsed: &ParsedCaveats
 ) -> Result<ReencryptionPurposeType, ProxyError> {
-    use decmed_macaroon_auth::{CaveatKey, CaveatValue};
+    use decmed_macaroon_auth::{ CaveatKey, CaveatValue };
 
     let purpose_caveats = parsed.all(CaveatKey::Purpose);
     let purpose_entry = purpose_caveats.first();
 
     let purpose_str = purpose_entry
-        .and_then(|c| match &c.value {
-            CaveatValue::Text(s) => Some(s.as_str()),
-            _ => None,
+        .and_then(|c| {
+            match &c.value {
+                CaveatValue::Text(s) => Some(s.as_str()),
+                _ => None,
+            }
         })
         .unwrap_or("Read");
 
@@ -263,7 +277,7 @@ fn decmed_purpose_from_parsed(
             return Err(ProxyError::Anyhow {
                 source: anyhow!("Invalid purpose in token"),
                 code: StatusCode::UNAUTHORIZED,
-            })
+            });
         }
     };
 
@@ -274,9 +288,10 @@ fn auth_role_from_move_role(role: MoveHospitalPersonnelRole) -> Result<AuthRole,
     match role {
         MoveHospitalPersonnelRole::AdministrativePersonnel => Ok(AuthRole::AdministrativePersonnel),
         MoveHospitalPersonnelRole::MedicalPersonnel => Ok(AuthRole::MedicalPersonnel),
-        MoveHospitalPersonnelRole::Admin => Err(ProxyError::Anyhow {
-            source: anyhow!("Invalid personnel account"),
-            code: StatusCode::UNAUTHORIZED,
-        }),
+        MoveHospitalPersonnelRole::Admin =>
+            Err(ProxyError::Anyhow {
+                source: anyhow!("Invalid personnel account"),
+                code: StatusCode::UNAUTHORIZED,
+            }),
     }
 }

@@ -14,26 +14,28 @@ mod utils;
 #[cfg(test)]
 mod tests;
 
-use std::{env, error::Error, str::FromStr, sync::Arc};
+use std::{ env, error::Error, str::FromStr, sync::Arc };
 
-use axum::{
-    middleware,
-    routing::{get, post, put},
-    Router,
-};
+use axum::{ middleware, routing::{ get, post, put }, Router };
 use constants::{
-    DECMED_ADDRESS_ID_OBJECT_ID, DECMED_ADDRESS_ID_OBJECT_VERSION, DECMED_GLOBAL_ADMIN_CAP_ID,
-    DECMED_HOSPITAL_ID_METADATA_OBJECT_ID, DECMED_HOSPITAL_ID_METADATA_OBJECT_VERSION,
+    DECMED_ADDRESS_ID_OBJECT_ID,
+    DECMED_ADDRESS_ID_OBJECT_VERSION,
+    DECMED_GLOBAL_ADMIN_CAP_ID,
+    DECMED_HOSPITAL_ID_METADATA_OBJECT_ID,
+    DECMED_HOSPITAL_ID_METADATA_OBJECT_VERSION,
     DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID,
-    DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION, DECMED_MODULE_ADMIN, DECMED_MODULE_PROXY,
-    DECMED_PACKAGE_ID, DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID,
+    DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION,
+    DECMED_MODULE_ADMIN,
+    DECMED_MODULE_PROXY,
+    DECMED_PACKAGE_ID,
+    DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID,
     DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
 };
 use handlers::Handlers;
-use iota_types::{base_types::ObjectID, Identifier};
+use iota_types::{ base_types::ObjectID, Identifier };
 use move_call::MoveCall;
 use tower::ServiceBuilder;
-use types::{AppState, DecmedPackage};
+use types::{ AppState, DecmedPackage };
 use utils::Utils;
 
 #[tokio::main]
@@ -65,10 +67,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         hospital_id_metadata_object_id: ObjectID::from_str(DECMED_HOSPITAL_ID_METADATA_OBJECT_ID)?,
         hospital_id_metadata_object_version: DECMED_HOSPITAL_ID_METADATA_OBJECT_VERSION,
         hospital_personnel_id_account_object_id: ObjectID::from_str(
-            DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID,
+            DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID
         )?,
-        hospital_personnel_id_account_object_version:
-            DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION,
+        hospital_personnel_id_account_object_version: DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION,
         patient_id_account_object_id: ObjectID::from_str(DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID)?,
         patient_id_account_object_version: DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
 
@@ -87,45 +88,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let revocation_auth_routes = Router::new().route(
         "/revocations/delegation",
-        post(Handlers::revoke_delegation_access),
+        post(Handlers::revoke_delegation_access)
     );
 
     let protected_routes = Router::new()
-        .route("/", get(|| async { "Hello, world!" }))
+        .route(
+            "/",
+            get(|| async { "Hello, world!" })
+        )
         .route("/medical-records", get(Handlers::list_medical_records))
         .route("/medical-record", get(Handlers::get_medical_record))
         .route("/medical-record", post(Handlers::create_medical_record))
         .route("/medical-record", put(Handlers::update_medical_record))
-        .route(
-            "/medical-record-segment",
-            post(Handlers::create_medical_record_segment),
-        )
-        .route(
-            "/medical-record-update",
-            get(Handlers::get_medical_record_update),
-        )
+        .route("/medical-record-segment", post(Handlers::create_medical_record_segment))
+        .route("/medical-record-update", get(Handlers::get_medical_record_update))
         .route("/administrative", get(Handlers::get_administrative_data))
         .merge(revocation_auth_routes)
-        .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
-            shared_state.clone(),
-            middlewares::auth_middleware,
-        )));
+        .layer(
+            ServiceBuilder::new().layer(
+                middleware::from_fn_with_state(shared_state.clone(), middlewares::auth_middleware)
+            )
+        );
 
     // .../gen/...
     let gen_routes = Router::new()
-        .route(
-            "/macaroon-key",
-            get(Handlers::generate_macaroon_key_handler),
-        )
+        .route("/macaroon-key", get(Handlers::generate_macaroon_key_handler))
         .route("/sig", get(Handlers::generate_signature))
-        .route(
-            "/proxy-address",
-            get(Handlers::generate_and_register_proxy_address),
-        );
+        .route("/proxy-address", get(Handlers::generate_and_register_proxy_address));
 
     let revocation_routes = Router::new().route(
         "/revocations/patient",
-        post(Handlers::revoke_patient_access),
+        post(Handlers::revoke_patient_access)
     );
 
     let public_routes = Router::new()
@@ -143,9 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // App
     let app = Router::new().merge(api_v1_routes).with_state(shared_state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 
     Ok(())

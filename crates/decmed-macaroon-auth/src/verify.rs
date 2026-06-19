@@ -1,12 +1,12 @@
 use chrono::Utc;
-use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-use macaroon::{Macaroon, MacaroonKey, Verifier};
+use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
+use macaroon::{ Macaroon, MacaroonKey, Verifier };
 
 use crate::caveats::ParsedCaveats;
 use crate::delegation::DelegationChain;
-use crate::effective::{AccessMode, EffectiveCapability};
+use crate::effective::{ AccessMode, EffectiveCapability };
 use crate::errors::CaveatVerificationError;
-use crate::wallet_proof::{WalletProofContext, WalletSignatureVerifier};
+use crate::wallet_proof::{ WalletProofContext, WalletSignatureVerifier };
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SegmentAccessContext {
@@ -55,7 +55,7 @@ pub fn decmed_caveat_satisfier(predicate: &macaroon::ByteString) -> bool {
 
 pub fn verify_macaroon_signature(
     mac: &Macaroon,
-    root_key: &MacaroonKey,
+    root_key: &MacaroonKey
 ) -> Result<(), CaveatVerificationError> {
     let mut verifier = Verifier::default();
     verifier.satisfy_general(decmed_caveat_satisfier);
@@ -68,7 +68,7 @@ pub fn verify_decmed_token(
     mac: &Macaroon,
     root_key: &MacaroonKey,
     ctx: &TokenVerificationContext,
-    wallet_verifier: Option<&dyn WalletSignatureVerifier>,
+    wallet_verifier: Option<&dyn WalletSignatureVerifier>
 ) -> Result<VerifiedDecmedToken, CaveatVerificationError> {
     let parsed = ParsedCaveats::from_macaroon(mac)?;
     if !parsed.is_decmed_token() {
@@ -86,7 +86,9 @@ pub fn verify_decmed_token(
     match effective.related_rme_id.as_deref() {
         None => {}
         Some(token_rme) if token_rme == ctx.segment.related_rme_id => {}
-        Some(_) => return Err(CaveatVerificationError::RmeMismatch),
+        Some(_) => {
+            return Err(CaveatVerificationError::RmeMismatch);
+        }
     }
 
     if effective.is_expired(ctx.now) {
@@ -102,8 +104,7 @@ pub fn verify_decmed_token(
 
     verify_segment_access(&effective, ctx)?;
 
-    let sig = ctx
-        .wallet_signature_b64
+    let sig = ctx.wallet_signature_b64
         .as_deref()
         .ok_or(CaveatVerificationError::WalletSignatureRequired)?;
     let proof_ctx = WalletProofContext {
@@ -114,10 +115,7 @@ pub fn verify_decmed_token(
         segment_id: ctx.segment.segment_id.clone(),
         dataset_category: ctx.segment.dataset_category,
         function_category: ctx.segment.function_category,
-        timestamp: ctx
-            .wallet_timestamp
-            .clone()
-            .unwrap_or_else(|| ctx.now.to_rfc3339()),
+        timestamp: ctx.wallet_timestamp.clone().unwrap_or_else(|| ctx.now.to_rfc3339()),
     };
     let verifier = wallet_verifier.ok_or(CaveatVerificationError::InvalidWalletSignature)?;
     verifier.verify(&proof_ctx, sig, &delegation.active_subject)?;
@@ -136,7 +134,7 @@ pub fn verify_decmed_token(
 
 pub fn verify_segment_access(
     effective: &EffectiveCapability,
-    ctx: &TokenVerificationContext,
+    ctx: &TokenVerificationContext
 ) -> Result<(), CaveatVerificationError> {
     let dataset = ctx.segment.dataset_category;
     let function = ctx.segment.function_category;
@@ -156,32 +154,38 @@ pub fn verify_segment_access(
 fn verify_legacy_token(
     mac: &Macaroon,
     root_key: &MacaroonKey,
-    parsed: &ParsedCaveats,
+    parsed: &ParsedCaveats
 ) -> Result<VerifiedDecmedToken, CaveatVerificationError> {
-    use crate::caveats::{CaveatKey, CaveatValue};
+    use crate::caveats::{ CaveatKey, CaveatValue };
 
     let subject = parsed
         .all(CaveatKey::Subject)
         .first()
-        .and_then(|c| match &c.value {
-            CaveatValue::Text(s) => Some(s.clone()),
-            _ => None,
+        .and_then(|c| {
+            match &c.value {
+                CaveatValue::Text(s) => Some(s.clone()),
+                _ => None,
+            }
         })
         .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
     let role = parsed
         .all(CaveatKey::Role)
         .first()
-        .and_then(|c| match &c.value {
-            CaveatValue::Text(s) => Some(s.clone()),
-            _ => None,
+        .and_then(|c| {
+            match &c.value {
+                CaveatValue::Text(s) => Some(s.clone()),
+                _ => None,
+            }
         })
         .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
     let purpose = parsed
         .all(CaveatKey::Purpose)
         .first()
-        .and_then(|c| match &c.value {
-            CaveatValue::Text(s) => Some(s.clone()),
-            _ => None,
+        .and_then(|c| {
+            match &c.value {
+                CaveatValue::Text(s) => Some(s.clone()),
+                _ => None,
+            }
         })
         .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
 
@@ -193,7 +197,8 @@ fn verify_legacy_token(
         if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
             if let Some(time_str) = pred_str.strip_prefix("time < ") {
                 if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = std::time::SystemTime::now()
+                    let now = std::time::SystemTime
+                        ::now()
                         .duration_since(std::time::SystemTime::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();

@@ -1,17 +1,23 @@
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{ HeaderMap, StatusCode };
 use decmed_macaroon_auth::{
-    verify_segment_access, AccessMode, CaveatVerificationError, SegmentAccessContext,
-    TokenVerificationContext, VerifiedDecmedToken, WalletProofContext, WalletSignatureVerifier,
+    verify_segment_access,
+    AccessMode,
+    CaveatVerificationError,
+    SegmentAccessContext,
+    TokenVerificationContext,
+    VerifiedDecmedToken,
+    WalletProofContext,
+    WalletSignatureVerifier,
 };
-use decmed_rme_segment::{DatasetCategory, FunctionCategory, RmeSegmentMetadata};
+use decmed_rme_segment::{ DatasetCategory, FunctionCategory, RmeSegmentMetadata };
 use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::{
-    macaroon_auth::{map_caveat_error, IotaWalletVerifier},
-    middlewares::{WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER},
+    macaroon_auth::{ map_caveat_error, IotaWalletVerifier },
+    middlewares::{ WALLET_SIGNATURE_HEADER, WALLET_TIMESTAMP_HEADER },
     proxy_error::ProxyError,
-    types::{ListMedicalRecordsResponse, MedicalRecordMetadataItem},
+    types::{ ListMedicalRecordsResponse, MedicalRecordMetadataItem },
     utils::Utils,
 };
 
@@ -28,7 +34,7 @@ pub fn decode_rme_segment_metadata(raw: &str) -> Option<RmeSegmentMetadata> {
 pub fn segment_allowed_for_list(
     verified: &VerifiedDecmedToken,
     segment: &RmeSegmentMetadata,
-    patient_iota_address: &str,
+    patient_iota_address: &str
 ) -> bool {
     if segment.patient_address != patient_iota_address {
         return false;
@@ -57,7 +63,7 @@ pub fn segment_allowed_for_list(
 pub fn verify_list_wallet_proof(
     verified: &VerifiedDecmedToken,
     patient_iota_address: &str,
-    headers: &HeaderMap,
+    headers: &HeaderMap
 ) -> Result<(), ProxyError> {
     let proof_timestamp = headers
         .get(WALLET_TIMESTAMP_HEADER)
@@ -65,11 +71,7 @@ pub fn verify_list_wallet_proof(
         .map(|s| s.to_string())
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
-    let related_rme_id = verified
-        .effective
-        .related_rme_id
-        .clone()
-        .unwrap_or_default();
+    let related_rme_id = verified.effective.related_rme_id.clone().unwrap_or_default();
 
     let proof_ctx = WalletProofContext {
         token_id: verified.token_id.clone(),
@@ -82,10 +84,7 @@ pub fn verify_list_wallet_proof(
         timestamp: proof_timestamp,
     };
 
-    let wallet_sig = match headers
-        .get(WALLET_SIGNATURE_HEADER)
-        .and_then(|v| v.to_str().ok())
-    {
+    let wallet_sig = match headers.get(WALLET_SIGNATURE_HEADER).and_then(|v| v.to_str().ok()) {
         Some(sig) => sig,
         None => {
             return Err(ProxyError::WalletProofChallenge {
@@ -96,9 +95,9 @@ pub fn verify_list_wallet_proof(
         }
     };
 
-    IotaWalletVerifier
-        .verify(&proof_ctx, wallet_sig, &verified.delegation.active_subject)
-        .map_err(map_caveat_error)?;
+    IotaWalletVerifier.verify(&proof_ctx, wallet_sig, &verified.delegation.active_subject).map_err(
+        map_caveat_error
+    )?;
 
     if let Some(token_patient) = verified.effective.patient_address.as_deref() {
         if token_patient != patient_iota_address {
@@ -115,7 +114,7 @@ pub fn verify_list_wallet_proof(
 
 pub fn verify_decmed_token_patient_for_list(
     verified: &VerifiedDecmedToken,
-    patient_iota_address: &str,
+    patient_iota_address: &str
 ) -> Result<(), ProxyError> {
     if let Some(token_patient) = verified.effective.patient_address.as_deref() {
         if token_patient != patient_iota_address {
@@ -131,7 +130,7 @@ pub fn verify_decmed_token_patient_for_list(
 pub fn to_metadata_item(
     table_index: u64,
     list_index: u64,
-    segment: &RmeSegmentMetadata,
+    segment: &RmeSegmentMetadata
 ) -> MedicalRecordMetadataItem {
     MedicalRecordMetadataItem {
         index: table_index,
@@ -151,22 +150,18 @@ pub fn to_metadata_item(
 }
 
 pub fn collapse_to_active_metadata_items(
-    items: Vec<MedicalRecordMetadataItem>,
+    items: Vec<MedicalRecordMetadataItem>
 ) -> Vec<MedicalRecordMetadataItem> {
     let mut active_items = HashMap::new();
 
     for item in items {
-        let key = (
-            item.related_rme_id.clone(),
-            item.dataset_category,
-            item.function_category,
-        );
+        let key = (item.related_rme_id.clone(), item.dataset_category, item.function_category);
 
         let should_replace = active_items
             .get(&key)
             .map(|current: &MedicalRecordMetadataItem| {
-                item.index > current.index
-                    || (item.index == current.index && item.list_index < current.list_index)
+                item.index > current.index ||
+                    (item.index == current.index && item.list_index < current.list_index)
             })
             .unwrap_or(true);
 
@@ -177,9 +172,7 @@ pub fn collapse_to_active_metadata_items(
 
     let mut items = active_items.into_values().collect::<Vec<_>>();
     items.sort_by(|left, right| {
-        left.list_index
-            .cmp(&right.list_index)
-            .then_with(|| right.index.cmp(&left.index))
+        left.list_index.cmp(&right.list_index).then_with(|| right.index.cmp(&left.index))
     });
     items
 }
@@ -187,12 +180,12 @@ pub fn collapse_to_active_metadata_items(
 pub fn active_metadata_page(
     items: Vec<MedicalRecordMetadataItem>,
     cursor: u64,
-    limit: u64,
+    limit: u64
 ) -> ListMedicalRecordsResponse {
     let items = collapse_to_active_metadata_items(items);
     let total = items.len() as u64;
     let start = cursor.min(total);
-    let end = (cursor.saturating_add(limit)).min(total);
+    let end = cursor.saturating_add(limit).min(total);
     let page_items = items[start as usize..end as usize].to_vec();
     let next_cursor = if end < total { Some(end) } else { None };
 
@@ -206,14 +199,18 @@ pub fn active_metadata_page(
 mod tests {
     use super::*;
     use decmed_macaroon_auth::{
-        issue_initial_token, EffectiveCapability, InitialDoctorTokenParams, Macaroon, MacaroonKey,
+        issue_initial_token,
+        EffectiveCapability,
+        InitialDoctorTokenParams,
+        Macaroon,
+        MacaroonKey,
     };
-    use decmed_rme_segment::{DatasetCategory, FunctionCategory};
+    use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
 
     fn sample_segment(
         patient: &str,
         dataset: DatasetCategory,
-        function: FunctionCategory,
+        function: FunctionCategory
     ) -> RmeSegmentMetadata {
         RmeSegmentMetadata {
             segment_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
@@ -240,7 +237,7 @@ mod tests {
         function: FunctionCategory,
         index: u64,
         list_index: u64,
-        author: &str,
+        author: &str
     ) -> MedicalRecordMetadataItem {
         MedicalRecordMetadataItem {
             index,
@@ -262,8 +259,11 @@ mod tests {
     #[test]
     fn segment_allowed_respects_dataset_caveat() {
         let root_key = MacaroonKey::generate(b"decmed-test-root-key-64-bytes-padding!!");
-        let mut params =
-            InitialDoctorTokenParams::example_doctor_token("0xpatient", "rme-1", "0xdoc");
+        let mut params = InitialDoctorTokenParams::example_doctor_token(
+            "0xpatient",
+            "rme-1",
+            "0xdoc"
+        );
         params.read_datasets = vec![DatasetCategory::RAWAT_JALAN];
         params.read_functions = vec![FunctionCategory::ANAMNESIS];
         let mac_str = issue_initial_token(&root_key, &params).unwrap();
@@ -288,12 +288,12 @@ mod tests {
         let allowed = sample_segment(
             "0xpatient",
             DatasetCategory::RAWAT_JALAN,
-            FunctionCategory::ANAMNESIS,
+            FunctionCategory::ANAMNESIS
         );
         let denied = sample_segment(
             "0xpatient",
             DatasetCategory::LABORATORIUM,
-            FunctionCategory::ANAMNESIS,
+            FunctionCategory::ANAMNESIS
         );
 
         assert!(segment_allowed_for_list(&verified, &allowed, "0xpatient"));
@@ -310,7 +310,7 @@ mod tests {
                     FunctionCategory::ANAMNESIS,
                     5,
                     0,
-                    "0xdoctor",
+                    "0xdoctor"
                 ),
                 metadata_item(
                     "rme-2",
@@ -318,7 +318,7 @@ mod tests {
                     FunctionCategory::DIAGNOSIS,
                     4,
                     1,
-                    "0xdoctor",
+                    "0xdoctor"
                 ),
                 metadata_item(
                     "rme-1",
@@ -326,11 +326,11 @@ mod tests {
                     FunctionCategory::ANAMNESIS,
                     2,
                     3,
-                    "0xnurse",
-                ),
+                    "0xnurse"
+                )
             ],
             0,
-            1,
+            1
         );
 
         assert_eq!(page.items.len(), 1);
@@ -346,7 +346,7 @@ mod tests {
                     FunctionCategory::ANAMNESIS,
                     5,
                     0,
-                    "0xdoctor",
+                    "0xdoctor"
                 ),
                 metadata_item(
                     "rme-2",
@@ -354,7 +354,7 @@ mod tests {
                     FunctionCategory::DIAGNOSIS,
                     4,
                     1,
-                    "0xdoctor",
+                    "0xdoctor"
                 ),
                 metadata_item(
                     "rme-1",
@@ -362,11 +362,11 @@ mod tests {
                     FunctionCategory::ANAMNESIS,
                     2,
                     3,
-                    "0xnurse",
-                ),
+                    "0xnurse"
+                )
             ],
             1,
-            1,
+            1
         );
 
         assert_eq!(page.items.len(), 1);
@@ -376,44 +376,49 @@ mod tests {
 
     #[test]
     fn collapse_keeps_distinct_rme_dataset_and_function_items() {
-        let items = collapse_to_active_metadata_items(vec![
-            metadata_item(
-                "rme-1",
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::ANAMNESIS,
-                1,
-                3,
-                "0xnurse",
-            ),
-            metadata_item(
-                "rme-2",
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::ANAMNESIS,
-                2,
-                2,
-                "0xdoctor",
-            ),
-            metadata_item(
-                "rme-1",
-                DatasetCategory::RAWAT_INAP,
-                FunctionCategory::ANAMNESIS,
-                3,
-                1,
-                "0xdoctor",
-            ),
-            metadata_item(
-                "rme-1",
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::DIAGNOSIS,
-                4,
-                0,
-                "0xdoctor",
-            ),
-        ]);
+        let items = collapse_to_active_metadata_items(
+            vec![
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    1,
+                    3,
+                    "0xnurse"
+                ),
+                metadata_item(
+                    "rme-2",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::ANAMNESIS,
+                    2,
+                    2,
+                    "0xdoctor"
+                ),
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_INAP,
+                    FunctionCategory::ANAMNESIS,
+                    3,
+                    1,
+                    "0xdoctor"
+                ),
+                metadata_item(
+                    "rme-1",
+                    DatasetCategory::RAWAT_JALAN,
+                    FunctionCategory::DIAGNOSIS,
+                    4,
+                    0,
+                    "0xdoctor"
+                )
+            ]
+        );
 
         assert_eq!(items.len(), 4);
         assert_eq!(
-            items.iter().map(|item| item.index).collect::<Vec<_>>(),
+            items
+                .iter()
+                .map(|item| item.index)
+                .collect::<Vec<_>>(),
             vec![4, 3, 2, 1]
         );
     }
@@ -426,7 +431,7 @@ mod tests {
             FunctionCategory::ANAMNESIS,
             2,
             1,
-            "0xnurse",
+            "0xnurse"
         );
         let mut correction = metadata_item(
             "rme-1",
@@ -434,7 +439,7 @@ mod tests {
             FunctionCategory::ANAMNESIS,
             5,
             0,
-            "0xdoctor",
+            "0xdoctor"
         );
         correction.correction_of_index = Some(2);
         correction.correction_reason = Some("Koreksi isi anamnesis".to_string());
@@ -445,9 +450,6 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].index, 5);
         assert_eq!(items[0].correction_of_index, Some(2));
-        assert_eq!(
-            items[0].correction_reason.as_deref(),
-            Some("Koreksi isi anamnesis")
-        );
+        assert_eq!(items[0].correction_reason.as_deref(), Some("Koreksi isi anamnesis"));
     }
 }

@@ -1,4 +1,4 @@
-use crate::caveats::{CaveatKey, CaveatValue, ParsedCaveats};
+use crate::caveats::{ CaveatKey, CaveatValue, ParsedCaveats };
 use crate::errors::CaveatVerificationError;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -18,16 +18,12 @@ impl DelegationChain {
     pub fn from_parsed(parsed: &ParsedCaveats) -> Result<Self, CaveatVerificationError> {
         let root_entries = parsed.all(CaveatKey::RootSubject);
         if root_entries.len() != 1 {
-            return Err(CaveatVerificationError::MissingRequiredCaveat(
-                "root_subject",
-            ));
+            return Err(CaveatVerificationError::MissingRequiredCaveat("root_subject"));
         }
         let root_subject = match &root_entries[0].value {
             CaveatValue::Text(s) => s.clone(),
             _ => {
-                return Err(CaveatVerificationError::ParseError(
-                    "root_subject must be text".into(),
-                ))
+                return Err(CaveatVerificationError::ParseError("root_subject must be text".into()));
             }
         };
 
@@ -80,9 +76,7 @@ impl DelegationChain {
 fn text_value(caveat: &crate::caveats::DecmedCaveat) -> Result<String, CaveatVerificationError> {
     match &caveat.value {
         CaveatValue::Text(s) => Ok(s.clone()),
-        _ => Err(CaveatVerificationError::ParseError(format!(
-            "expected text for {:?}",
-            caveat.key
-        ))),
+        _ =>
+            Err(CaveatVerificationError::ParseError(format!("expected text for {:?}", caveat.key))),
     }
 }

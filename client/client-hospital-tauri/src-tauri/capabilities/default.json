@@ -9,7 +9,12 @@
 		"fs:default",
 		{
 			"identifier": "http:default",
-			"allow": [{ "url": "https://*" }, { "url": "https://*" }],
+			"allow": [
+				{ "url": "https://*" },
+				{ "url": "http://103.107.4.68:9527/*" },
+				{ "url": "http://103.107.4.68:8080/ipfs/*" },
+				{ "url": "http://localhost:4000/*" }
+			],
 			"deny": [{ "url": "https://private.tauri.app" }]
 		},
 		{
@@ -35,7 +40,6 @@
 					"path": "$HOME/decmed-hospital/*"
 				}
 			]
-		},
-		"http:default"
+		}
 	]
 }

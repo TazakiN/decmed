@@ -1,13 +1,19 @@
-use chrono::{DateTime, Utc};
+use chrono::{ DateTime, Utc };
 use decmed_rme_segment::{
-    get_allowed_function_categories, DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES,
+    get_allowed_function_categories,
+    DatasetCategory,
+    FunctionCategory,
+    ALL_DATASET_CATEGORIES,
     ALL_FUNCTION_CATEGORIES,
 };
-use macaroon::{Format, Macaroon, MacaroonKey};
+use macaroon::{ Format, Macaroon, MacaroonKey };
 use std::collections::HashSet;
 
 use crate::caveats::{
-    add_caveat_to_macaroon, format_dataset_list, format_function_list, CaveatKey,
+    add_caveat_to_macaroon,
+    format_dataset_list,
+    format_function_list,
+    CaveatKey,
 };
 use crate::errors::CaveatVerificationError;
 
@@ -44,15 +50,14 @@ impl InitialAdminPersonnelTokenParams {
         admin_address: &str,
         encounter_dataset: DatasetCategory,
         token_kind: AdminTokenKind,
-        expires_before: DateTime<Utc>,
+        expires_before: DateTime<Utc>
     ) -> Result<Self, CaveatVerificationError> {
-        if !matches!(
-            encounter_dataset,
-            DatasetCategory::RAWAT_JALAN | DatasetCategory::RAWAT_INAP
-        ) {
-            return Err(CaveatVerificationError::ParseError(
-                "encounter_dataset must be RAWAT_JALAN or RAWAT_INAP".into(),
-            ));
+        if !matches!(encounter_dataset, DatasetCategory::RAWAT_JALAN | DatasetCategory::RAWAT_INAP) {
+            return Err(
+                CaveatVerificationError::ParseError(
+                    "encounter_dataset must be RAWAT_JALAN or RAWAT_INAP".into()
+                )
+            );
         }
 
         let (read_datasets, write_datasets, read_functions, write_functions) = match token_kind {
@@ -96,7 +101,7 @@ pub fn admin_all_datasets() -> Vec<DatasetCategory> {
 }
 
 pub fn admin_write_datasets(encounter: DatasetCategory) -> Vec<DatasetCategory> {
-    use DatasetCategory::{APOTEK, LABORATORIUM};
+    use DatasetCategory::{ APOTEK, LABORATORIUM };
     vec![encounter, LABORATORIUM, APOTEK]
 }
 
@@ -117,8 +122,7 @@ pub fn functions_for_datasets(datasets: &[DatasetCategory]) -> Vec<FunctionCateg
     }
     let mut functions: Vec<_> = set.into_iter().collect();
     functions.sort_by_key(|f| {
-        ALL_FUNCTION_CATEGORIES
-            .iter()
+        ALL_FUNCTION_CATEGORIES.iter()
             .position(|c| c == f)
             .unwrap_or(usize::MAX)
     });
@@ -145,7 +149,7 @@ impl InitialDoctorTokenParams {
     pub fn example_doctor_token(
         patient_address: &str,
         related_rme_id: &str,
-        doctor_address: &str,
+        doctor_address: &str
     ) -> Self {
         Self {
             patient_address: patient_address.to_string(),
@@ -168,12 +172,19 @@ impl InitialDoctorTokenParams {
     pub fn example_rm_initial_token(
         patient_address: &str,
         related_rme_id: &str,
-        rm_address: &str,
+        rm_address: &str
     ) -> Self {
-        use DatasetCategory::{APOTEK, LABORATORIUM as LabDataset, RAWAT_JALAN};
+        use DatasetCategory::{ APOTEK, LABORATORIUM as LabDataset, RAWAT_JALAN };
         use FunctionCategory::{
-            ADMINISTRATIVE_GENERAL, ANAMNESIS, DIAGNOSIS, DISPENSING, LABORATORIUM as LabFunction,
-            PEMERIKSAAN_FISIK, PEMERIKSAAN_PSIKOLOGIS, PERESEPAN, TERAPI,
+            ADMINISTRATIVE_GENERAL,
+            ANAMNESIS,
+            DIAGNOSIS,
+            DISPENSING,
+            LABORATORIUM as LabFunction,
+            PEMERIKSAAN_FISIK,
+            PEMERIKSAAN_PSIKOLOGIS,
+            PERESEPAN,
+            TERAPI,
         };
         Self {
             patient_address: patient_address.to_string(),
@@ -189,7 +200,7 @@ impl InitialDoctorTokenParams {
                 LabFunction,
                 PERESEPAN,
                 DIAGNOSIS,
-                TERAPI,
+                TERAPI
             ],
             write_functions: vec![
                 ADMINISTRATIVE_GENERAL,
@@ -200,7 +211,7 @@ impl InitialDoctorTokenParams {
                 TERAPI,
                 LabFunction,
                 PERESEPAN,
-                DISPENSING,
+                DISPENSING
             ],
             expires_before: DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
                 .unwrap()
@@ -242,25 +253,20 @@ struct DecmedTokenFields<'a> {
 
 fn issue_decmed_token(
     root_key: &MacaroonKey,
-    fields: DecmedTokenFields<'_>,
+    fields: DecmedTokenFields<'_>
 ) -> Result<String, CaveatVerificationError> {
-    validate_scope_pair(
-        "read",
-        fields.read_datasets.is_empty(),
-        fields.read_functions.is_empty(),
-    )?;
+    validate_scope_pair("read", fields.read_datasets.is_empty(), fields.read_functions.is_empty())?;
     validate_scope_pair(
         "write",
         fields.write_datasets.is_empty(),
-        fields.write_functions.is_empty(),
+        fields.write_functions.is_empty()
     )?;
 
     let mut mac = Macaroon::create(
         Some("proxy-reencryption".into()),
         root_key,
-        fields.root_subject.into(),
-    )
-    .map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?;
+        fields.root_subject.into()
+    ).map_err(|e| CaveatVerificationError::ParseError(e.to_string()))?;
 
     add_caveat_to_macaroon(&mut mac, CaveatKey::PatientAddress, fields.patient_address);
     if let Some(rme_id) = fields.related_rme_id {
@@ -273,42 +279,39 @@ fn issue_decmed_token(
         add_caveat_to_macaroon(
             &mut mac,
             CaveatKey::ReadDatasetIn,
-            &format_dataset_list(fields.read_datasets),
+            &format_dataset_list(fields.read_datasets)
         );
     }
     if include_write_scope && !fields.write_datasets.is_empty() {
         add_caveat_to_macaroon(
             &mut mac,
             CaveatKey::WriteDatasetIn,
-            &format_dataset_list(fields.write_datasets),
+            &format_dataset_list(fields.write_datasets)
         );
     }
     if include_read_scope && !fields.read_functions.is_empty() {
         add_caveat_to_macaroon(
             &mut mac,
             CaveatKey::ReadFunctionIn,
-            &format_function_list(fields.read_functions),
+            &format_function_list(fields.read_functions)
         );
     }
     if include_write_scope && !fields.write_functions.is_empty() {
         add_caveat_to_macaroon(
             &mut mac,
             CaveatKey::WriteFunctionIn,
-            &format_function_list(fields.write_functions),
+            &format_function_list(fields.write_functions)
         );
     }
     add_caveat_to_macaroon(
         &mut mac,
         CaveatKey::ExpiresBefore,
-        &fields
-            .expires_before
-            .format("%Y-%m-%dT%H:%M:%S")
-            .to_string(),
+        &fields.expires_before.format("%Y-%m-%dT%H:%M:%S").to_string()
     );
     add_caveat_to_macaroon(
         &mut mac,
         CaveatKey::MaxDelegationDepth,
-        &fields.max_delegation_depth.to_string(),
+        &fields.max_delegation_depth.to_string()
     );
     if let Some(hospital_cid) = fields.hospital_cid {
         add_caveat_to_macaroon(&mut mac, CaveatKey::HospitalCid, hospital_cid);
@@ -317,66 +320,61 @@ fn issue_decmed_token(
         add_caveat_to_macaroon(&mut mac, CaveatKey::Purpose, purpose);
     }
 
-    mac.serialize(Format::V2)
-        .map_err(|e| CaveatVerificationError::ParseError(e.to_string()))
+    mac.serialize(Format::V2).map_err(|e| CaveatVerificationError::ParseError(e.to_string()))
 }
 
 fn validate_scope_pair(
     mode: &str,
     datasets_empty: bool,
-    functions_empty: bool,
+    functions_empty: bool
 ) -> Result<(), CaveatVerificationError> {
     if datasets_empty != functions_empty {
-        return Err(CaveatVerificationError::ParseError(format!(
-            "{mode} datasets/functions must both be empty or both be present"
-        )));
+        return Err(
+            CaveatVerificationError::ParseError(
+                format!("{mode} datasets/functions must both be empty or both be present")
+            )
+        );
     }
     Ok(())
 }
 
 pub fn issue_admin_personnel_token(
     root_key: &MacaroonKey,
-    params: &InitialAdminPersonnelTokenParams,
+    params: &InitialAdminPersonnelTokenParams
 ) -> Result<String, CaveatVerificationError> {
-    issue_decmed_token(
-        root_key,
-        DecmedTokenFields {
-            patient_address: &params.patient_address,
-            related_rme_id: match params.token_kind {
-                AdminTokenKind::Read => None,
-                AdminTokenKind::Write => params.related_rme_id.as_deref(),
-            },
-            root_subject: &params.root_subject,
-            read_datasets: &params.read_datasets,
-            write_datasets: &params.write_datasets,
-            read_functions: &params.read_functions,
-            write_functions: &params.write_functions,
-            expires_before: params.expires_before,
-            max_delegation_depth: params.max_delegation_depth,
-            hospital_cid: params.hospital_cid.as_deref(),
-            purpose: params.purpose.as_deref(),
+    issue_decmed_token(root_key, DecmedTokenFields {
+        patient_address: &params.patient_address,
+        related_rme_id: match params.token_kind {
+            AdminTokenKind::Read => None,
+            AdminTokenKind::Write => params.related_rme_id.as_deref(),
         },
-    )
+        root_subject: &params.root_subject,
+        read_datasets: &params.read_datasets,
+        write_datasets: &params.write_datasets,
+        read_functions: &params.read_functions,
+        write_functions: &params.write_functions,
+        expires_before: params.expires_before,
+        max_delegation_depth: params.max_delegation_depth,
+        hospital_cid: params.hospital_cid.as_deref(),
+        purpose: params.purpose.as_deref(),
+    })
 }
 
 pub fn issue_initial_token(
     root_key: &MacaroonKey,
-    params: &InitialDoctorTokenParams,
+    params: &InitialDoctorTokenParams
 ) -> Result<String, CaveatVerificationError> {
-    issue_decmed_token(
-        root_key,
-        DecmedTokenFields {
-            patient_address: &params.patient_address,
-            related_rme_id: Some(&params.related_rme_id),
-            root_subject: &params.root_subject,
-            read_datasets: &params.read_datasets,
-            write_datasets: &params.write_datasets,
-            read_functions: &params.read_functions,
-            write_functions: &params.write_functions,
-            expires_before: params.expires_before,
-            max_delegation_depth: params.max_delegation_depth,
-            hospital_cid: params.hospital_cid.as_deref(),
-            purpose: params.purpose.as_deref(),
-        },
-    )
+    issue_decmed_token(root_key, DecmedTokenFields {
+        patient_address: &params.patient_address,
+        related_rme_id: Some(&params.related_rme_id),
+        root_subject: &params.root_subject,
+        read_datasets: &params.read_datasets,
+        write_datasets: &params.write_datasets,
+        read_functions: &params.read_functions,
+        write_functions: &params.write_functions,
+        expires_before: params.expires_before,
+        max_delegation_depth: params.max_delegation_depth,
+        hospital_cid: params.hospital_cid.as_deref(),
+        purpose: params.purpose.as_deref(),
+    })
 }

@@ -1,6 +1,6 @@
-use std::{error::Error, fmt};
+use std::{ error::Error, fmt };
 
-use crate::category::{DatasetCategory, FunctionCategory};
+use crate::category::{ DatasetCategory, FunctionCategory };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SegmentValidationError {
@@ -29,22 +29,18 @@ impl fmt::Display for SegmentValidationError {
                 write!(f, "on-chain metadata contains forbidden field `{field}`")
             }
             Self::InconsistentField(field) => {
-                write!(
-                    f,
-                    "off-chain segment and on-chain metadata differ on `{field}`"
-                )
+                write!(f, "off-chain segment and on-chain metadata differ on `{field}`")
             }
             Self::InvalidAdministrativePayload(message) => {
                 write!(f, "invalid administrative general payload: {message}")
             }
-            Self::InvalidCategoryCombination {
-                dataset_category,
-                function_category,
-            } => write!(
-                f,
-                "invalid segment category combination: {:?} + {:?}",
-                dataset_category, function_category
-            ),
+            Self::InvalidCategoryCombination { dataset_category, function_category } =>
+                write!(
+                    f,
+                    "invalid segment category combination: {:?} + {:?}",
+                    dataset_category,
+                    function_category
+                ),
             Self::InvalidCiphertext => write!(f, "encrypted segment is not valid base64"),
             Self::InvalidCorrection(message) => {
                 write!(f, "invalid segment correction: {message}")

@@ -1,13 +1,16 @@
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::category::{DatasetCategory, FunctionCategory};
-use crate::crypto::{ciphertext_integrity_hash_from_base64, payload_hash};
+use crate::category::{ DatasetCategory, FunctionCategory };
+use crate::crypto::{ ciphertext_integrity_hash_from_base64, payload_hash };
 use crate::error::SegmentValidationError;
 use crate::validation::{
-    assert_no_plaintext_medical_fields, assert_valid_correction_metadata,
-    assert_valid_correction_request, assert_valid_segment_category, is_empty_payload,
+    assert_no_plaintext_medical_fields,
+    assert_valid_correction_metadata,
+    assert_valid_correction_request,
+    assert_valid_segment_category,
+    is_empty_payload,
 };
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -45,12 +48,12 @@ pub struct RmeSegmentData {
 impl RmeSegmentData {
     pub fn new(
         segment_id: Uuid,
-        request: CreateRmeSegmentRequest,
+        request: CreateRmeSegmentRequest
     ) -> Result<Self, SegmentValidationError> {
         assert_valid_segment_category(request.dataset_category, request.function_category)?;
         assert_valid_correction_request(
             request.correction_of_index,
-            request.correction_reason.as_deref(),
+            request.correction_reason.as_deref()
         )?;
 
         if is_empty_payload(&request.payload) {
@@ -76,7 +79,7 @@ impl RmeSegmentData {
         assert_valid_segment_category(self.dataset_category, self.function_category)?;
         assert_valid_correction_request(
             self.correction_of_index,
-            self.correction_reason.as_deref(),
+            self.correction_reason.as_deref()
         )?;
 
         if self.payload_hash.is_empty() {
@@ -119,7 +122,7 @@ impl ClientEncryptedRmeSegment {
         assert_valid_segment_category(self.dataset_category, self.function_category)?;
         assert_valid_correction_request(
             self.correction_of_index,
-            self.correction_reason.as_deref(),
+            self.correction_reason.as_deref()
         )?;
 
         for (field, value) in [
@@ -152,7 +155,7 @@ impl ClientEncryptedRmeSegment {
         self,
         ipfs_cid: String,
         created_at: String,
-        updated_at: Option<u64>,
+        updated_at: Option<u64>
     ) -> RmeSegmentMetadata {
         RmeSegmentMetadata {
             segment_id: self.segment_id,
@@ -203,7 +206,7 @@ impl RmeSegmentMetadata {
         assert_valid_correction_metadata(
             self.correction_of_index,
             self.correction_reason.as_deref(),
-            self.updated_at,
+            self.updated_at
         )?;
 
         for (field, value) in [
@@ -225,8 +228,9 @@ impl RmeSegmentMetadata {
 
         Uuid::parse_str(&self.segment_id).map_err(|_| SegmentValidationError::InvalidUuid)?;
 
-        let value =
-            serde_json::to_value(self).map_err(|_| SegmentValidationError::SerializationFailed)?;
+        let value = serde_json
+            ::to_value(self)
+            .map_err(|_| SegmentValidationError::SerializationFailed)?;
         assert_no_plaintext_medical_fields(&value)?;
 
         Ok(())

@@ -30,6 +30,7 @@
 
 	const detailState = new EmrDetailState({
 		accessToken: data.accessToken,
+		delegationSignature: data.delegationSignature,
 		patientIotaAddress: data.patientIotaAddress,
 		relatedRmeId: data.relatedRmeId,
 		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
@@ -38,6 +39,7 @@
 
 	const backQuery = emrAccessQueryString({
 		accessToken: data.accessToken,
+		delegationSignature: data.delegationSignature,
 		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
 		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
 	});

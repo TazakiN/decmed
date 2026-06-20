@@ -1,11 +1,15 @@
+use std::str::FromStr;
+
 use axum::http::StatusCode;
 use decmed_macaroon_auth::{
     verify_decmed_token,
     verify_segment_access,
     AccessMode,
     CaveatVerificationError,
+    DelegationProofContext,
     Macaroon,
     MacaroonKey,
+    ParsedCaveats,
     SegmentAccessContext,
     TokenVerificationContext,
     VerifiedDecmedToken,
@@ -16,7 +20,6 @@ use decmed_rme_segment::RmeSegmentMetadata;
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{ IotaSignature, SignatureScheme };
 use shared_crypto::intent::{ Intent, IntentMessage };
-use std::str::FromStr;
 
 use crate::proxy_error::ProxyError;
 
@@ -47,8 +50,7 @@ impl WalletSignatureVerifier for IotaWalletVerifier {
 pub fn caveat_error_to_status(err: &CaveatVerificationError) -> StatusCode {
     match err {
         CaveatVerificationError::InvalidMacaroonSignature => StatusCode::UNAUTHORIZED,
-        | CaveatVerificationError::MissingRequiredCaveat(_)
-        | CaveatVerificationError::LegacyTokenIncomplete => StatusCode::UNAUTHORIZED,
+        CaveatVerificationError::MissingRequiredCaveat(_) => StatusCode::UNAUTHORIZED,
         | CaveatVerificationError::PatientMismatch
         | CaveatVerificationError::RmeMismatch
         | CaveatVerificationError::HospitalCidMismatch => StatusCode::FORBIDDEN,
@@ -143,4 +145,48 @@ pub fn verify_decmed_macaroon(
         None
     };
     verify_decmed_token(mac, root_key, &ctx, verifier).map_err(map_caveat_error)
+}
+
+/// Verify the delegation proof signature for the last delegation step.
+///
+/// Reconstructs [`DelegationProofContext`] from the presented token's last
+/// delegation caveats (using raw caveat strings to preserve value ordering)
+/// and verifies the IOTA signature against `delegated_by`.
+pub fn verify_delegation_proof(token_str: &str, signature_b64: &str) -> Result<(), ProxyError> {
+    use anyhow::anyhow;
+    let proof_ctx = DelegationProofContext::from_token(token_str).map_err(map_caveat_error)?;
+    let signature = crate::utils::Utils
+        ::construct_signature_from_str(signature_b64)
+        .map_err(|_| ProxyError::Anyhow {
+            source: anyhow!("Invalid delegation signature format"),
+            code: StatusCode::UNAUTHORIZED,
+        })?;
+    let address = IotaAddress::from_str(&proof_ctx.delegated_by).map_err(|_| ProxyError::Anyhow {
+        source: anyhow!("Invalid delegated_by address"),
+        code: StatusCode::UNAUTHORIZED,
+    })?;
+    let mut contexts = vec![proof_ctx];
+    if let Ok(legacy_ctx) = DelegationProofContext::from_last_delegation_step(token_str) {
+        contexts.push(legacy_ctx);
+    }
+
+    for context in contexts {
+        let message = context.canonical_message().map_err(|e| ProxyError::Caveat {
+            code: StatusCode::UNAUTHORIZED.as_u16(),
+            error: e.to_string(),
+        })?;
+        let intent_message = IntentMessage::new(Intent::personal_message(), message);
+        if
+            signature
+                .verify_secure(&intent_message, address.clone(), SignatureScheme::ED25519)
+                .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    Err(ProxyError::Anyhow {
+        source: anyhow!("Delegation proof signature mismatch"),
+        code: StatusCode::UNAUTHORIZED,
+    })
 }

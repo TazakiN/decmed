@@ -20,18 +20,11 @@ pub enum CaveatKey {
     WriteFunctionIn,
     ExpiresBefore,
     MaxDelegationDepth,
-    // Legacy compatibility only; wallet proof is mandatory for all DecMed tokens.
-    ProofRequired,
     HospitalCid,
     // Legacy token compatibility only. New tokens use `hospital_cid`.
     HospitalId,
     ParentTokenHash,
-    // Legacy coarse-grained caveats (still parsed for migration)
-    Role,
     Purpose,
-    Subject,
-    Time,
-    HolderAddress,
 }
 
 impl CaveatKey {
@@ -48,15 +41,10 @@ impl CaveatKey {
             "write_function_in" => Some(Self::WriteFunctionIn),
             "expires_before" => Some(Self::ExpiresBefore),
             "max_delegation_depth" => Some(Self::MaxDelegationDepth),
-            "proof_required" => Some(Self::ProofRequired),
             "hospital_cid" => Some(Self::HospitalCid),
             "hospital_id" => Some(Self::HospitalId),
             "parent_token_hash" => Some(Self::ParentTokenHash),
-            "role" => Some(Self::Role),
             "purpose" => Some(Self::Purpose),
-            "subject" => Some(Self::Subject),
-            "time" => Some(Self::Time),
-            "holder_address" => Some(Self::HolderAddress),
             _ => None,
         }
     }
@@ -86,7 +74,7 @@ pub struct ParsedCaveats {
 impl ParsedCaveats {
     pub fn from_macaroon(mac: &Macaroon) -> Result<Self, CaveatVerificationError> {
         let mut entries = Vec::new();
-        for caveat in mac.first_party_caveats() {
+        for caveat in mac.caveats() {
             if let Caveat::FirstParty(fp) = caveat {
                 let raw = String::from_utf8(fp.predicate().0.clone()).map_err(|e|
                     CaveatVerificationError::ParseError(e.to_string())
@@ -117,10 +105,6 @@ pub fn parse_caveat_line(raw: &str) -> Result<DecmedCaveat, CaveatVerificationEr
     let key = CaveatKey::from_predicate_key(key_str).ok_or_else(|| {
         CaveatVerificationError::ParseError(format!("unknown caveat key: {key_str}"))
     })?;
-
-    if key == CaveatKey::HolderAddress {
-        return Err(CaveatVerificationError::HolderAddressForbidden);
-    }
 
     let value = parse_value(key, value_str.trim())?;
     Ok(DecmedCaveat {
@@ -155,16 +139,6 @@ fn parse_value(key: CaveatKey, value_str: &str) -> Result<CaveatValue, CaveatVer
                 })?;
             Ok(CaveatValue::Depth(depth))
         }
-        CaveatKey::ProofRequired => {
-            if value_str != "wallet_signature" {
-                return Err(
-                    CaveatVerificationError::UnsupportedProofRequirement(value_str.to_string())
-                );
-            }
-            // Compatibility only: wallet proof is now mandatory for every DecMed token.
-            Ok(CaveatValue::Text(value_str.to_string()))
-        }
-        CaveatKey::Time => Ok(CaveatValue::Text(value_str.to_string())),
         _ => Ok(CaveatValue::Text(value_str.to_string())),
     }
 }
@@ -237,21 +211,12 @@ pub fn caveat_line(key: CaveatKey, value: &str) -> String {
         CaveatKey::WriteFunctionIn => "write_function_in",
         CaveatKey::ExpiresBefore => "expires_before",
         CaveatKey::MaxDelegationDepth => "max_delegation_depth",
-        CaveatKey::ProofRequired => "proof_required",
         CaveatKey::HospitalCid => "hospital_cid",
         CaveatKey::HospitalId => "hospital_id",
-        CaveatKey::Role => "role",
         CaveatKey::Purpose => "purpose",
         CaveatKey::ParentTokenHash => "parent_token_hash",
-        CaveatKey::Subject => "subject",
-        CaveatKey::Time => "time",
-        CaveatKey::HolderAddress => "holder_address",
     };
-    if key == CaveatKey::Time {
-        format!("{key_name} < {value}")
-    } else {
-        format!("{key_name} = {value}")
-    }
+    format!("{key_name} = {value}")
 }
 
 pub fn add_caveat_to_macaroon(mac: &mut Macaroon, key: CaveatKey, value: &str) {
@@ -270,13 +235,4 @@ mod tests {
         assert_eq!(b.key, CaveatKey::ReadDatasetIn);
     }
 
-    #[test]
-    fn rejects_holder_address() {
-        assert!(
-            matches!(
-                parse_caveat_line("holder_address = 0xABC"),
-                Err(CaveatVerificationError::HolderAddressForbidden)
-            )
-        );
-    }
 }

@@ -16,6 +16,7 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 	return {
 		accessToken,
 		dataPreSecretKeySeedCapsule: url.searchParams.get('dataPreSecretKeySeedCapsule'),
+		delegationSignature: url.searchParams.get('delegationSignature'),
 		encDataPreSecretKeySeed: url.searchParams.get('encDataPreSecretKeySeed'),
 		patientIotaAddress,
 		patientName: url.searchParams.get('patientName')

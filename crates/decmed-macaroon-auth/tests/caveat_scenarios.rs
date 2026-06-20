@@ -1,10 +1,11 @@
 use chrono::Utc;
 use decmed_macaroon_auth::{
-    attenuate_macaroon, compute_revocation_keys, edge_revocation_key, hash_token,
-    issue_initial_token, parse_caveat_line, root_revocation_key, token_revocation_key,
-    verify_decmed_token, AccessMode, CaveatKey, CaveatVerificationError,
-    DelegationAttenuationParams, InitialDoctorTokenParams, ParsedCaveats, SegmentAccessContext,
-    TokenVerificationContext, WalletProofContext, WalletSignatureVerifier,
+    admin_write_datasets, admin_write_functions, attenuate_macaroon, compute_revocation_keys,
+    edge_revocation_key, hash_token, issue_initial_token, parse_caveat_line,
+    root_revocation_key, token_revocation_key, verify_decmed_token, AccessMode, CaveatKey,
+    CaveatVerificationError, DelegationAttenuationParams, InitialDoctorTokenParams,
+    ParsedCaveats, SegmentAccessContext, TokenVerificationContext, WalletProofContext,
+    WalletSignatureVerifier,
 };
 use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 use macaroon::MacaroonKey;
@@ -51,7 +52,23 @@ fn doctor_token() -> String {
 }
 
 fn lab_token(parent: &str) -> String {
-    let p = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
+    let p = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::LABORATORIUM],
+        write_datasets: vec![DatasetCategory::LABORATORIUM],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::PEMERIKSAAN_PENUNJANG,
+            FunctionCategory::LABORATORIUM,
+        ],
+        write_functions: vec![FunctionCategory::LABORATORIUM],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     attenuate_macaroon(parent, &p).unwrap()
 }
 
@@ -162,15 +179,12 @@ fn rm_update_token() -> String {
 
 #[test]
 fn admin_tokens_are_single_purpose_without_role() {
-    use decmed_macaroon_auth::CaveatKey;
-
     let read_mac = macaroon::Macaroon::deserialize(&admin_read_token()).unwrap();
     let read_parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&read_mac).unwrap();
     let read_effective =
         decmed_macaroon_auth::EffectiveCapability::from_parsed(&read_parsed).unwrap();
     assert!(!read_effective.read_datasets.is_empty());
     assert!(read_effective.write_datasets.is_empty());
-    assert!(read_parsed.all(CaveatKey::Role).is_empty());
 
     let write_mac = macaroon::Macaroon::deserialize(&admin_write_token()).unwrap();
     let write_parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&write_mac).unwrap();
@@ -178,7 +192,6 @@ fn admin_tokens_are_single_purpose_without_role() {
         decmed_macaroon_auth::EffectiveCapability::from_parsed(&write_parsed).unwrap();
     assert!(write_effective.read_datasets.is_empty());
     assert!(!write_effective.write_datasets.is_empty());
-    assert!(write_parsed.all(CaveatKey::Role).is_empty());
 }
 
 #[test]
@@ -250,12 +263,21 @@ fn admin_read_without_rme_reads_any_episode() {
 #[test]
 fn admin_write_parent_assigns_rme_on_delegate() {
     const DELEGATED_RME: &str = "RME-2026-abc12345";
-    let mut params = DelegationAttenuationParams::example_admin_delegate_to_doctor(
-        ADMIN,
-        DOCTOR,
-        DELEGATED_RME,
-        DatasetCategory::RAWAT_JALAN,
-    );
+    let datasets = admin_write_datasets(DatasetCategory::RAWAT_JALAN);
+    let functions = admin_write_functions(DatasetCategory::RAWAT_JALAN);
+    let mut params = DelegationAttenuationParams {
+        delegated_by: ADMIN.to_string(),
+        delegated_to: DOCTOR.to_string(),
+        read_datasets: datasets.clone(),
+        write_datasets: datasets,
+        read_functions: functions.clone(),
+        write_functions: functions,
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T17:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 1,
+        related_rme_id: Some(DELEGATED_RME.to_string()),
+    };
     params.read_datasets.clear();
     params.read_functions.clear();
     let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();
@@ -491,7 +513,24 @@ fn lab_read_penunjang_ok() {
 
 #[test]
 fn apotek_read_therapy_ok() {
-    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    let p = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::APOTEK],
+        write_datasets: vec![DatasetCategory::APOTEK],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::TERAPI,
+            FunctionCategory::PERESEPAN,
+            FunctionCategory::DISPENSING,
+        ],
+        write_functions: vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     assert!(verify_ctx(
         &token,
@@ -534,7 +573,24 @@ fn lab_denied_write_penunjang() {
 
 #[test]
 fn apotek_denied_write_administrative_general() {
-    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    let p = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::APOTEK],
+        write_datasets: vec![DatasetCategory::APOTEK],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::TERAPI,
+            FunctionCategory::PERESEPAN,
+            FunctionCategory::DISPENSING,
+        ],
+        write_functions: vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     let err = verify_ctx(
         &token,
@@ -550,7 +606,24 @@ fn apotek_denied_write_administrative_general() {
 
 #[test]
 fn apotek_denied_write_therapy() {
-    let p = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    let p = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::APOTEK],
+        write_datasets: vec![DatasetCategory::APOTEK],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::TERAPI,
+            FunctionCategory::PERESEPAN,
+            FunctionCategory::DISPENSING,
+        ],
+        write_functions: vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
     let err = verify_ctx(
         &token,
@@ -571,7 +644,24 @@ fn cannot_delegate_write_function_from_parent_read_only_scope() {
         .write_functions
         .retain(|function| *function != FunctionCategory::PERESEPAN);
     let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
-    let params = DelegationAttenuationParams::example_apotek_delegation(DOCTOR, LAB);
+    let params = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::APOTEK],
+        write_datasets: vec![DatasetCategory::APOTEK],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::TERAPI,
+            FunctionCategory::PERESEPAN,
+            FunctionCategory::DISPENSING,
+        ],
+        write_functions: vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     let err = attenuate_macaroon(&parent, &params).unwrap_err();
     assert_eq!(
         err,
@@ -606,48 +696,24 @@ fn wallet_signature_required_for_every_decmed_token() {
 }
 
 #[test]
-fn newly_issued_token_does_not_include_proof_required() {
-    let mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
-    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
-    assert!(parsed.all(CaveatKey::ProofRequired).is_empty());
-}
-
-#[test]
-fn legacy_proof_required_caveat_is_accepted_but_does_not_control_verification() {
-    let mut mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
-    decmed_macaroon_auth::add_caveat_to_macaroon(
-        &mut mac,
-        CaveatKey::ProofRequired,
-        "wallet_signature",
-    );
-    let token = mac.serialize(macaroon::Format::V2).unwrap();
-
-    assert!(verify_ctx(
-        &token,
-        AccessMode::Read,
-        DatasetCategory::LABORATORIUM,
-        FunctionCategory::LABORATORIUM,
-        None,
-        None,
-    )
-    .is_ok());
-
-    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
-    assert_eq!(parsed.all(CaveatKey::ProofRequired).len(), 1);
-}
-
-#[test]
-fn unsupported_legacy_proof_requirement_is_rejected() {
-    let err = parse_caveat_line("proof_required = other").unwrap_err();
-    assert_eq!(
-        err,
-        CaveatVerificationError::UnsupportedProofRequirement("other".into())
-    );
-}
-
-#[test]
 fn invalid_wallet_signature_rejected() {
-    let del = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
+    let del = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::LABORATORIUM],
+        write_datasets: vec![DatasetCategory::LABORATORIUM],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::PEMERIKSAAN_PENUNJANG,
+            FunctionCategory::LABORATORIUM,
+        ],
+        write_functions: vec![FunctionCategory::LABORATORIUM],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     let token = attenuate_macaroon(&doctor_token(), &del).unwrap();
     let verifier = MockVerifier {
         expect_address: Some(LAB.to_string()),
@@ -750,7 +816,23 @@ fn intersection_blocks_dataset_expansion() {
 
 #[test]
 fn cannot_increase_max_delegation_depth_on_delegate() {
-    let mut params = DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB);
+    let mut params = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::LABORATORIUM],
+        write_datasets: vec![DatasetCategory::LABORATORIUM],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::PEMERIKSAAN_PENUNJANG,
+            FunctionCategory::LABORATORIUM,
+        ],
+        write_functions: vec![FunctionCategory::LABORATORIUM],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
     params.max_delegation_depth = 99;
     let err = attenuate_macaroon(&doctor_token(), &params).unwrap_err();
     assert_eq!(err, CaveatVerificationError::DelegationDepthNotMonotonic);
@@ -763,27 +845,45 @@ fn cannot_delegate_when_parent_depth_zero() {
     let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
     let err = attenuate_macaroon(
         &parent,
-        &DelegationAttenuationParams::example_lab_delegation(DOCTOR, LAB),
+        &DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::LABORATORIUM],
+        write_datasets: vec![DatasetCategory::LABORATORIUM],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::PEMERIKSAAN_PENUNJANG,
+            FunctionCategory::LABORATORIUM,
+        ],
+        write_functions: vec![FunctionCategory::LABORATORIUM],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    },
     )
     .unwrap_err();
     assert_eq!(err, CaveatVerificationError::DelegationDepthExceeded);
 }
 
 #[test]
-fn holder_address_forbidden() {
-    use decmed_macaroon_auth::parse_caveat_line;
-    let err = parse_caveat_line("holder_address = 0x1").unwrap_err();
-    assert_eq!(err, CaveatVerificationError::HolderAddressForbidden);
-}
-
-#[test]
 fn admin_write_delegates_doctor_preset_succeeds() {
-    let mut params = DelegationAttenuationParams::example_admin_delegate_to_doctor(
-        ADMIN,
-        DOCTOR,
-        "RME-DOC-001",
-        DatasetCategory::RAWAT_JALAN,
-    );
+    let datasets = admin_write_datasets(DatasetCategory::RAWAT_JALAN);
+    let functions = admin_write_functions(DatasetCategory::RAWAT_JALAN);
+    let mut params = DelegationAttenuationParams {
+        delegated_by: ADMIN.to_string(),
+        delegated_to: DOCTOR.to_string(),
+        read_datasets: datasets.clone(),
+        write_datasets: datasets,
+        read_functions: functions.clone(),
+        write_functions: functions,
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T17:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 1,
+        related_rme_id: Some("RME-DOC-001".to_string()),
+    };
     params.read_datasets.clear();
     params.read_functions.clear();
     let delegated = attenuate_macaroon(&admin_write_token(), &params).unwrap();

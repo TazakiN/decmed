@@ -228,6 +228,7 @@ async fn request_medical_records_from_proxy(
     related_rme_id: Option<&str>,
     wallet_signature: Option<&str>,
     wallet_timestamp: Option<&str>,
+    delegation_signature: Option<&str>,
 ) -> Result<
     Result<
         ProxyReencryptionSuccessResponse<ProxyListMedicalRecordsResponse>,
@@ -249,6 +250,9 @@ async fn request_medical_records_from_proxy(
     }
     if let Some(timestamp) = wallet_timestamp {
         request = request.header("x-decmed-wallet-timestamp", timestamp);
+    }
+    if let Some(signature) = delegation_signature {
+        request = request.header("x-decmed-delegation-signature", signature);
     }
 
     let response = request.send().await.context(current_fn!())?;
@@ -274,6 +278,7 @@ async fn fetch_all_metadata_flat(
     patient_iota_address: &str,
     related_rme_id: Option<&str>,
     hospital_personnel_iota_key_pair: &iota_types::crypto::IotaKeyPair,
+    delegation_signature: Option<&str>,
 ) -> Result<Vec<MedicalRecordMetadataFlatItem>, HospitalError> {
     let mut all = Vec::new();
     let mut cursor = 0u64;
@@ -289,6 +294,7 @@ async fn fetch_all_metadata_flat(
             related_rme_id,
             None,
             None,
+            delegation_signature,
         )
         .await
         .context(current_fn!())?
@@ -311,6 +317,7 @@ async fn fetch_all_metadata_flat(
                             related_rme_id,
                             Some(&wallet_signature),
                             Some(&proof_context.timestamp),
+                            delegation_signature,
                         )
                         .await
                         .context(current_fn!())?
@@ -345,6 +352,7 @@ pub async fn get_accessible_medical_record_metadata(
     state: State<'_, Mutex<crate::types::AppState>>,
     access_token: String,
     patient_iota_address: String,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<Vec<RmeEncounterGroup>>, HospitalError> {
     let (keys_entry_secret, pin) = {
         let state = state.lock().await;
@@ -370,6 +378,7 @@ pub async fn get_accessible_medical_record_metadata(
         &patient_iota_address,
         None,
         &hospital_personnel_iota_key_pair,
+        delegation_signature.as_deref(),
     )
     .await
     .context(current_fn!())?;
@@ -388,6 +397,7 @@ pub async fn get_accessible_medical_record_encounter_metadata(
     access_token: String,
     patient_iota_address: String,
     related_rme_id: String,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<RmeEncounterGroup>, HospitalError> {
     let (keys_entry_secret, pin) = {
         let state = state.lock().await;
@@ -412,6 +422,7 @@ pub async fn get_accessible_medical_record_encounter_metadata(
         &patient_iota_address,
         Some(&related_rme_id),
         &hospital_personnel_iota_key_pair,
+        delegation_signature.as_deref(),
     )
     .await
     .context(current_fn!())?;

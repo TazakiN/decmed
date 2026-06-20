@@ -5,16 +5,18 @@
 
 	let { data } = $props();
 
-	const metadataState = new EmrMetadataListState({
+	const metadataState = $derived(new EmrMetadataListState({
 		accessToken: data.accessToken,
+		delegationSignature: data.delegationSignature,
 		patientIotaAddress: data.patientIotaAddress
-	});
+	}));
 
-	const accessQuery = emrAccessQueryString({
+	const accessQuery = $derived(emrAccessQueryString({
 		accessToken: data.accessToken,
+		delegationSignature: data.delegationSignature,
 		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
 		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
-	});
+	}));
 
 	const formatDate = (value: string) => {
 		const parsed = new Date(value);

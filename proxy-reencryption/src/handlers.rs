@@ -45,6 +45,7 @@ use crate::types::{
     ClientMedicalMetadata,
     CurrentUser,
     GenerateMacaroonKeyHandlerResponse,
+    GenerateRelatedRmeIdResponse,
     GenerateSignatureHandlerPayload,
     GetNonceHandlerPayload,
     HandlerCreateMedicalRecordPayload,
@@ -64,12 +65,11 @@ use crate::types::{
 };
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
-    generate_related_rme_id,
+    format_related_rme_id,
     issue_admin_personnel_token,
     issue_initial_token,
     AccessMode,
     AdminTokenKind,
-    Format,
     InitialAdminPersonnelTokenParams,
     InitialDoctorTokenParams,
     Macaroon,
@@ -197,6 +197,19 @@ fn revocation_ttl(expires_before: Option<&str>) -> Result<u64, ProxyError> {
     Ok(remaining as u64)
 }
 
+fn reserve_related_rme_id(conn: &mut redis::Connection) -> Result<String, ProxyError> {
+    let now = chrono::Utc::now();
+    let year = now.format("%Y").to_string();
+    let sequence: u64 = conn
+        .incr(format!("rme:encounter-counter:{year}"), 1)
+        .context(current_fn!())?;
+
+    // related_rme_id is the encounter/RME id. Do not derive it from
+    // metadata.index; that index identifies individual segment metadata.
+    let year = year.parse::<i32>().context(current_fn!())?;
+    Ok(format_related_rme_id(year, sequence))
+}
+
 fn get_access_keys_for_current_user(
     conn: &mut redis::Connection,
     current_user: &CurrentUser,
@@ -221,76 +234,19 @@ fn get_access_keys_for_current_user(
     })
 }
 
-fn issue_legacy_role_macaroons(
-    root_key: &MacaroonKey,
-    role_str: &str,
-    subject: &str,
-    hospital_cid: &str,
-    read_keys_duration: u64,
-    update_keys_duration: Option<u64>
-) -> Result<(String, Option<String>), ProxyError> {
-    let read_exp =
-        std::time::SystemTime
-            ::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() + read_keys_duration;
-
-    let mut read_macaroon = Macaroon::create(
-        Some("proxy-reencryption".into()),
-        root_key,
-        subject.into()
-    )
-        .map_err(|_| anyhow!("Failed to create macaroon"))
-        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    read_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-    read_macaroon.add_first_party_caveat("purpose = Read".into());
-    read_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
-    read_macaroon.add_first_party_caveat(format!("hospital_cid = {}", hospital_cid).into());
-    read_macaroon.add_first_party_caveat(format!("time < {}", read_exp).into());
-
-    let read_token = read_macaroon
-        .serialize(Format::V2)
-        .map_err(|_| anyhow!("Failed to serialize macaroon"))
-        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let update_token = if let Some(update_keys_duration) = update_keys_duration {
-        let update_exp =
-            std::time::SystemTime
-                ::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() + update_keys_duration;
-
-        let mut update_macaroon = Macaroon::create(
-            Some("proxy-reencryption".into()),
-            root_key,
-            subject.into()
-        )
-            .map_err(|_| anyhow!("Failed to create macaroon"))
-            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        update_macaroon.add_first_party_caveat(format!("role = {}", role_str).into());
-        update_macaroon.add_first_party_caveat("purpose = Update".into());
-        update_macaroon.add_first_party_caveat(format!("subject = {}", subject).into());
-        update_macaroon.add_first_party_caveat(format!("hospital_cid = {}", hospital_cid).into());
-        update_macaroon.add_first_party_caveat(format!("time < {}", update_exp).into());
-
-        Some(
-            update_macaroon
-                .serialize(Format::V2)
-                .map_err(|_| anyhow!("Failed to serialize macaroon"))
-                .code(StatusCode::INTERNAL_SERVER_ERROR)?
-        )
-    } else {
-        None
-    };
-
-    Ok((read_token, update_token))
-}
-
 impl Handlers {
+    pub async fn reserve_related_rme_id_handler(
+        State(state): State<Arc<AppState>>
+    ) -> Result<Response, ProxyError> {
+        let mut conn = state.redis_pool.get().context(current_fn!())?;
+        let related_rme_id = reserve_related_rme_id(&mut conn)?;
+
+        Ok(Utils::build_success_response(
+            GenerateRelatedRmeIdResponse { related_rme_id },
+            StatusCode::OK,
+        ))
+    }
+
     pub async fn create_medical_record(
         State(state): State<Arc<AppState>>,
         Extension(current_user): Extension<CurrentUser>,
@@ -1334,7 +1290,7 @@ impl Handlers {
             .code(StatusCode::UNAUTHORIZED)?;
 
         let _: () = conn
-            .del(patient_iota_address.to_string())
+            .del(format!("nonce:{}", patient_iota_address.to_string()))
             .map_err(|_| anyhow!("Nonce expired"))
             .code(StatusCode::UNAUTHORIZED)?;
 
@@ -1363,12 +1319,6 @@ impl Handlers {
 
         // Create access token for hospital personnel
         let root_key = MacaroonKey::generate(&state.macaroon_root_key);
-
-        let role_str = match hospital_personnel_role {
-            AuthRole::AdministrativePersonnel => "AdministrativePersonnel",
-            AuthRole::MedicalPersonnel => "MedicalPersonnel",
-            AuthRole::Patient => "Patient",
-        };
 
         let root_subject = payload.root_subject
             .clone()
@@ -1409,7 +1359,7 @@ impl Handlers {
                     access_keys_duration = keys_duration;
                     let expires_before =
                         chrono::Utc::now() + chrono::Duration::seconds(keys_duration as i64);
-                    let related_rme_id = generate_related_rme_id(chrono::Utc::now());
+                    let related_rme_id = reserve_related_rme_id(&mut conn)?;
                     response_related_rme_id = Some(related_rme_id.clone());
 
                     let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
@@ -1512,14 +1462,12 @@ impl Handlers {
                     };
                     (read_token, update_token)
                 } else {
-                    issue_legacy_role_macaroons(
-                        &root_key,
-                        role_str,
-                        &root_subject,
-                        hospital_cid,
-                        read_keys_duration,
-                        update_keys_duration
-                    )?
+                    return Err(ProxyError::Anyhow {
+                        source: anyhow!(
+                            "related_rme_id is required for MedicalPersonnel access grant"
+                        ),
+                        code: StatusCode::BAD_REQUEST,
+                    });
                 }
             }
             AuthRole::Patient => {

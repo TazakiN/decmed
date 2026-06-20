@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		datasetLabels,
+		delegableWriteFunctions,
 		functionLabels,
 		intersect,
 		isReadableCapability,
@@ -41,7 +42,6 @@
 	let selectedPatientAddress = $state('');
 	let mode = $state<DelegationMode>('read_write');
 	let preset = $state<DelegationPreset>('nurse');
-	let encounterDataset = $state<DatasetCategory>('RAWAT_JALAN');
 	let previewReadDatasets = $state<DatasetCategory[]>([]);
 	let previewWriteDatasets = $state<DatasetCategory[]>([]);
 	let previewReadFunctions = $state<FunctionCategory[]>([]);
@@ -63,15 +63,6 @@
 	const selectedDelegatee = $derived(
 		delegateeCandidates.find((candidate) => candidate.iotaAddress === selectedDelegateeAddress)
 	);
-	const availableEncounterDatasets = $derived(
-		sortDatasets(
-			intersect(['RAWAT_JALAN', 'RAWAT_INAP'] as DatasetCategory[], [
-				...(activeRead?.readDatasets ?? []),
-				...(activeWrite?.writeDatasets ?? [])
-			])
-		)
-	);
-
 	const groupAccesses = (capabilities: AccessCapabilitiesResponse) => {
 		const map = new Map<string, PatientAccess>();
 		for (const capability of capabilities.read.filter(isReadableCapability)) {
@@ -203,12 +194,13 @@
 
 	const applyPreset = () => {
 		if (!selectedAccess) return;
-		if (
-			availableEncounterDatasets.length > 0 &&
-			!availableEncounterDatasets.includes(encounterDataset)
-		) {
-			encounterDataset = availableEncounterDatasets[0];
-		}
+		const encounterDatasets = sortDatasets(
+			intersect(['RAWAT_JALAN', 'RAWAT_INAP'] as DatasetCategory[], [
+				...(activeRead?.readDatasets ?? []),
+				...(activeWrite?.writeDatasets ?? [])
+			])
+		);
+		const encounterDataset = encounterDatasets[0] ?? 'RAWAT_JALAN';
 		const scope = presetScope({
 			preset,
 			encounterDataset,
@@ -218,7 +210,7 @@
 		previewReadDatasets = scope.readDatasets;
 		previewWriteDatasets = scope.writeDatasets;
 		previewReadFunctions = withMandatoryAdministrativeRead(scope.readFunctions);
-		previewWriteFunctions = scope.writeFunctions;
+		previewWriteFunctions = delegableWriteFunctions(scope.writeFunctions);
 	};
 
 	const toggleDataset = (values: DatasetCategory[], value: DatasetCategory) => {
@@ -274,9 +266,10 @@
 			toast.error('Scope Read tidak boleh kosong');
 			return;
 		}
+		const writeFunctions = delegableWriteFunctions(previewWriteFunctions);
 		if (
 			(mode === 'write' || mode === 'read_write') &&
-			(previewWriteDatasets.length === 0 || previewWriteFunctions.length === 0)
+			(previewWriteDatasets.length === 0 || writeFunctions.length === 0)
 		) {
 			toast.error('Scope Write tidak boleh kosong');
 			return;
@@ -331,7 +324,7 @@
 					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
 					readFunctions:
 						mode === 'write' ? [] : withMandatoryAdministrativeRead(previewReadFunctions),
-					writeFunctions: mode === 'read' ? [] : previewWriteFunctions
+					writeFunctions: mode === 'read' ? [] : writeFunctions
 				}
 			})) as SuccessResponse<{
 				relatedRmeId?: string | null;
@@ -355,7 +348,6 @@
 	$effect(() => {
 		void selectedPatientAddress;
 		void preset;
-		void encounterDataset;
 		void mode;
 		applyPreset();
 	});
@@ -426,24 +418,14 @@
 					{/each}
 				</div>
 
-				<div class="grid md:grid-cols-2 gap-3">
-					<label class="flex flex-col gap-1">
-						<span class="text-sm font-medium">Preset</span>
-						<select class="input-text" bind:value={preset}>
-							{#each presetItems as item (item.value)}
-								<option value={item.value}>{item.label}</option>
-							{/each}
-						</select>
-					</label>
-					<label class="flex flex-col gap-1">
-						<span class="text-sm font-medium">Encounter dataset</span>
-						<select class="input-text" bind:value={encounterDataset}>
-							{#each availableEncounterDatasets as dataset (dataset)}
-								<option value={dataset}>{datasetLabels[dataset]}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Preset</span>
+					<select class="input-text max-w-md" bind:value={preset}>
+						{#each presetItems as item (item.value)}
+							<option value={item.value}>{item.label}</option>
+						{/each}
+					</select>
+				</label>
 
 				<div class="grid md:grid-cols-2 gap-4">
 					{#if mode === 'read' || mode === 'read_write'}
@@ -495,7 +477,7 @@
 								</label>
 							{/each}
 							<div class="mt-3 grid gap-1">
-								{#each sortFunctions(activeWrite?.writeFunctions ?? []) as functionCategory (functionCategory)}
+								{#each sortFunctions(delegableWriteFunctions(activeWrite?.writeFunctions ?? [])) as functionCategory (functionCategory)}
 									<label class="flex items-center gap-2 text-sm">
 										<input
 											type="checkbox"

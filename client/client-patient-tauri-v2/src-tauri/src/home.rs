@@ -81,6 +81,8 @@ fn collapse_to_active_medical_records(
     let mut active_records = HashMap::new();
 
     for record in records {
+        // related_rme_id is the encounter/RME id shared by multiple segment
+        // records. metadata.index is a segment index and must not replace it.
         let key = (
             record.related_rme_id.clone(),
             record.dataset_category,

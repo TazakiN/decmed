@@ -39,6 +39,7 @@
 		const grouped = new Map<string, RmeRecord>();
 
 		for (const record of records) {
+			// relatedRmeId is the encounter key; record.index is only a segment metadata index.
 			const current = grouped.get(record.relatedRmeId);
 
 			if (!current) {

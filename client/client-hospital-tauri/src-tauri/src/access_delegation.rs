@@ -3,9 +3,9 @@ use std::str::FromStr;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
-    attenuate_macaroon, generate_related_rme_id, hash_macaroon_token, CaveatKey, CaveatValue,
-    DelegationAttenuationParams, DelegationChain, DelegationProofContext, EffectiveCapability,
-    Macaroon, ParsedCaveats,
+    admin_write_datasets, admin_write_functions, attenuate_macaroon, hash_macaroon_token,
+    CaveatKey, CaveatValue, DelegationAttenuationParams, DelegationChain, DelegationProofContext,
+    EffectiveCapability, Macaroon, ParsedCaveats,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
@@ -16,21 +16,25 @@ use iota_types::{
 };
 use serde::{Deserialize, Serialize};
 use shared_crypto::intent::{Intent, IntentMessage};
-use tauri::{async_runtime::Mutex, command, State};
+use tauri::{async_runtime::Mutex, command, http::StatusCode, State};
+use tauri_plugin_http::reqwest;
 use umbral_pre::{decrypt_original, encrypt, Capsule, PublicKey, SecretKey};
 
 use crate::{
+    constants::PROXY_BASE_URL,
     current_fn,
     hospital_error::HospitalError,
     types::{
         AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, HospitalPersonnelRole,
         MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAccessType,
-        PatientDelegationAuditInput, ResponseStatus, SuccessResponse,
+        PatientDelegationAuditInput, ProxyReencryptionErrorResponse,
+        ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
     },
     utils::{
-        encode_activation_key_from_keys_entry, get_iota_address_from_keys_entry,
-        get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
-        serde_deserialize_from_base64, serde_serialize_to_base64,
+        do_http_post_request_json, encode_activation_key_from_keys_entry,
+        get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
+        get_pre_keys_from_keys_entry, parse_keys_entry, serde_deserialize_from_base64,
+        serde_serialize_to_base64,
     },
 };
 
@@ -171,7 +175,7 @@ fn token_effective_capability(
         expires_before,
         related_rme_id,
         delegation_depth,
-    ) = if parsed.is_decmed_token() {
+    ) = {
         let effective = EffectiveCapability::from_parsed(&parsed).map_err(|e| {
             HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
         })?;
@@ -187,23 +191,6 @@ fn token_effective_capability(
                 .related_rme_id
                 .or_else(|| access.related_rme_id.clone()),
             effective.remaining_max_delegation_depth,
-        )
-    } else {
-        let all_datasets = sort_datasets(ALL_DATASET_CATEGORIES.to_vec());
-        let all_functions = sort_functions(ALL_FUNCTION_CATEGORIES.to_vec());
-        let (read_datasets, write_datasets, read_functions, write_functions) =
-            match fallback_purpose {
-                "Update" => (Vec::new(), all_datasets, Vec::new(), all_functions),
-                _ => (all_datasets, Vec::new(), all_functions, Vec::new()),
-            };
-        (
-            read_datasets,
-            write_datasets,
-            read_functions,
-            write_functions,
-            access.expires_before.clone(),
-            access.related_rme_id.clone(),
-            access.delegation_depth.map(u32::from),
         )
     };
 
@@ -227,9 +214,6 @@ fn related_rme_from_token(token: &str) -> Result<Option<String>, HospitalError> 
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
-    if !parsed.is_decmed_token() {
-        return Ok(None);
-    }
     let effective = EffectiveCapability::from_parsed(&parsed).map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
@@ -257,6 +241,18 @@ fn build_delegation_params(
         max_delegation_depth: 0,
         related_rme_id,
     }
+}
+
+fn ensure_no_administrative_general_write(
+    write_functions: &[FunctionCategory],
+) -> Result<(), HospitalError> {
+    if write_functions.contains(&FunctionCategory::ADMINISTRATIVE_GENERAL) {
+        return Err(HospitalError::Anyhow(
+            anyhow::anyhow!("ADMINISTRATIVE_GENERAL cannot be delegated with write/update access")
+                .context(current_fn!()),
+        ));
+    }
+    Ok(())
 }
 
 #[command]
@@ -362,13 +358,15 @@ fn build_encrypted_metadata(
     })
 }
 
-fn sign_delegation_proof(
+pub(crate) fn sign_delegation_proof(
     token: &str,
-    related_rme_id: &str,
-    params: &DelegationAttenuationParams,
+    _related_rme_id: &str,
+    _params: &DelegationAttenuationParams,
     delegator_iota_key_pair: &iota_types::crypto::IotaKeyPair,
 ) -> Result<String, HospitalError> {
-    let proof_ctx = DelegationProofContext::from_delegation(token, related_rme_id, params);
+    let proof_ctx = DelegationProofContext::from_token(token).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
     let canonical = proof_ctx.canonical_message().map_err(|e| {
         HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
     })?;
@@ -501,39 +499,69 @@ fn admin_delegation_params(
     related_rme_id: &str,
     expires_before: DateTime<Utc>,
 ) -> Result<DelegationAttenuationParams, HospitalError> {
-    let mut params = match preset {
-        "doctor" => DelegationAttenuationParams::example_admin_delegate_to_doctor(
-            delegator,
-            delegatee,
-            related_rme_id,
-            encounter,
+    let max_depth = match preset {
+        "doctor" => 1,
+        _ => 0,
+    };
+    let (read_datasets, write_datasets, read_functions, write_functions) = match preset {
+        "doctor" => {
+            let datasets = admin_write_datasets(encounter);
+            let read_functions = admin_write_functions(encounter);
+            let mut write_functions = read_functions.clone();
+            write_functions.retain(|f| *f != FunctionCategory::ADMINISTRATIVE_GENERAL);
+            (datasets.clone(), datasets, read_functions, write_functions)
+        }
+        "nurse" => (
+            vec![encounter],
+            vec![encounter],
+            vec![
+                FunctionCategory::ADMINISTRATIVE_GENERAL,
+                FunctionCategory::ANAMNESIS,
+                FunctionCategory::PEMERIKSAAN_FISIK,
+            ],
+            vec![
+                FunctionCategory::ANAMNESIS,
+                FunctionCategory::PEMERIKSAAN_FISIK,
+            ],
         ),
-        "nurse" => {
-            let mut p = DelegationAttenuationParams::example_nurse_delegation(delegator, delegatee);
-            p.read_datasets = vec![encounter];
-            p.write_datasets = vec![encounter];
-            p.related_rme_id = Some(related_rme_id.to_string());
-            p
-        }
-        "lab" => {
-            let mut p = DelegationAttenuationParams::example_lab_delegation(delegator, delegatee);
-            p.related_rme_id = Some(related_rme_id.to_string());
-            p
-        }
-        "apotek" => {
-            let mut p =
-                DelegationAttenuationParams::example_apotek_delegation(delegator, delegatee);
-            p.related_rme_id = Some(related_rme_id.to_string());
-            p
-        }
+        "lab" => (
+            vec![DatasetCategory::LABORATORIUM],
+            vec![DatasetCategory::LABORATORIUM],
+            vec![
+                FunctionCategory::ADMINISTRATIVE_GENERAL,
+                FunctionCategory::PEMERIKSAAN_PENUNJANG,
+                FunctionCategory::LABORATORIUM,
+            ],
+            vec![FunctionCategory::LABORATORIUM],
+        ),
+        "apotek" => (
+            vec![DatasetCategory::APOTEK],
+            vec![DatasetCategory::APOTEK],
+            vec![
+                FunctionCategory::ADMINISTRATIVE_GENERAL,
+                FunctionCategory::TERAPI,
+                FunctionCategory::PERESEPAN,
+                FunctionCategory::DISPENSING,
+            ],
+            vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        ),
         _ => {
             return Err(HospitalError::Anyhow(
                 anyhow::anyhow!("Unknown preset: {preset}").context(current_fn!()),
             ))
         }
     };
-    params.expires_before = expires_before;
-    Ok(params)
+    Ok(DelegationAttenuationParams {
+        delegated_by: delegator.to_string(),
+        delegated_to: delegatee.to_string(),
+        read_datasets,
+        write_datasets,
+        read_functions,
+        write_functions,
+        expires_before,
+        max_delegation_depth: max_depth,
+        related_rme_id: Some(related_rme_id.to_string()),
+    })
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -600,6 +628,32 @@ pub struct CreateDelegatedAccessResponse {
     pub seed_warnings: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ProxyGenerateRelatedRmeIdResponse {
+    related_rme_id: String,
+}
+
+async fn request_related_rme_id_from_proxy(access_token: &str) -> Result<String, HospitalError> {
+    let req_client = reqwest::Client::new();
+    let res = do_http_post_request_json::<
+        serde_json::Value,
+        ProxyReencryptionSuccessResponse<ProxyGenerateRelatedRmeIdResponse>,
+        ProxyReencryptionErrorResponse,
+    >(
+        Some(access_token.to_string()),
+        None,
+        None,
+        None,
+        &format!("{}/rme-id", PROXY_BASE_URL),
+        &serde_json::json!({}),
+        &req_client,
+        StatusCode::OK,
+    )
+    .await?;
+
+    Ok(res.data.related_rme_id)
+}
+
 #[command]
 pub async fn create_delegated_access(
     state: State<'_, Mutex<AppState>>,
@@ -659,6 +713,7 @@ pub async fn create_delegated_access(
     let write_datasets = parse_dataset_values(&payload.write_datasets)?;
     let read_functions = parse_function_values(&payload.read_functions)?;
     let write_functions = parse_function_values(&payload.write_functions)?;
+    ensure_no_administrative_general_write(&write_functions)?;
 
     let mode = payload.mode.as_str();
     if !matches!(mode, "read" | "write" | "read_write") {
@@ -684,7 +739,17 @@ pub async fn create_delegated_access(
         && write_parent_related.is_none()
         && read_parent_related.is_none()
     {
-        Some(generate_related_rme_id(Utc::now()))
+        let token = payload
+            .parent_write_token
+            .as_deref()
+            .or(payload.parent_read_token.as_deref())
+            .ok_or_else(|| {
+                HospitalError::Anyhow(
+                    anyhow::anyhow!("Parent token is required to reserve related_rme_id")
+                        .context(current_fn!()),
+                )
+            })?;
+        Some(request_related_rme_id_from_proxy(token).await?)
     } else {
         None
     };
@@ -959,9 +1024,10 @@ pub async fn create_admin_delegated_access(
 
     let encounter = encounter_from_write_token(&payload.parent_write_token)?;
     let parent_write_related_rme_id = related_rme_from_token(&payload.parent_write_token)?;
-    let related_rme_id = parent_write_related_rme_id
-        .clone()
-        .unwrap_or_else(|| generate_related_rme_id(Utc::now()));
+    let related_rme_id = match parent_write_related_rme_id.clone() {
+        Some(related_rme_id) => related_rme_id,
+        None => request_related_rme_id_from_proxy(&payload.parent_write_token).await?,
+    };
     let expires_before = DateTime::parse_from_rfc3339(&payload.expires_before)
         .map_err(|e| anyhow::anyhow!(e))?
         .with_timezone(&Utc);
@@ -992,6 +1058,7 @@ pub async fn create_admin_delegated_access(
     if parent_write_related_rme_id.is_some() {
         update_params.related_rme_id = None;
     }
+    ensure_no_administrative_general_write(&update_params.write_functions)?;
 
     let delegated_read_token =
         attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {

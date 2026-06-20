@@ -33,11 +33,9 @@ pub fn is_administrative_personnel_write_token(
 ) -> Result<bool, HospitalError> {
     let mac = Macaroon::deserialize(parent_write_token)
         .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
-    let parsed = ParsedCaveats::from_macaroon(&mac)
-        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
-    if !parsed.is_decmed_token() {
-        return Ok(false);
-    }
+    let parsed = ParsedCaveats::from_macaroon(&mac).map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
     let purpose = parsed
         .all(CaveatKey::Purpose)
         .first()
@@ -92,7 +90,7 @@ fn seed_token_for_dataset(
     dataset: DatasetCategory,
     delegator: &str,
     expires_before: DateTime<Utc>,
-) -> Result<String, HospitalError> {
+) -> Result<(String, DelegationAttenuationParams), HospitalError> {
     let parent = effective_from_write_token(parent_write_token)?;
     if let Some(parent_related_rme_id) = parent.related_rme_id.as_deref() {
         if parent_related_rme_id != related_rme_id {
@@ -116,8 +114,9 @@ fn seed_token_for_dataset(
             .is_none()
             .then(|| related_rme_id.to_string()),
     };
-    attenuate_macaroon(parent_write_token, &params)
-        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))
+    let token = attenuate_macaroon(parent_write_token, &params)
+        .map_err(|e| HospitalError::Anyhow(anyhow!(e.to_string()).context(current_fn!())))?;
+    Ok((token, params))
 }
 
 fn admin_data_to_payload(
@@ -227,7 +226,7 @@ pub async fn seed_administrative_general_segments(
     });
 
     for dataset in datasets {
-        let segment_token = match seed_token_for_dataset(
+        let (segment_token, segment_params) = match seed_token_for_dataset(
             parent_write_token,
             related_rme_id,
             dataset,
@@ -242,6 +241,12 @@ pub async fn seed_administrative_general_segments(
                 continue;
             }
         };
+        let delegation_signature = crate::access_delegation::sign_delegation_proof(
+            &segment_token,
+            related_rme_id,
+            &segment_params,
+            iota_key_pair,
+        )?;
 
         let request = CreateRmeSegmentRequest {
             related_rme_id: related_rme_id.to_string(),
@@ -274,7 +279,7 @@ pub async fn seed_administrative_general_segments(
             &encrypted,
             patient_iota_address,
             iota_key_pair,
-            None,
+            Some(delegation_signature),
             &req_client,
         )
         .await
@@ -340,7 +345,7 @@ mod tests {
         let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
             .unwrap()
             .with_timezone(&Utc);
-        let seed = seed_token_for_dataset(
+        let (seed, params) = seed_token_for_dataset(
             &parent,
             "RME-2026-seed-test",
             DatasetCategory::LABORATORIUM,
@@ -348,6 +353,11 @@ mod tests {
             expires,
         )
         .unwrap();
+        assert_eq!(params.write_datasets, vec![DatasetCategory::LABORATORIUM]);
+        assert_eq!(
+            params.write_functions,
+            vec![FunctionCategory::ADMINISTRATIVE_GENERAL]
+        );
         let mac = Macaroon::deserialize(&seed).unwrap();
         let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
         let effective = EffectiveCapability::from_parsed(&parsed).unwrap();
@@ -363,10 +373,7 @@ mod tests {
             effective.related_rme_id.as_deref(),
             Some("RME-2026-seed-test")
         );
-        assert_eq!(
-            effective.hospital_cid.as_deref(),
-            Some("hospital-001")
-        );
+        assert_eq!(effective.hospital_cid.as_deref(), Some("hospital-001"));
     }
 
     #[test]

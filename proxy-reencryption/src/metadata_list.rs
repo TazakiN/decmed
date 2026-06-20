@@ -276,10 +276,6 @@ mod tests {
             effective,
             delegation,
             token_id: "t".to_string(),
-            is_legacy: false,
-            legacy_subject: None,
-            legacy_role: None,
-            legacy_purpose: None,
         };
 
         let err = verify_list_wallet_proof(&verified, "0xpatient", &HeaderMap::new()).unwrap_err();

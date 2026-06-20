@@ -12,6 +12,7 @@ import { toast } from 'svelte-sonner';
 
 type Props = {
 	accessToken: string;
+	delegationSignature?: string | null;
 	patientIotaAddress: string;
 	relatedRmeId: string;
 	encDataPreSecretKeySeed?: string | null;
@@ -20,6 +21,7 @@ type Props = {
 
 export class EmrDetailState {
 	accessToken = $state('');
+	delegationSignature = $state<string | null>(null);
 	patientIotaAddress = $state('');
 	relatedRmeId = $state('');
 	encDataPreSecretKeySeed = $state<string | null>(null);
@@ -37,6 +39,7 @@ export class EmrDetailState {
 
 	constructor(props: Props) {
 		this.accessToken = props.accessToken;
+		this.delegationSignature = props.delegationSignature ?? null;
 		this.patientIotaAddress = props.patientIotaAddress;
 		this.relatedRmeId = props.relatedRmeId;
 		this.encDataPreSecretKeySeed = props.encDataPreSecretKeySeed ?? null;
@@ -48,6 +51,7 @@ export class EmrDetailState {
 		const res = await tryCatchAsVal(async () => {
 			return (await invoke('get_accessible_medical_record_encounter_metadata', {
 				accessToken: this.accessToken,
+				delegationSignature: this.delegationSignature,
 				patientIotaAddress: this.patientIotaAddress,
 				relatedRmeId: decodeURIComponent(this.relatedRmeId)
 			})) as SuccessResponse<RmeEncounterGroup>;
@@ -172,6 +176,7 @@ export class EmrDetailState {
 		const res = await tryCatchAsVal(async () => {
 			return (await invoke('get_medical_record_payload', {
 				accessToken: this.accessToken,
+				delegationSignature: this.delegationSignature,
 				index: listIndex,
 				patientIotaAddress: this.patientIotaAddress,
 				encDataPreSecretKeySeed: this.encDataPreSecretKeySeed,

@@ -53,6 +53,12 @@ pub fn delegate_macaroon(
     let expires_before = chrono::DateTime::parse_from_rfc3339(&payload.expires_before)
         .map_err(|e| anyhow::anyhow!(e))?
         .with_timezone(&chrono::Utc);
+    let write_functions = parse_functions(&payload.write_functions)?;
+    if write_functions.contains(&FunctionCategory::ADMINISTRATIVE_GENERAL) {
+        return Err(HospitalError::Anyhow(anyhow::anyhow!(
+            "ADMINISTRATIVE_GENERAL cannot be delegated with write/update access"
+        )));
+    }
 
     let params = DelegationAttenuationParams {
         delegated_by: payload.delegated_by,
@@ -60,7 +66,7 @@ pub fn delegate_macaroon(
         read_datasets: parse_datasets(&payload.read_datasets)?,
         write_datasets: parse_datasets(&payload.write_datasets)?,
         read_functions: parse_functions(&payload.read_functions)?,
-        write_functions: parse_functions(&payload.write_functions)?,
+        write_functions,
         expires_before,
         max_delegation_depth: payload.max_delegation_depth,
         related_rme_id: payload.related_rme_id,

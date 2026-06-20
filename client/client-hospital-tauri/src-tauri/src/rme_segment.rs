@@ -204,6 +204,7 @@ pub async fn get_medical_record_segment(
     index: Option<u64>,
     enc_data_pre_secret_key_seed: Option<String>,
     data_pre_secret_key_seed_capsule: Option<String>,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<serde_json::Value>, HospitalError> {
     crate::medical_personnel::get_medical_record(
         state,
@@ -212,6 +213,7 @@ pub async fn get_medical_record_segment(
         patient_iota_address,
         enc_data_pre_secret_key_seed,
         data_pre_secret_key_seed_capsule,
+        delegation_signature,
     )
     .await
 }

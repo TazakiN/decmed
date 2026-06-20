@@ -23,11 +23,8 @@ selected compatibility types from this crate: `Macaroon`, `MacaroonKey`,
 | `expires_before` | `2026-05-16T18:00:00` |
 | `max_delegation_depth` | `1` |
 
-`holder_address` is **not** used. Active identity is derived from `root_subject` and the
+Active identity is derived from `root_subject` and the
 `delegated_by` / `delegated_to` chain (`active_subject` = last `delegated_to`, or `root_subject`).
-
-Older tokens containing `proof_required = wallet_signature` remain parseable for compatibility.
-New tokens do not emit this caveat because wallet proof is mandatory for every DecMed token.
 
 ## Effective access
 

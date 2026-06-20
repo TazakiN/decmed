@@ -99,7 +99,7 @@
 					},
 					patientPrePublicKey: data.patientPrePublicKey,
 					pin: null,
-					delegationSignature: data.delegationSignature || capability.access.delegationSignature || null
+					delegationSignature: capability.access.delegationSignature || data.delegationSignature || null
 				})) as SuccessResponse<unknown>;
 			});
 

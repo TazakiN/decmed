@@ -5,22 +5,30 @@ import { toast } from 'svelte-sonner';
 
 type Props = {
 	accessToken: string;
+	delegationSignature?: string | null;
 	patientIotaAddress: string;
 };
 
 export class EmrMetadataListState {
 	accessToken = $state('');
+	delegationSignature = $state<string | null>(null);
 	patientIotaAddress = $state('');
 
-	constructor({ accessToken, patientIotaAddress }: Props) {
+	constructor({ accessToken, delegationSignature, patientIotaAddress }: Props) {
 		this.accessToken = accessToken;
+		this.delegationSignature = delegationSignature ?? null;
 		this.patientIotaAddress = patientIotaAddress;
 	}
 
-	getMetadata = async (accessToken: string, patientIotaAddress: string) => {
+	getMetadata = async (
+		accessToken: string,
+		patientIotaAddress: string,
+		delegationSignature?: string | null
+	) => {
 		const res = await tryCatchAsVal(async () => {
 			return (await invoke('get_accessible_medical_record_metadata', {
 				accessToken,
+				delegationSignature,
 				patientIotaAddress
 			})) as SuccessResponse<RmeEncounterGroup[]>;
 		});
@@ -33,17 +41,23 @@ export class EmrMetadataListState {
 		return res.data.data;
 	};
 
-	fetchMetadata = $derived(this.getMetadata(this.accessToken, this.patientIotaAddress));
+	fetchMetadata = $derived(
+		this.getMetadata(this.accessToken, this.patientIotaAddress, this.delegationSignature)
+	);
 }
 
 export function emrAccessQueryString(params: {
 	accessToken: string;
+	delegationSignature?: string | null;
 	encDataPreSecretKeySeed?: string | null;
 	dataPreSecretKeySeedCapsule?: string | null;
 	patientName?: string | null;
 }) {
 	const search = new URLSearchParams();
 	search.set('accessToken', params.accessToken);
+	if (params.delegationSignature) {
+		search.set('delegationSignature', params.delegationSignature);
+	}
 	if (params.encDataPreSecretKeySeed) {
 		search.set('encDataPreSecretKeySeed', params.encDataPreSecretKeySeed);
 	}

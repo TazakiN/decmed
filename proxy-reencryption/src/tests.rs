@@ -1,6 +1,4 @@
-use std::time::SystemTime;
-
-use decmed_macaroon_auth::{ Format, Macaroon, MacaroonKey, Verifier };
+use decmed_macaroon_auth::{ Macaroon, MacaroonKey };
 use umbral_pre::{
     decrypt_original,
     decrypt_reencrypted,
@@ -20,96 +18,6 @@ fn test_macaroon_root_key_generation_matches_parser() {
 
     assert_eq!(generated_key.len(), 128);
     assert_eq!(parsed_key.len(), 64);
-}
-
-#[test]
-fn test_macaroon_flow() {
-    // 1. Generate Root Key
-    let root_key_str = "super-secret-root-key-for-testing";
-    let root_key = MacaroonKey::generate(root_key_str.as_bytes());
-
-    // 2. Create a Macaroon
-    let mut mac = Macaroon::create(
-        Some("proxy-reencryption".into()),
-        &root_key,
-        "test-subject-123".into()
-    ).unwrap();
-
-    let future_time =
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() + 3600;
-
-    mac.add_first_party_caveat("role = MedicalPersonnel".into());
-    mac.add_first_party_caveat("purpose = Read".into());
-    mac.add_first_party_caveat("subject = test-subject-123".into());
-    mac.add_first_party_caveat(format!("time < {}", future_time).into());
-
-    // Serialize
-    let serialized_mac = mac.serialize(Format::V2).unwrap();
-
-    // Deserialize
-    let deserialized_mac = Macaroon::deserialize(&serialized_mac).unwrap();
-
-    // Verify exactly as in middlewares.rs
-    let mut verifier = Verifier::default();
-    verifier.satisfy_exact("subject = test-subject-123".into());
-    verifier.satisfy_exact("role = MedicalPersonnel".into());
-    verifier.satisfy_exact("purpose = Read".into());
-    verifier.satisfy_general(|pred| {
-        if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
-            if let Some(time_str) = pred_str.strip_prefix("time < ") {
-                if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    return now < exp_time;
-                }
-            }
-        }
-        false
-    });
-
-    let verify_result = verifier.verify(&deserialized_mac, &root_key, Default::default());
-    assert!(verify_result.is_ok(), "Macaroon verification failed");
-
-    // Test expiration
-    let past_time =
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() - 1000;
-    let mut mac_expired = Macaroon::create(
-        Some("proxy-reencryption".into()),
-        &root_key,
-        "test-subject-123".into()
-    ).unwrap();
-    mac_expired.add_first_party_caveat("role = MedicalPersonnel".into());
-    mac_expired.add_first_party_caveat("purpose = Read".into());
-    mac_expired.add_first_party_caveat("subject = test-subject-123".into());
-    mac_expired.add_first_party_caveat(format!("time < {}", past_time).into());
-
-    let mut verifier_expired = Verifier::default();
-    verifier_expired.satisfy_exact("subject = test-subject-123".into());
-    verifier_expired.satisfy_exact("role = MedicalPersonnel".into());
-    verifier_expired.satisfy_exact("purpose = Read".into());
-    verifier_expired.satisfy_general(|pred| {
-        if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
-            if let Some(time_str) = pred_str.strip_prefix("time < ") {
-                if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    return now < exp_time;
-                }
-            }
-        }
-        false
-    });
-
-    let verify_expired_result = verifier_expired.verify(
-        &mac_expired,
-        &root_key,
-        Default::default()
-    );
-    assert!(verify_expired_result.is_err(), "Expired macaroon should fail verification");
 }
 
 #[test]

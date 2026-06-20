@@ -91,7 +91,7 @@
 	{@const datasets = groupDatasets(records, data.relatedRmeId)}
 	<div class="flex flex-col gap-4">
 		<div class="rounded-md border border-zinc-200 bg-zinc-50 p-3">
-			<p class="text-xs font-medium text-zinc-600">Related RME ID</p>
+			<p class="text-xs font-medium text-zinc-600">RME ID</p>
 			<h2 class="break-all font-montserrat text-lg font-semibold">{data.relatedRmeId}</h2>
 		</div>
 
@@ -99,7 +99,7 @@
 			<div class="flex flex-col border border-zinc-200 rounded-md">
 				{#each datasets as dataset (dataset.datasetCategory)}
 					<a
-						class="flex items-center gap-3 p-4 [&:not(:last-child)]:border-b border-zinc-200 justify-between"
+						class="flex items-center gap-3 p-4 not-last:border-b border-zinc-200 justify-between"
 						href={`/dashboard/emr/${encodeURIComponent(data.relatedRmeId)}/dataset/${dataset.datasetCategory}`}
 					>
 						<div class="min-w-0 flex flex-col gap-2">

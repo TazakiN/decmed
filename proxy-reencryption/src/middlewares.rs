@@ -17,20 +17,19 @@ use decmed_macaroon_auth::{
     compute_revocation_keys,
     hash_token,
     verify_macaroon_signature,
-    Caveat,
     DelegationChain,
     EffectiveCapability,
     Macaroon,
     MacaroonKey,
     ParsedCaveats,
     VerifiedDecmedToken,
-    Verifier,
 };
 use iota_types::base_types::IotaAddress;
 use redis::Commands;
 
 pub const WALLET_SIGNATURE_HEADER: &str = "x-decmed-wallet-signature";
 pub const WALLET_TIMESTAMP_HEADER: &str = "x-decmed-wallet-timestamp";
+pub const DELEGATION_SIGNATURE_HEADER: &str = "x-decmed-delegation-signature";
 
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
@@ -84,6 +83,27 @@ pub async fn auth_middleware(
             }
         }
 
+        // Verify delegation proof for cross-person delegation only.
+        // Self-delegation (delegated_by == delegated_to) is used internally
+        // for scope narrowing (e.g., administrative segment seeding) and
+        // does not carry a delegation signature.
+        if let Some(last) = delegation.steps.last() {
+            if last.delegated_by != last.delegated_to {
+                let delegation_sig = request
+                    .headers()
+                    .get(DELEGATION_SIGNATURE_HEADER)
+                    .and_then(|v| v.to_str().ok())
+                    .ok_or_else(|| ProxyError::Anyhow {
+                        source: anyhow!(
+                            "Delegated token requires {} header",
+                            DELEGATION_SIGNATURE_HEADER
+                        ),
+                        code: StatusCode::UNAUTHORIZED,
+                    })?;
+                crate::macaroon_auth::verify_delegation_proof(&bearer_token, delegation_sig)?;
+            }
+        }
+
         let active_subject = delegation.active_subject.clone();
         let active_subject_address = IotaAddress::from_str(&active_subject)
             .map_err(|_| anyhow!("Invalid active subject address"))
@@ -107,10 +127,6 @@ pub async fn auth_middleware(
             effective,
             delegation: delegation.clone(),
             token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
-            is_legacy: false,
-            legacy_subject: None,
-            legacy_role: None,
-            legacy_purpose: None,
         };
 
         let current_user = CurrentUser {
@@ -126,131 +142,10 @@ pub async fn auth_middleware(
         return Ok(next.run(request).await);
     }
 
-    // Legacy coarse-grained macaroon flow
-    let mut subject = String::new();
-    let mut role_str = String::new();
-    let mut purpose_str = String::new();
-    let mut hospital_cid = None;
-    let mut legacy_hospital_id = None;
-
-    for caveat in mac.first_party_caveats() {
-        if let Caveat::FirstParty(fp) = caveat {
-            if let Ok(pred) = String::from_utf8(fp.predicate().0) {
-                if let Some(s) = pred.strip_prefix("subject = ") {
-                    subject = s.to_string();
-                } else if let Some(r) = pred.strip_prefix("role = ") {
-                    role_str = r.to_string();
-                } else if let Some(p) = pred.strip_prefix("purpose = ") {
-                    purpose_str = p.to_string();
-                } else if let Some(cid) = pred.strip_prefix("hospital_cid = ") {
-                    hospital_cid = Some(cid.to_string());
-                } else if let Some(id) = pred.strip_prefix("hospital_id = ") {
-                    legacy_hospital_id = Some(id.to_string());
-                }
-            }
-        }
-    }
-
-    if subject.is_empty() || role_str.is_empty() || purpose_str.is_empty() {
-        return Err(ProxyError::Anyhow {
-            source: anyhow!("Missing required caveats in token"),
-            code: StatusCode::UNAUTHORIZED,
-        });
-    }
-
-    let mut verifier = Verifier::default();
-    verifier.satisfy_exact(format!("subject = {}", subject).into());
-    verifier.satisfy_exact(format!("role = {}", role_str).into());
-    verifier.satisfy_exact(format!("purpose = {}", purpose_str).into());
-    if let Some(hospital_cid) = hospital_cid.as_deref() {
-        verifier.satisfy_exact(format!("hospital_cid = {}", hospital_cid).into());
-    }
-    if let Some(hospital_id) = legacy_hospital_id.as_deref() {
-        verifier.satisfy_exact(format!("hospital_id = {}", hospital_id).into());
-    }
-
-    verifier.satisfy_general(|pred| {
-        if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
-            if let Some(time_str) = pred_str.strip_prefix("time < ") {
-                if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = std::time::SystemTime
-                        ::now()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    return now < exp_time;
-                }
-            }
-        }
-        false
+    return Err(ProxyError::Anyhow {
+        source: anyhow!("Token is not a valid DecMed token"),
+        code: StatusCode::UNAUTHORIZED,
     });
-
-    verifier
-        .verify(&mac, &root_key, Default::default())
-        .map_err(|e| anyhow!("Token verification failed: {:?}", e))
-        .code(StatusCode::UNAUTHORIZED)?;
-
-    let role = match role_str.as_str() {
-        "AdministrativePersonnel" => AuthRole::AdministrativePersonnel,
-        "MedicalPersonnel" => AuthRole::MedicalPersonnel,
-        "Patient" => AuthRole::Patient,
-        _ => {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Invalid role in token"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-    };
-
-    let purpose = match purpose_str.as_str() {
-        "Read" => ReencryptionPurposeType::Read,
-        "Update" => ReencryptionPurposeType::Update,
-        _ => {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Invalid purpose in token"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-    };
-
-    let sub_role = if
-        role == AuthRole::MedicalPersonnel &&
-        purpose == ReencryptionPurposeType::Update
-    {
-        let subject_address = IotaAddress::from_str(&subject)
-            .map_err(|_| anyhow!("Invalid subject address"))
-            .code(StatusCode::UNAUTHORIZED)?;
-        let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
-            .map_err(|_| anyhow!("Invalid proxy IOTA address"))
-            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
-            &subject_address,
-            proxy_iota_address
-        ).await?;
-        let registry_role = auth_role_from_move_role(move_role)?;
-        if registry_role != role {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Token role does not match on-chain personnel role"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-        sub_role
-    } else {
-        None
-    };
-
-    let current_user = CurrentUser {
-        iota_address: subject,
-        hospital_cid,
-        purpose,
-        role,
-        sub_role,
-        decmed_token: None,
-        bearer_token: bearer_token.clone(),
-    };
-    request.extensions_mut().insert(current_user);
-
-    Ok(next.run(request).await)
 }
 
 fn decmed_purpose_from_parsed(

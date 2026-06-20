@@ -173,6 +173,11 @@ pub struct GenerateMacaroonKeyHandlerResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct GenerateRelatedRmeIdResponse {
+    pub related_rme_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetNonceHandlerPayload {
     pub iota_address: String, // hex string
 }

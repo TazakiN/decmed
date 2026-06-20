@@ -1,4 +1,3 @@
-use chrono::Utc;
 use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
 use macaroon::{ Macaroon, MacaroonKey, Verifier };
 
@@ -23,7 +22,7 @@ pub struct TokenVerificationContext {
     pub segment: SegmentAccessContext,
     pub wallet_signature_b64: Option<String>,
     pub wallet_timestamp: Option<String>,
-    pub now: chrono::DateTime<Utc>,
+    pub now: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Clone, Debug)]
@@ -32,22 +31,12 @@ pub struct VerifiedDecmedToken {
     pub effective: EffectiveCapability,
     pub delegation: DelegationChain,
     pub token_id: String,
-    pub is_legacy: bool,
-    pub legacy_subject: Option<String>,
-    pub legacy_role: Option<String>,
-    pub legacy_purpose: Option<String>,
 }
 
 pub fn decmed_caveat_satisfier(predicate: &macaroon::ByteString) -> bool {
     if let Ok(pred_str) = String::from_utf8(predicate.0.clone()) {
-        if pred_str.starts_with("time < ") {
-            return true;
-        }
         if let Some((key, _)) = pred_str.split_once('=') {
             return crate::caveats::CaveatKey::from_predicate_key(key.trim()).is_some();
-        }
-        if pred_str.starts_with("time <") {
-            return true;
         }
     }
     false
@@ -72,7 +61,9 @@ pub fn verify_decmed_token(
 ) -> Result<VerifiedDecmedToken, CaveatVerificationError> {
     let parsed = ParsedCaveats::from_macaroon(mac)?;
     if !parsed.is_decmed_token() {
-        return verify_legacy_token(mac, root_key, &parsed);
+        return Err(CaveatVerificationError::ParseError(
+            "token is not a valid DecMed token (missing patient_address)".into()
+        ));
     }
 
     verify_macaroon_signature(mac, root_key)?;
@@ -125,10 +116,6 @@ pub fn verify_decmed_token(
         effective,
         delegation,
         token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
-        is_legacy: false,
-        legacy_subject: None,
-        legacy_role: None,
-        legacy_purpose: None,
     })
 }
 
@@ -151,90 +138,4 @@ pub fn verify_segment_access(
     Ok(())
 }
 
-fn verify_legacy_token(
-    mac: &Macaroon,
-    root_key: &MacaroonKey,
-    parsed: &ParsedCaveats
-) -> Result<VerifiedDecmedToken, CaveatVerificationError> {
-    use crate::caveats::{ CaveatKey, CaveatValue };
 
-    let subject = parsed
-        .all(CaveatKey::Subject)
-        .first()
-        .and_then(|c| {
-            match &c.value {
-                CaveatValue::Text(s) => Some(s.clone()),
-                _ => None,
-            }
-        })
-        .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
-    let role = parsed
-        .all(CaveatKey::Role)
-        .first()
-        .and_then(|c| {
-            match &c.value {
-                CaveatValue::Text(s) => Some(s.clone()),
-                _ => None,
-            }
-        })
-        .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
-    let purpose = parsed
-        .all(CaveatKey::Purpose)
-        .first()
-        .and_then(|c| {
-            match &c.value {
-                CaveatValue::Text(s) => Some(s.clone()),
-                _ => None,
-            }
-        })
-        .ok_or(CaveatVerificationError::LegacyTokenIncomplete)?;
-
-    let mut verifier = Verifier::default();
-    verifier.satisfy_exact(format!("subject = {}", subject).into());
-    verifier.satisfy_exact(format!("role = {}", role).into());
-    verifier.satisfy_exact(format!("purpose = {}", purpose).into());
-    verifier.satisfy_general(|pred| {
-        if let Ok(pred_str) = String::from_utf8(pred.0.to_vec()) {
-            if let Some(time_str) = pred_str.strip_prefix("time < ") {
-                if let Ok(exp_time) = time_str.parse::<u64>() {
-                    let now = std::time::SystemTime
-                        ::now()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    return now < exp_time;
-                }
-            }
-        }
-        false
-    });
-    verifier
-        .verify(mac, root_key, Default::default())
-        .map_err(|_| CaveatVerificationError::InvalidMacaroonSignature)?;
-
-    Ok(VerifiedDecmedToken {
-        parsed: parsed.clone(),
-        effective: EffectiveCapability {
-            read_datasets: Default::default(),
-            write_datasets: Default::default(),
-            read_functions: Default::default(),
-            write_functions: Default::default(),
-            expires_before: None,
-            root_max_delegation_depth: None,
-            remaining_max_delegation_depth: None,
-            patient_address: None,
-            related_rme_id: None,
-            hospital_cid: None,
-        },
-        delegation: DelegationChain {
-            root_subject: subject.clone(),
-            steps: vec![],
-            active_subject: subject.clone(),
-        },
-        token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
-        is_legacy: true,
-        legacy_subject: Some(subject),
-        legacy_role: Some(role),
-        legacy_purpose: Some(purpose),
-    })
-}

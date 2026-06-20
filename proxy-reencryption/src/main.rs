@@ -102,6 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/medical-record", put(Handlers::update_medical_record))
         .route("/medical-record-segment", post(Handlers::create_medical_record_segment))
         .route("/medical-record-update", get(Handlers::get_medical_record_update))
+        .route("/rme-id", post(Handlers::reserve_related_rme_id_handler))
         .route("/administrative", get(Handlers::get_administrative_data))
         .merge(revocation_auth_routes)
         .layer(

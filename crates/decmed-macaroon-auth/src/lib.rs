@@ -53,9 +53,8 @@ pub use revocation::{
     root_revocation_key,
     token_revocation_key,
 };
-pub use rme_id::generate_related_rme_id;
+pub use rme_id::{ format_related_rme_id, generate_related_rme_id };
 pub use verify::{
-    decmed_caveat_satisfier,
     verify_decmed_token,
     verify_macaroon_signature,
     verify_segment_access,

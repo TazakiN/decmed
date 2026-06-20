@@ -48,6 +48,10 @@ export function sortFunctions(values: FunctionCategory[]) {
 	return [...values].sort((a, b) => functionCategories.indexOf(a) - functionCategories.indexOf(b));
 }
 
+export function delegableWriteFunctions(values: FunctionCategory[]) {
+	return values.filter((value) => value !== 'ADMINISTRATIVE_GENERAL');
+}
+
 export function intersect<T>(left: readonly T[], right: readonly T[]) {
 	const rightSet = new Set(right);
 	return left.filter((value) => rightSet.has(value));
@@ -92,7 +96,7 @@ export function presetScope({
 		rawReadDatasets = [...datasetCategories];
 		rawWriteDatasets = [...datasetCategories];
 		rawReadFunctions = [...functionCategories];
-		rawWriteFunctions = [...functionCategories];
+		rawWriteFunctions = delegableWriteFunctions([...functionCategories]);
 	} else if (preset === 'lab') {
 		rawReadDatasets = [encounterDataset, 'LABORATORIUM'];
 		rawWriteDatasets = ['LABORATORIUM'];
@@ -107,12 +111,7 @@ export function presetScope({
 		rawReadDatasets = [encounterDataset];
 		rawWriteDatasets = [encounterDataset];
 		rawReadFunctions = functionsForDataset(encounterDataset);
-		rawWriteFunctions = [
-			'ADMINISTRATIVE_GENERAL',
-			'ANAMNESIS',
-			'PEMERIKSAAN_FISIK',
-			'PEMERIKSAAN_PSIKOLOGIS'
-		];
+		rawWriteFunctions = ['ANAMNESIS', 'PEMERIKSAAN_FISIK', 'PEMERIKSAAN_PSIKOLOGIS'];
 	}
 
 	const readDatasets = readCapability
@@ -132,6 +131,6 @@ export function presetScope({
 		readDatasets: sortDatasets(unique(readDatasets)),
 		writeDatasets: sortDatasets(unique(writeDatasets)),
 		readFunctions: sortFunctions(unique(readFunctions)),
-		writeFunctions: sortFunctions(unique(writeFunctions))
+		writeFunctions: sortFunctions(unique(delegableWriteFunctions(writeFunctions)))
 	};
 }

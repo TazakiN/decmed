@@ -396,13 +396,11 @@ pub fn decode_hospital_personnel_qr(content: String) -> Result<(IotaAddress, Pub
 #[derive(Clone, Debug)]
 pub struct HospitalGrantQr {
     pub hospital_cid: String,
-    pub hospital_pre_public_key: Option<PublicKey>,
     pub personnel_iota_address: IotaAddress,
     pub personnel_pre_public_key: PublicKey,
 }
 
-/// Combined grant QR: `{hospital_cid}@{hospital_pre_pk}@{personnel_iota}@{personnel_pre_pk}`
-/// Legacy 5-part (with trailing role) is accepted but role is ignored.
+/// Combined grant QR: `{hospital_cid}@{personnel_iota}@{personnel_pre_pk}`
 pub fn decode_hospital_grant_qr(content: String) -> Result<HospitalGrantQr> {
     let parts: Vec<&str> = content.split('@').collect();
     if parts.len() == 2 {
@@ -411,27 +409,24 @@ pub fn decode_hospital_grant_qr(content: String) -> Result<HospitalGrantQr> {
         )
         .context(current_fn!()));
     }
-    if parts.len() == 4 || parts.len() == 5 {
-        if parts[0].trim().is_empty() {
-            return Err(anyhow!("Hospital QR contains an empty hospital_cid").context(current_fn!()));
-        }
-        let hospital_pre_public_key =
-            serde_deserialize_from_base64(parts[1].to_string()).context(current_fn!())?;
-        let personnel_iota_address = IotaAddress::from_str(parts[2]).context(current_fn!())?;
-        let personnel_pre_public_key =
-            serde_deserialize_from_base64(parts[3].to_string()).context(current_fn!())?;
-        return Ok(HospitalGrantQr {
-            hospital_cid: parts[0].to_string(),
-            hospital_pre_public_key: Some(hospital_pre_public_key),
-            personnel_iota_address,
-            personnel_pre_public_key,
-        });
+    if parts.len() != 3 {
+        return Err(anyhow!(
+            "Invalid QR content length, expected 3 parts found {}",
+            parts.len()
+        )
+        .context(current_fn!()));
     }
-    Err(anyhow!(
-        "Invalid QR content length, expected 4 or 5 parts found {}",
-        parts.len()
-    ))
-    .context(current_fn!())
+    if parts[0].trim().is_empty() {
+        return Err(anyhow!("Hospital QR contains an empty hospital_cid").context(current_fn!()));
+    }
+    let personnel_iota_address = IotaAddress::from_str(parts[1]).context(current_fn!())?;
+    let personnel_pre_public_key =
+        serde_deserialize_from_base64(parts[2].to_string()).context(current_fn!())?;
+    Ok(HospitalGrantQr {
+        hospital_cid: parts[0].to_string(),
+        personnel_iota_address,
+        personnel_pre_public_key,
+    })
 }
 
 pub async fn do_http_post_json_request<P, T, E>(
@@ -640,8 +635,17 @@ mod tests {
 
     #[test]
     fn hospital_qr_with_empty_hospital_cid_is_rejected() {
-        let err = decode_hospital_grant_qr("@hospital-key@address@personnel-key".to_string())
+        let err = decode_hospital_grant_qr("@address@personnel-key".to_string())
             .unwrap_err();
         assert!(format!("{err:#}").contains("empty hospital_cid"));
+    }
+
+    #[test]
+    fn valid_3_part_qr_decodes_correctly() {
+        let cid = "RS-SEHAT";
+        let addr = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+        let pk_b64 = "g2VoZXl0aGVyZQ"; // dummy base64, will fail deserialize but structure is right
+        let err = decode_hospital_grant_qr(format!("{cid}@{addr}@{pk_b64}")).unwrap_err();
+        assert!(format!("{err:#}").contains("deserialize"));
     }
 }

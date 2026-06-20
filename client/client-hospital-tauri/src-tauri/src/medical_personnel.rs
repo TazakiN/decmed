@@ -131,6 +131,7 @@ async fn request_medical_record_from_proxy(
     include_administrative: bool,
     wallet_signature: Option<&str>,
     wallet_timestamp: Option<&str>,
+    delegation_signature: Option<&str>,
 ) -> Result<
     Result<
         ProxyReencryptionSuccessResponse<ProxyReencryptionGetMedicalRecordResponseData>,
@@ -150,6 +151,9 @@ async fn request_medical_record_from_proxy(
     }
     if let Some(timestamp) = wallet_timestamp {
         request = request.header("x-decmed-wallet-timestamp", timestamp);
+    }
+    if let Some(signature) = delegation_signature {
+        request = request.header("x-decmed-delegation-signature", signature);
     }
 
     let response = request.send().await.context(current_fn!())?;
@@ -177,6 +181,7 @@ pub async fn get_medical_record(
     patient_iota_address: String,
     enc_data_pre_secret_key_seed: Option<String>,
     data_pre_secret_key_seed_capsule: Option<String>,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<Value>, HospitalError> {
     get_medical_record_impl(
         state,
@@ -185,6 +190,7 @@ pub async fn get_medical_record(
         patient_iota_address,
         enc_data_pre_secret_key_seed,
         data_pre_secret_key_seed_capsule,
+        delegation_signature,
         true,
     )
     .await
@@ -198,6 +204,7 @@ pub async fn get_medical_record_payload(
     patient_iota_address: String,
     enc_data_pre_secret_key_seed: Option<String>,
     data_pre_secret_key_seed_capsule: Option<String>,
+    delegation_signature: Option<String>,
 ) -> Result<SuccessResponse<Value>, HospitalError> {
     get_medical_record_impl(
         state,
@@ -206,6 +213,7 @@ pub async fn get_medical_record_payload(
         patient_iota_address,
         enc_data_pre_secret_key_seed,
         data_pre_secret_key_seed_capsule,
+        delegation_signature,
         false,
     )
     .await
@@ -218,6 +226,7 @@ async fn get_medical_record_impl(
     patient_iota_address: String,
     enc_data_pre_secret_key_seed: Option<String>,
     data_pre_secret_key_seed_capsule: Option<String>,
+    delegation_signature: Option<String>,
     include_administrative: bool,
 ) -> Result<SuccessResponse<Value>, HospitalError> {
     let (keys_entry_secret, pin) = {
@@ -253,6 +262,7 @@ async fn get_medical_record_impl(
         include_administrative,
         None,
         None,
+        delegation_signature.as_deref(),
     )
     .await
     .context(current_fn!())?
@@ -274,6 +284,7 @@ async fn get_medical_record_impl(
                         include_administrative,
                         Some(&wallet_signature),
                         Some(&proof_context.timestamp),
+                        delegation_signature.as_deref(),
                     )
                     .await
                     .context(current_fn!())?

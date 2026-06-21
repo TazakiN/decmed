@@ -749,6 +749,8 @@ entry fun create_delegated_access(
 
         let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
         let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
+        let token_exp = *audit_expires_at_ms.borrow(0);
+        let delegated_exp = if (token_exp > 0 && token_exp < exp) { token_exp } else { exp };
         if (single_access_type == hospital_personnel_access_type_read()) {
             let delegatee_read = delegatee_access.borrow_mut_read();
             if (delegatee_read.contains(&patient_id)) {
@@ -757,7 +759,7 @@ entry fun create_delegated_access(
 
             let delegated = hospital_personnel_access_data_new_delegated(
                 access_data_types,
-                exp,
+                delegated_exp,
                 *metadata.borrow(0),
                 option::none(),
                 delegator_address,
@@ -772,7 +774,7 @@ entry fun create_delegated_access(
 
             let delegated = hospital_personnel_access_data_new_delegated(
                 access_data_types,
-                exp,
+                delegated_exp,
                 *metadata.borrow(0),
                 option::none(),
                 delegator_address,
@@ -852,6 +854,18 @@ entry fun create_delegated_access(
 
         let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
         let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
+        let read_token_exp = *audit_expires_at_ms.borrow(0);
+        let delegated_read_exp = if (read_token_exp > 0 && read_token_exp < read_exp) {
+            read_token_exp
+        } else {
+            read_exp
+        };
+        let update_token_exp = *audit_expires_at_ms.borrow(1);
+        let delegated_update_exp = if (update_token_exp > 0 && update_token_exp < update_exp) {
+            update_token_exp
+        } else {
+            update_exp
+        };
 
         let delegatee_read = delegatee_access.borrow_mut_read();
         if (delegatee_read.contains(&patient_id)) {
@@ -859,7 +873,7 @@ entry fun create_delegated_access(
         };
         let delegated_read = hospital_personnel_access_data_new_delegated(
             read_access_data_types,
-            read_exp,
+            delegated_read_exp,
             *metadata.borrow(0),
             option::none(),
             delegator_address,
@@ -888,7 +902,7 @@ entry fun create_delegated_access(
         };
         let delegated_update = hospital_personnel_access_data_new_delegated(
             update_access_data_types,
-            update_exp,
+            delegated_update_exp,
             *metadata.borrow(1),
             option::none(),
             delegator_address,

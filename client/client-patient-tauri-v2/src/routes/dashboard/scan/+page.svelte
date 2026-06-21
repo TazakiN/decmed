@@ -16,7 +16,35 @@
 	let isConfirmDialogOpen = $state(false);
 	let isEnterPinDialogOpen = $state(false);
 	let confirmDialogData = $state<InvokeProcessQrResponse>();
-	let scanEncounterDataset = $state<'RAWAT_JALAN' | 'RAWAT_INAP'>('RAWAT_JALAN');
+	type EncounterDataset = 'RAWAT_JALAN' | 'RAWAT_INAP';
+	let scanEncounterDataset = $state<EncounterDataset>('RAWAT_JALAN');
+	let scanAccessMode = $state<'read' | 'update' | 'read_update'>('read_update');
+	let scanExpiresAtLocal = $state('');
+
+	const DEFAULT_EXPIRY_MS: Record<EncounterDataset, number> = {
+		RAWAT_JALAN: 24 * 60 * 60 * 1000,
+		RAWAT_INAP: 3 * 24 * 60 * 60 * 1000
+	};
+
+	const toDateTimeLocal = (date: Date) => {
+		const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+		return local.toISOString().slice(0, 16);
+	};
+
+	const setDefaultExpiry = () => {
+		scanExpiresAtLocal = toDateTimeLocal(
+			new Date(Date.now() + DEFAULT_EXPIRY_MS[scanEncounterDataset])
+		);
+	};
+
+	const selectedExpiryIso = () => {
+		if (!scanExpiresAtLocal) return null;
+		const expiry = new Date(scanExpiresAtLocal);
+		if (!Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+			return null;
+		}
+		return expiry.toISOString();
+	};
 
 	const {
 		form: hospitalQrForm,
@@ -60,10 +88,18 @@
 		delayMs: 100,
 		onUpdate: async ({ form, result, cancel }) => {
 			if (result.type === 'success') {
+				const expiresBefore = selectedExpiryIso();
+				if (!expiresBefore) {
+					toast.error('Expiry must be in the future');
+					cancel();
+					return;
+				}
 				const resInvokeCreateAccess = await tryCatchAsVal(async () => {
 					return (await invoke('create_access', {
 						pin: form.data.pin,
-						encounterDataset: scanEncounterDataset
+						encounterDataset: scanEncounterDataset,
+						accessMode: scanAccessMode,
+						expiresBefore
 					})) as SuccessResponse<null>;
 				});
 
@@ -88,6 +124,11 @@
 				isEnterPinDialogOpen = false;
 			}
 		}
+	});
+
+	$effect(() => {
+		void scanEncounterDataset;
+		setDefaultExpiry();
 	});
 </script>
 
@@ -122,12 +163,35 @@
 				Rawat Inap
 			</label>
 		</fieldset>
+		<fieldset class="flex flex-col gap-2 mt-2">
+			<legend class="font-medium">Access mode</legend>
+			<label class="flex items-center gap-2">
+				<input type="radio" bind:group={scanAccessMode} value="read_update" />
+				Read + Update
+			</label>
+			<label class="flex items-center gap-2">
+				<input type="radio" bind:group={scanAccessMode} value="read" />
+				Read
+			</label>
+			<label class="flex items-center gap-2">
+				<input type="radio" bind:group={scanAccessMode} value="update" />
+				Update
+			</label>
+		</fieldset>
+		<label class="flex flex-col gap-1 mt-2">
+			<span class="font-medium">Expire at</span>
+			<input type="datetime-local" class="input-text" bind:value={scanExpiresAtLocal} />
+		</label>
 	</div>
 
 	<Button.Root
 		type="button"
 		class="button-dark mt-2"
 		onclick={() => {
+			if (!selectedExpiryIso()) {
+				toast.error('Expiry must be in the future');
+				return;
+			}
 			isConfirmDialogOpen = false;
 			isEnterPinDialogOpen = true;
 		}}>Confirm</Button.Root

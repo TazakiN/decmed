@@ -8,7 +8,7 @@ pub const IPFS_GATEWAY_BASE_URL: &str = "http://103.107.4.68:8080";
 pub const DECMED_MODULE_PATIENT: &str = "patient";
 
 pub const DECMED_PACKAGE_ID: &str =
-    "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38";
+    "0xfb0db2588ead4f00245ada103da9c8593c982d7c34d4d67df72e8bb075b3d0a4";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

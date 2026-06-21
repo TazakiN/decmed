@@ -53,6 +53,11 @@ pub fn delegate_macaroon(
     let expires_before = chrono::DateTime::parse_from_rfc3339(&payload.expires_before)
         .map_err(|e| anyhow::anyhow!(e))?
         .with_timezone(&chrono::Utc);
+    if expires_before <= chrono::Utc::now() {
+        return Err(HospitalError::Anyhow(anyhow::anyhow!(
+            "Delegation expiry must be in the future"
+        )));
+    }
     let write_functions = parse_functions(&payload.write_functions)?;
     if write_functions.contains(&FunctionCategory::ADMINISTRATIVE_GENERAL) {
         return Err(HospitalError::Anyhow(anyhow::anyhow!(

@@ -343,9 +343,9 @@ pub struct PrivateAdministrativeMetadata {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionPostKeysResponseData {
-    pub access_token_read: String,
+    pub access_token_read: Option<String>,
     pub access_token_update: Option<String>,
-    pub access_token_read_hash: String,
+    pub access_token_read_hash: Option<String>,
     pub access_token_update_hash: Option<String>,
     #[serde(default)]
     pub related_rme_id: Option<String>,

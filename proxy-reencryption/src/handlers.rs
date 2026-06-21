@@ -119,6 +119,42 @@ fn administrative_keys_duration(encounter_dataset: DatasetCategory) -> u64 {
     }
 }
 
+fn parse_requested_expiry(
+    expires_before: Option<&str>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, ProxyError> {
+    let Some(expires_before) = expires_before.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let expiry = chrono::DateTime::parse_from_rfc3339(expires_before)
+        .map_err(|e| ProxyError::Anyhow {
+            source: anyhow!("Invalid expires_before; expected RFC3339: {e}"),
+            code: StatusCode::BAD_REQUEST,
+        })?
+        .with_timezone(&chrono::Utc);
+    if expiry <= now {
+        return Err(ProxyError::Anyhow {
+            source: anyhow!("expires_before must be in the future"),
+            code: StatusCode::BAD_REQUEST,
+        });
+    }
+    Ok(Some(expiry))
+}
+
+fn expiry_ttl_secs(
+    expires_before: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<u64, ProxyError> {
+    let remaining_ms = expires_before.signed_duration_since(now).num_milliseconds();
+    if remaining_ms <= 0 {
+        return Err(ProxyError::Anyhow {
+            source: anyhow!("expires_before must be in the future"),
+            code: StatusCode::BAD_REQUEST,
+        });
+    }
+    Ok(((remaining_ms as u64) + 999) / 1000)
+}
+
 fn max_revocation_ttl_secs() -> u64 {
     [
         ADMINISTRATIVE_RAWAT_JALAN_KEYS_DUR,
@@ -1304,7 +1340,10 @@ impl Handlers {
                 code: StatusCode::BAD_REQUEST,
             });
         }
-        let mut access_keys_duration = update_keys_duration.unwrap_or(read_keys_duration);
+        let now = chrono::Utc::now();
+        let requested_expiry = parse_requested_expiry(payload.expires_before.as_deref(), now)?;
+        let access_mode = payload.access_mode;
+        let mut issued_expiries = Vec::new();
 
         let mut response_related_rme_id: Option<String> = None;
         let (hospital_personnel_access_token_read, hospital_personnel_access_token_update) =
@@ -1328,50 +1367,66 @@ impl Handlers {
                             code: StatusCode::BAD_REQUEST,
                         });
                         }
-                        access_keys_duration = keys_duration;
-                        let expires_before =
-                            chrono::Utc::now() + chrono::Duration::seconds(keys_duration as i64);
-                        let related_rme_id = reserve_related_rme_id(&mut conn)?;
-                        response_related_rme_id = Some(related_rme_id.clone());
+                        let expires_before = requested_expiry.clone().unwrap_or_else(|| {
+                            now + chrono::Duration::seconds(keys_duration as i64)
+                        });
+                        let related_rme_id = if access_mode.includes_update() {
+                            let related_rme_id = reserve_related_rme_id(&mut conn)?;
+                            response_related_rme_id = Some(related_rme_id.clone());
+                            Some(related_rme_id)
+                        } else {
+                            None
+                        };
 
-                        let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
-                            &patient_iota_address.to_string(),
-                            &root_subject,
-                            encounter_dataset,
-                            AdminTokenKind::Read,
-                            expires_before,
-                        )
-                        .map_err(|e| ProxyError::Caveat {
-                            code: StatusCode::BAD_REQUEST.as_u16(),
-                            error: e.to_string(),
-                        })?;
-                        read_params.hospital_cid = Some(hospital_cid.to_string());
-
-                        let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
-                            &patient_iota_address.to_string(),
-                            &root_subject,
-                            encounter_dataset,
-                            AdminTokenKind::Write,
-                            expires_before,
-                        )
-                        .map_err(|e| ProxyError::Caveat {
-                            code: StatusCode::BAD_REQUEST.as_u16(),
-                            error: e.to_string(),
-                        })?;
-                        write_params.hospital_cid = Some(hospital_cid.to_string());
-                        write_params.related_rme_id = Some(related_rme_id);
-
-                        let read_token = issue_admin_personnel_token(&root_key, &read_params)
+                        let read_token = if access_mode.includes_read() {
+                            let mut read_params = InitialAdminPersonnelTokenParams::for_grant(
+                                &patient_iota_address.to_string(),
+                                &root_subject,
+                                encounter_dataset,
+                                AdminTokenKind::Read,
+                                expires_before,
+                            )
                             .map_err(|e| ProxyError::Caveat {
-                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                code: StatusCode::BAD_REQUEST.as_u16(),
                                 error: e.to_string(),
                             })?;
-                        let update_token = issue_admin_personnel_token(&root_key, &write_params)
+                            read_params.hospital_cid = Some(hospital_cid.to_string());
+                            issued_expiries.push(expires_before);
+                            Some(issue_admin_personnel_token(&root_key, &read_params).map_err(
+                                |e| ProxyError::Caveat {
+                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                    error: e.to_string(),
+                                },
+                            )?)
+                        } else {
+                            None
+                        };
+
+                        let update_token = if access_mode.includes_update() {
+                            let mut write_params = InitialAdminPersonnelTokenParams::for_grant(
+                                &patient_iota_address.to_string(),
+                                &root_subject,
+                                encounter_dataset,
+                                AdminTokenKind::Write,
+                                expires_before,
+                            )
                             .map_err(|e| ProxyError::Caveat {
-                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                code: StatusCode::BAD_REQUEST.as_u16(),
                                 error: e.to_string(),
                             })?;
-                        (read_token, Some(update_token))
+                            write_params.hospital_cid = Some(hospital_cid.to_string());
+                            write_params.related_rme_id = related_rme_id;
+                            issued_expiries.push(expires_before);
+                            Some(issue_admin_personnel_token(&root_key, &write_params).map_err(
+                                |e| ProxyError::Caveat {
+                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                    error: e.to_string(),
+                                },
+                            )?)
+                        } else {
+                            None
+                        };
+                        (read_token, update_token)
                     } else {
                         return Err(ProxyError::Anyhow {
                         source: anyhow!(
@@ -1392,29 +1447,40 @@ impl Handlers {
                     }
                     if let Some(related_rme_id) = payload.related_rme_id.clone() {
                         response_related_rme_id = Some(related_rme_id.clone());
-                        let expires_before = chrono::Utc::now()
-                            + chrono::Duration::seconds(read_keys_duration as i64);
-                        let mut read_params = InitialDoctorTokenParams::example_rm_initial_token(
-                            &patient_iota_address.to_string(),
-                            &related_rme_id,
-                            &root_subject,
-                        )
-                        .into_read_only();
-                        read_params.expires_before = expires_before;
-                        read_params.hospital_cid = Some(hospital_cid.to_string());
-
-                        let read_token =
-                            issue_initial_token(&root_key, &read_params).map_err(|e| {
+                        let read_token = if access_mode.includes_read() {
+                            let expires_before = requested_expiry.clone().unwrap_or_else(|| {
+                                now + chrono::Duration::seconds(read_keys_duration as i64)
+                            });
+                            let mut read_params =
+                                InitialDoctorTokenParams::example_rm_initial_token(
+                                    &patient_iota_address.to_string(),
+                                    &related_rme_id,
+                                    &root_subject,
+                                )
+                                .into_read_only();
+                            read_params.expires_before = expires_before;
+                            read_params.hospital_cid = Some(hospital_cid.to_string());
+                            issued_expiries.push(expires_before);
+                            Some(issue_initial_token(&root_key, &read_params).map_err(|e| {
                                 ProxyError::Caveat {
                                     code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
                                     error: e.to_string(),
                                 }
-                            })?;
+                            })?)
+                        } else {
+                            None
+                        };
 
-                        let update_token = if let Some(update_keys_duration) = update_keys_duration
-                        {
-                            let update_expires = chrono::Utc::now()
-                                + chrono::Duration::seconds(update_keys_duration as i64);
+                        let update_token = if access_mode.includes_update() {
+                            let update_keys_duration = update_keys_duration.ok_or_else(|| {
+                                ProxyError::Anyhow {
+                                    source: anyhow!("Update access is not available"),
+                                    code: StatusCode::BAD_REQUEST,
+                                }
+                            })?;
+                            let update_expires = requested_expiry.clone().unwrap_or_else(|| {
+                                now + chrono::Duration::seconds(update_keys_duration as i64)
+                            });
                             let mut update_params =
                                 InitialDoctorTokenParams::example_rm_initial_token(
                                     &patient_iota_address.to_string(),
@@ -1424,6 +1490,7 @@ impl Handlers {
                                 .into_update_only();
                             update_params.expires_before = update_expires;
                             update_params.hospital_cid = Some(hospital_cid.to_string());
+                            issued_expiries.push(update_expires);
                             Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
                                 ProxyError::Caveat {
                                     code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
@@ -1451,6 +1518,17 @@ impl Handlers {
                 }
             };
 
+        let access_keys_duration = issued_expiries
+            .into_iter()
+            .map(|expiry| expiry_ttl_secs(expiry, now))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .max()
+            .ok_or_else(|| ProxyError::Anyhow {
+                source: anyhow!("No access token was issued"),
+                code: StatusCode::BAD_REQUEST,
+            })?;
+
         let access_keys = AccessKeys {
             enc_data_pre_secret_key_seed: payload.enc_data_pre_secret_key_seed,
             k_frag: payload.k_frag,
@@ -1472,8 +1550,9 @@ impl Handlers {
             )
             .context(current_fn!())?;
 
-        let access_token_read_hash =
-            decmed_macaroon_auth::hash_token(&hospital_personnel_access_token_read);
+        let access_token_read_hash = hospital_personnel_access_token_read
+            .as_ref()
+            .map(|token| decmed_macaroon_auth::hash_token(token));
         let access_token_update_hash = hospital_personnel_access_token_update
             .as_ref()
             .map(|token| decmed_macaroon_auth::hash_token(token));

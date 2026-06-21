@@ -74,18 +74,25 @@ impl MoveCall {
         &self,
         date: String,
         hospital_personnel_address: &IotaAddress,
+        access_types: Vec<Vec<u8>>,
+        access_exp_dur_minutes: Vec<u64>,
         metadata: Vec<String>,
         token_hashes: Vec<String>,
-        administrative_access_exp_dur_minutes: u64,
         sender: IotaAddress,
         sender_key_pair: IotaKeyPair,
     ) -> Result<(), PatientError> {
-        if metadata.len() != 2 {
+        if metadata.is_empty() || metadata.len() > 2 {
             return Err(anyhow!(
-                "create_access requires exactly 2 metadata entries (read + write), got {}",
+                "create_access requires 1 or 2 metadata entries, got {}",
                 metadata.len()
             )
             .into());
+        }
+        if access_types.len() != metadata.len()
+            || access_exp_dur_minutes.len() != metadata.len()
+            || token_hashes.len() != metadata.len()
+        {
+            return Err(anyhow!("create_access argument lengths must match").into());
         }
 
         let iota_client = get_iota_client().await.context(current_fn!())?;
@@ -101,9 +108,8 @@ impl MoveCall {
                 self.construct_hospital_id_metadata_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
-                CallArg::Pure(
-                    bcs::to_bytes(&administrative_access_exp_dur_minutes).context(current_fn!())?,
-                ),
+                CallArg::Pure(bcs::to_bytes(&access_types).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&access_exp_dur_minutes).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&token_hashes).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),

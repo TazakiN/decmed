@@ -42,6 +42,30 @@ pub enum ReencryptionPurposeType {
     Update,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessGrantMode {
+    Read,
+    Update,
+    ReadUpdate,
+}
+
+impl Default for AccessGrantMode {
+    fn default() -> Self {
+        Self::ReadUpdate
+    }
+}
+
+impl AccessGrantMode {
+    pub fn includes_read(self) -> bool {
+        matches!(self, Self::Read | Self::ReadUpdate)
+    }
+
+    pub fn includes_update(self) -> bool {
+        matches!(self, Self::Update | Self::ReadUpdate)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AccessKeys {
     pub enc_data_pre_secret_key_seed: String,
@@ -290,6 +314,10 @@ pub struct HandlerStoreKeysPayload {
     /// RAWAT_JALAN or RAWAT_INAP — required for AdministrativePersonnel DecMed dual issuance.
     #[serde(default)]
     pub encounter_dataset: Option<DatasetCategory>,
+    #[serde(default)]
+    pub expires_before: Option<String>,
+    #[serde(default)]
+    pub access_mode: AccessGrantMode,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

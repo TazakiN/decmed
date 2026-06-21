@@ -51,6 +51,7 @@
 	let isSubmitting = $state(false);
 	let visiblePatientInfo = $state<Record<string, boolean>>({});
 	let currentRole = $state<GetProfileData['role'] | null>(null);
+	let delegationExpiresAtLocal = $state('');
 
 	const DEFAULT_DELEGATION_DURATION_MS = 24 * 60 * 60 * 1000;
 	const EXPIRY_SAFETY_WINDOW_MS = 1000;
@@ -111,23 +112,54 @@
 		return expiries.length > 0 ? Math.min(...expiries) : null;
 	};
 
-	const delegationExpiresBefore = () => {
+	const toDateTimeLocal = (date: Date) => {
+		const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+		return local.toISOString().slice(0, 16);
+	};
+
+	const defaultDelegationExpiry = () => {
 		const now = Date.now();
 		const defaultExpiry = now + DEFAULT_DELEGATION_DURATION_MS;
 		const parentExpiry = parentExpiryForMode();
-		const cappedExpiry =
-			parentExpiry === null
-				? defaultExpiry
-				: Math.min(defaultExpiry, parentExpiry - EXPIRY_SAFETY_WINDOW_MS);
+		return parentExpiry === null
+			? defaultExpiry
+			: Math.min(defaultExpiry, parentExpiry - EXPIRY_SAFETY_WINDOW_MS);
+	};
 
-		if (cappedExpiry <= now) {
+	const setDefaultDelegationExpiry = () => {
+		const cappedExpiry = defaultDelegationExpiry();
+		delegationExpiresAtLocal =
+			cappedExpiry > Date.now() ? toDateTimeLocal(new Date(cappedExpiry)) : '';
+	};
+
+	const delegationExpiresBefore = () => {
+		if (!delegationExpiresAtLocal) {
+			toast.error('Pilih waktu expire delegasi');
+			return null;
+		}
+		const selectedExpiry = new Date(delegationExpiresAtLocal).getTime();
+		const now = Date.now();
+		if (!Number.isFinite(selectedExpiry) || selectedExpiry <= now) {
+			toast.error('Waktu expire delegasi harus di masa depan');
+			return null;
+		}
+
+		const parentExpiry = parentExpiryForMode();
+		const latestAllowed =
+			parentExpiry === null ? null : parentExpiry - EXPIRY_SAFETY_WINDOW_MS;
+
+		if (latestAllowed !== null && latestAllowed <= now) {
 			toast.error(
 				'Akses parent sudah expired atau terlalu dekat kadaluarsa. Minta pasien grant access ulang.'
 			);
 			return null;
 		}
+		if (latestAllowed !== null && selectedExpiry > latestAllowed) {
+			toast.error('Waktu expire delegasi tidak boleh melewati expiry parent access.');
+			return null;
+		}
 
-		return new Date(cappedExpiry).toISOString();
+		return new Date(selectedExpiry).toISOString();
 	};
 
 	const loadAccesses = async () => {
@@ -350,6 +382,7 @@
 		void preset;
 		void mode;
 		applyPreset();
+		setDefaultDelegationExpiry();
 	});
 </script>
 
@@ -425,6 +458,15 @@
 							<option value={item.value}>{item.label}</option>
 						{/each}
 					</select>
+				</label>
+
+				<label class="flex flex-col gap-1">
+					<span class="text-sm font-medium">Expire at</span>
+					<input
+						type="datetime-local"
+						class="input-text max-w-md"
+						bind:value={delegationExpiresAtLocal}
+					/>
 				</label>
 
 				<div class="grid md:grid-cols-2 gap-4">

@@ -63,6 +63,8 @@ const EAccountNotFound: u64 = 3002;
 const EAddressNotFound: u64 = 3003;
 const EHospitalPersonnelNotFound: u64 = 3004;
 const EInvalidMetadataLength: u64 = 3005;
+const EInvalidAccessType: u64 = 3006;
+const EDuplicateAccessType: u64 = 3007;
 
 // Enums
 
@@ -110,10 +112,10 @@ fun append_delegation_revoked_audit(
 
 /// ## Params:
 /// - `metadata`: vector<Base64 encoded>
-///     - length = 1 for administrative
-///     - length = 2 for medical
-///         - 0: read
-///         - 1: update
+/// - `access_types`: vector of b"Read" / b"Update"; parallel with metadata/token_hashes.
+/// - `access_exp_dur_minutes`: expiry duration per access entry; parallel with metadata/token_hashes.
+///     - length = 1 for read-only or update-only
+///     - length = 2 for read + update
 entry fun create_access(
     address_id: &AddressId,
     clock: &Clock,
@@ -121,7 +123,8 @@ entry fun create_access(
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
-    administrative_access_exp_dur_minutes: u64,
+    access_types: vector<vector<u8>>,
+    access_exp_dur_minutes: vector<u64>,
     metadata: vector<String>,
     token_hashes: vector<String>,
     patient_id_account: &mut PatientIdAccount,
@@ -152,97 +155,73 @@ entry fun create_access(
     let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
     let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
 
-    assert!(token_hashes.length() == 2, EInvalidMetadataLength);
+    let metadata_length = metadata.length();
+    assert!(metadata_length == 1 || metadata_length == 2, EInvalidMetadataLength);
+    assert!(token_hashes.length() == metadata_length, EInvalidMetadataLength);
+    assert!(access_types.length() == metadata_length, EInvalidMetadataLength);
+    assert!(access_exp_dur_minutes.length() == metadata_length, EInvalidMetadataLength);
 
-    if (hospital_personnel_role == hospital_personnel_role_administrative_personnel()) {
-        let (read_access, access_data_type_read, update_access, access_data_type_update, exp_dur_read, exp_dur_update) =
-            create_access_administrative_personnel(clock, metadata, administrative_access_exp_dur_minutes);
-
-        let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
-
-        if (hospital_personnel_read_access.contains(&patient_id)) {
-            hospital_personnel_read_access.remove(&patient_id);
+    let mut read_seen = false;
+    let mut update_seen = false;
+    let mut idx = 0;
+    while (idx < metadata_length) {
+        let access_type_bytes = access_types.borrow(idx);
+        let access_type = if (*access_type_bytes == b"Read") {
+            hospital_personnel_access_type_read()
+        } else if (*access_type_bytes == b"Update") {
+            hospital_personnel_access_type_update()
+        } else {
+            abort EInvalidAccessType
         };
-        hospital_personnel_read_access.insert(patient_id, read_access);
 
-        let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
-        if (hospital_personnel_update_access.contains(&patient_id)) {
-            hospital_personnel_update_access.remove(&patient_id);
+        if (access_type == hospital_personnel_access_type_read()) {
+            assert!(!read_seen, EDuplicateAccessType);
+            read_seen = true;
+        } else {
+            assert!(!update_seen, EDuplicateAccessType);
+            update_seen = true;
         };
-        hospital_personnel_update_access.insert(patient_id, update_access);
 
-        let patient_access_log_read = patient_access_log_new(
-            access_data_type_read,
-            hospital_personnel_access_type_read(),
+        let access_data_types = create_access_data_types(hospital_personnel_role, access_type);
+        let access_data_types_log = create_access_data_types(hospital_personnel_role, access_type);
+        let exp_dur = *access_exp_dur_minutes.borrow(idx);
+        let exp = clock.timestamp_ms() + (exp_dur * 60 * 1000);
+        let hospital_personnel_access_data = hospital_personnel_access_data_new(
+            access_data_types,
+            exp,
+            *metadata.borrow(idx),
+            option::none(),
+        );
+
+        if (access_type == hospital_personnel_access_type_read()) {
+            let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+            if (hospital_personnel_read_access.contains(&patient_id)) {
+                hospital_personnel_read_access.remove(&patient_id);
+            };
+            hospital_personnel_read_access.insert(patient_id, hospital_personnel_access_data);
+        } else {
+            let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+            if (hospital_personnel_update_access.contains(&patient_id)) {
+                hospital_personnel_update_access.remove(&patient_id);
+            };
+            hospital_personnel_update_access.insert(patient_id, hospital_personnel_access_data);
+        };
+
+        let patient_access_log_item = patient_access_log_new(
+            access_data_types_log,
+            access_type,
             date,
-            exp_dur_read,
+            exp_dur,
             *hospital_metadata,
             hospital_personnel_address,
             hospital_personnel_administrative_metadata_public,
             patient_access_log.length(),
             false,
-            option::some(*token_hashes.borrow(0)),
+            option::some(*token_hashes.borrow(idx)),
         );
-        patient_access_log.push_back(patient_access_log_read);
+        patient_access_log.push_back(patient_access_log_item);
 
-        let patient_access_log_update = patient_access_log_new(
-            access_data_type_update,
-            hospital_personnel_access_type_update(),
-            date,
-            exp_dur_update,
-            *hospital_metadata,
-            hospital_personnel_address,
-            hospital_personnel_administrative_metadata_public,
-            patient_access_log.length(),
-            false,
-            option::some(*token_hashes.borrow(1)),
-        );
-        patient_access_log.push_back(patient_access_log_update);
-    };
-
-    if (hospital_personnel_role == hospital_personnel_role_medical_personnel()) {
-        let (read_access, access_data_type_read,
-            update_access, access_data_type_update, exp_dur_read, exp_dur_update) = create_access_medical_personnel(clock, metadata);
-
-        let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
-        if (hospital_personnel_read_access.contains(&patient_id)) {
-            hospital_personnel_read_access.remove(&patient_id);
-        };
-        hospital_personnel_read_access.insert(patient_id, read_access);
-
-        let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
-        if (hospital_personnel_update_access.contains(&patient_id)) {
-            hospital_personnel_update_access.remove(&patient_id);
-        };
-        hospital_personnel_update_access.insert(patient_id, update_access);
-
-        let patient_access_log_read = patient_access_log_new(
-            access_data_type_read,
-            hospital_personnel_access_type_read(),
-            date,
-            exp_dur_read,
-            *hospital_metadata,
-            hospital_personnel_address,
-            hospital_personnel_administrative_metadata_public,
-            patient_access_log.length(),
-            false,
-            option::some(*token_hashes.borrow(0)),
-        );
-        patient_access_log.push_back(patient_access_log_read);
-
-        let patient_access_log_update = patient_access_log_new(
-            access_data_type_update,
-            hospital_personnel_access_type_update(),
-            date,
-            exp_dur_update,
-            *hospital_metadata,
-            hospital_personnel_address,
-            hospital_personnel_administrative_metadata_public,
-            patient_access_log.length(),
-            false,
-            option::some(*token_hashes.borrow(1)),
-        );
-        patient_access_log.push_back(patient_access_log_update);
+        idx = idx + 1;
     };
 }
 
@@ -254,7 +233,8 @@ public(package) fun create_access_test(
     hospital_id_metadata: &HospitalIdMetadata,
     hospital_personnel_address: address,
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
-    administrative_access_exp_dur_minutes: u64,
+    access_types: vector<vector<u8>>,
+    access_exp_dur_minutes: vector<u64>,
     metadata: vector<String>,
     token_hashes: vector<String>,
     patient_id_account: &mut PatientIdAccount,
@@ -267,7 +247,8 @@ public(package) fun create_access_test(
         hospital_id_metadata,
         hospital_personnel_address,
         hospital_personnel_id_account,
-        administrative_access_exp_dur_minutes,
+        access_types,
+        access_exp_dur_minutes,
         metadata,
         token_hashes,
         patient_id_account,
@@ -275,95 +256,27 @@ public(package) fun create_access_test(
     );
 }
 
-/// ## Params:
-/// - `metadata`: vector<Base64 encoded>
-///     - length = 2 for administrative (read + write/delegation parent)
-///     - length = 2 for medical
-///         - 0: read
-///         - 1: update
-fun create_access_administrative_personnel(
-    clock: &Clock,
-    metadata: vector<String>,
-    access_exp_dur_minutes: u64,
-): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>,
-    HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64, u64)
+fun create_access_data_types(
+    hospital_personnel_role: HospitalPersonnelRole,
+    access_type: HospitalPersonnelAccessType,
+): vector<HospitalPersonnelAccessDataType>
 {
-    assert!(metadata.length() == 2, EInvalidMetadataLength);
-
-    let mut hospital_personnel_access_data_types_read = vector::empty<HospitalPersonnelAccessDataType>();
-    hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_administrative());
-    let mut hospital_personnel_access_data_types_update = vector::empty<HospitalPersonnelAccessDataType>();
-    hospital_personnel_access_data_types_update.push_back(hospital_personnel_access_data_type_administrative());
-
-    let exp_dur_read = access_exp_dur_minutes;
-    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000);
-    let exp_dur_update = access_exp_dur_minutes;
-    let exp_update = clock.timestamp_ms() + (exp_dur_update * 60 * 1000);
-
-    let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
-        hospital_personnel_access_data_types_read,
-        exp_read,
-        *metadata.borrow(0),
-        option::none(),
-    );
-    let hospital_personnel_access_data_update = hospital_personnel_access_data_new(
-        hospital_personnel_access_data_types_update,
-        exp_update,
-        *metadata.borrow(1),
-        option::none(),
-    );
-
-    (hospital_personnel_access_data_read, hospital_personnel_access_data_types_read,
-     hospital_personnel_access_data_update, hospital_personnel_access_data_types_update,
-     exp_dur_read, exp_dur_update)
-}
-
-
-/// ## Params:
-/// - `metadata`: vector<Base64 encoded>
-///     - length = 1 for administrative
-///     - length = 2 for medical
-///         - 0: read
-///         - 1: update
-/// ## Return:
-/// - 0: `read_access`,
-/// - 1: `read_access_data_type`,
-/// - 2: `update_access`,
-/// - 3: `update_access_data_type`,
-fun create_access_medical_personnel(
-    clock: &Clock,
-    metadata: vector<String>,
-): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>,
-    HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64, u64)
-{
-    assert!(metadata.length() == 2, EInvalidMetadataLength);
-
-    let mut hospital_personnel_access_data_types_read = vector::empty<HospitalPersonnelAccessDataType>();
-    hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_medical());
-    hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_administrative());
-    let mut hospital_personnel_access_data_types_update = vector::empty<HospitalPersonnelAccessDataType>();
-    hospital_personnel_access_data_types_update.push_back(hospital_personnel_access_data_type_medical());
-
-    let exp_dur_read = 15;
-    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000); // 15 minutes
-    let exp_dur_update = 2 * 60;
-    let exp_update = clock.timestamp_ms() + (exp_dur_update * 60 * 1000); // 2 hours
-
-    let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
-        hospital_personnel_access_data_types_read,
-        exp_read,
-        *metadata.borrow(0),
-        option::none(),
-    );
-    let hospital_personnel_access_data_update = hospital_personnel_access_data_new(
-        hospital_personnel_access_data_types_update,
-        exp_update,
-        *metadata.borrow(1),
-        option::none(),
-    );
-
-    (hospital_personnel_access_data_read, hospital_personnel_access_data_types_read,
-     hospital_personnel_access_data_update, hospital_personnel_access_data_types_update, exp_dur_read, exp_dur_update)
+    let mut access_data_types = vector::empty<HospitalPersonnelAccessDataType>();
+    if (hospital_personnel_role == hospital_personnel_role_administrative_personnel()) {
+        access_data_types.push_back(hospital_personnel_access_data_type_administrative());
+    } else if (hospital_personnel_role == hospital_personnel_role_medical_personnel()) {
+        if (access_type == hospital_personnel_access_type_read()) {
+            access_data_types.push_back(hospital_personnel_access_data_type_medical());
+            access_data_types.push_back(hospital_personnel_access_data_type_administrative());
+        } else if (access_type == hospital_personnel_access_type_update()) {
+            access_data_types.push_back(hospital_personnel_access_data_type_medical());
+        } else {
+            abort EInvalidAccessType
+        };
+    } else {
+        abort EInvalidAccessType
+    };
+    access_data_types
 }
 
 entry fun is_account_registered(

@@ -385,6 +385,18 @@ fn datetime_to_epoch_ms(value: DateTime<Utc>) -> Result<u64, HospitalError> {
     Ok(millis as u64)
 }
 
+fn parse_future_expires_before(value: &str) -> Result<DateTime<Utc>, HospitalError> {
+    let expires_before = DateTime::parse_from_rfc3339(value)
+        .map_err(|e| anyhow::anyhow!(e))?
+        .with_timezone(&Utc);
+    if expires_before <= Utc::now() {
+        return Err(HospitalError::Anyhow(
+            anyhow::anyhow!("Delegation expiry must be in the future").context(current_fn!()),
+        ));
+    }
+    Ok(expires_before)
+}
+
 fn build_delegation_audit_input(
     token: &str,
     parent_token: &str,
@@ -706,9 +718,7 @@ pub async fn create_delegated_access(
     let rewrap_enc_b64 = STANDARD.encode(rewrap_enc);
     let rewrap_capsule_b64 = serde_serialize_to_base64(&rewrap_capsule).context(current_fn!())?;
 
-    let expires_before = DateTime::parse_from_rfc3339(&payload.expires_before)
-        .map_err(|e| anyhow::anyhow!(e))?
-        .with_timezone(&Utc);
+    let expires_before = parse_future_expires_before(&payload.expires_before)?;
     let read_datasets = parse_dataset_values(&payload.read_datasets)?;
     let write_datasets = parse_dataset_values(&payload.write_datasets)?;
     let read_functions = parse_function_values(&payload.read_functions)?;
@@ -1028,9 +1038,7 @@ pub async fn create_admin_delegated_access(
         Some(related_rme_id) => related_rme_id,
         None => request_related_rme_id_from_proxy(&payload.parent_write_token).await?,
     };
-    let expires_before = DateTime::parse_from_rfc3339(&payload.expires_before)
-        .map_err(|e| anyhow::anyhow!(e))?
-        .with_timezone(&Utc);
+    let expires_before = parse_future_expires_before(&payload.expires_before)?;
     let parent_read_token = payload.parent_read_token.as_ref().ok_or_else(|| {
         HospitalError::Anyhow(
             anyhow::anyhow!("Parent read token is required for admin delegation")

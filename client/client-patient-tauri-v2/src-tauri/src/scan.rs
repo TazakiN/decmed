@@ -28,11 +28,52 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use decmed_rme_segment::DatasetCategory;
 
+const ACCESS_MODE_READ: &str = "read";
+const ACCESS_MODE_UPDATE: &str = "update";
+const ACCESS_MODE_READ_UPDATE: &str = "read_update";
+
+fn normalize_access_mode(access_mode: Option<String>) -> Result<String, PatientError> {
+    let access_mode = access_mode.unwrap_or_else(|| ACCESS_MODE_READ_UPDATE.to_string());
+    if matches!(
+        access_mode.as_str(),
+        ACCESS_MODE_READ | ACCESS_MODE_UPDATE | ACCESS_MODE_READ_UPDATE
+    ) {
+        Ok(access_mode)
+    } else {
+        Err(anyhow!("Invalid access mode").context(current_fn!()).into())
+    }
+}
+
+fn expiry_duration_minutes(
+    expires_before: Option<&str>,
+    default_minutes: u64,
+) -> Result<u64, PatientError> {
+    let Some(expires_before) = expires_before.filter(|value| !value.trim().is_empty()) else {
+        return Ok(default_minutes);
+    };
+    let expiry = chrono::DateTime::parse_from_rfc3339(expires_before)
+        .map_err(|e| anyhow!("Invalid expires_before; expected RFC3339: {e}"))
+        .context(current_fn!())?
+        .with_timezone(&chrono::Utc);
+    let now = chrono::Utc::now();
+    let remaining_ms = expiry.signed_duration_since(now).num_milliseconds();
+    if remaining_ms <= 0 {
+        return Err(
+            anyhow!("expires_before must be in the future")
+                .context(current_fn!())
+                .into(),
+        );
+    }
+    Ok(((remaining_ms as u64) + 59_999) / 60_000)
+}
+
 #[tauri::command]
 pub async fn create_access(
     state: State<'_, Mutex<AppState>>,
     pin: String,
     encounter_dataset: Option<String>,
+    access_mode: Option<String>,
+    expires_before: Option<String>,
 ) -> Result<SuccessResponse<()>, PatientError> {
     let state = state.lock().await;
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
@@ -168,6 +209,14 @@ pub async fn create_access(
             .into())
         }
     };
+    let access_mode = normalize_access_mode(access_mode)?;
+    let grant_read = matches!(access_mode.as_str(), ACCESS_MODE_READ | ACCESS_MODE_READ_UPDATE);
+    let grant_update = matches!(
+        access_mode.as_str(),
+        ACCESS_MODE_UPDATE | ACCESS_MODE_READ_UPDATE
+    );
+    let access_exp_dur_minutes =
+        expiry_duration_minutes(expires_before.as_deref(), administrative_access_exp_dur_minutes)?;
 
     let enc_data_pre_secret_key_seed_b64 = STANDARD.encode(enc_data_pre_secret_key_seed);
     let data_pre_secret_key_seed_capsule_b64 =
@@ -188,8 +237,15 @@ pub async fn create_access(
         "signer_pre_public_key": serde_serialize_to_base64(&signer_public_key)
             .context(current_fn!())?,
         "root_subject": hospital_personnel_iota_address.to_string(),
+        "access_mode": access_mode,
     });
     payload["encounter_dataset"] = json!(encounter_dataset);
+    if let Some(expires_before) = expires_before
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        payload["expires_before"] = json!(expires_before);
+    }
 
     let access_token = do_http_post_json_request::<
         _,
@@ -206,24 +262,53 @@ pub async fn create_access(
     .context(current_fn!())?
     .data;
 
-    let access_token_update = access_token.access_token_update.ok_or_else(|| {
-        anyhow!(
-            "Proxy did not issue write access token (read-only). \
-             Restart proxy-reencryption to the latest version and scan the Administrative Personnel QR."
+    let access_token_read = if grant_read {
+        Some(
+            access_token
+                .access_token_read
+                .clone()
+                .ok_or_else(|| anyhow!("Proxy did not issue read access token"))
+                .context(current_fn!())?,
         )
-        .context(current_fn!())
-    })?;
-    let access_token_read_hash = access_token.access_token_read_hash.clone();
-    let access_token_update_hash =
-        access_token
-            .access_token_update_hash
-            .clone()
-            .ok_or_else(|| {
-                anyhow!("Proxy did not return write access token hash").context(current_fn!())
-            })?;
+    } else {
+        None
+    };
+    let access_token_update = if grant_update {
+        Some(
+            access_token
+                .access_token_update
+                .clone()
+                .ok_or_else(|| anyhow!("Proxy did not issue update access token"))
+                .context(current_fn!())?,
+        )
+    } else {
+        None
+    };
+    let access_token_read_hash = if grant_read {
+        Some(
+            access_token
+                .access_token_read_hash
+                .clone()
+                .ok_or_else(|| anyhow!("Proxy did not return read access token hash"))
+                .context(current_fn!())?,
+        )
+    } else {
+        None
+    };
+    let access_token_update_hash = if grant_update {
+        Some(
+            access_token
+                .access_token_update_hash
+                .clone()
+                .ok_or_else(|| anyhow!("Proxy did not return update access token hash"))
+                .context(current_fn!())?,
+        )
+    } else {
+        None
+    };
     let related_rme_id = access_token.related_rme_id.clone();
 
-    let (metadata_read, metadata_update, date) = {
+    let (metadata, token_hashes, access_types, access_exp_dur_minutes, date) = {
         let patient_name = state
             .administrative_data
             .as_ref()
@@ -233,63 +318,86 @@ pub async fn create_access(
             .clone()
             .context(current_fn!())?;
 
-        let data_read = MoveCreateAccessData {
-            patient_name: patient_name.clone(),
-            patient_iota_address: patient_iota_address.to_string(),
-            access_token: access_token.access_token_read,
-            patient_pre_public_key: None,
-            enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64.clone()),
-            data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64.clone()),
-            related_rme_id: None,
-        };
-        let (data_capsule_read, enc_data_read) = encrypt(
-            &hospital_personnel_pre_public_key,
-            &serde_json::to_vec(&data_read).context(current_fn!())?,
-        )
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-        let metadata_read = MoveCreateAccessMetadata {
-            capsule: serde_serialize_to_base64(&data_capsule_read).context(current_fn!())?,
-            enc_data: STANDARD.encode(enc_data_read),
-        };
+        let mut metadata = Vec::new();
+        let mut token_hashes = Vec::new();
+        let mut access_types = Vec::new();
+        let mut access_exp_dur_minutes_values = Vec::new();
 
-        let data_update = MoveCreateAccessData {
-            access_token: access_token_update,
-            patient_name,
-            patient_iota_address: patient_iota_address.to_string(),
-            patient_pre_public_key: Some(patient_pre_public_key_b64),
-            enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64),
-            data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64),
-            related_rme_id,
-        };
+        if let (Some(access_token_read), Some(access_token_read_hash)) =
+            (access_token_read, access_token_read_hash)
+        {
+            let data_read = MoveCreateAccessData {
+                patient_name: patient_name.clone(),
+                patient_iota_address: patient_iota_address.to_string(),
+                access_token: access_token_read,
+                patient_pre_public_key: None,
+                enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64.clone()),
+                data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64.clone()),
+                related_rme_id: None,
+            };
+            let (data_capsule_read, enc_data_read) = encrypt(
+                &hospital_personnel_pre_public_key,
+                &serde_json::to_vec(&data_read).context(current_fn!())?,
+            )
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+            let metadata_read = MoveCreateAccessMetadata {
+                capsule: serde_serialize_to_base64(&data_capsule_read).context(current_fn!())?,
+                enc_data: STANDARD.encode(enc_data_read),
+            };
+            metadata.push(serde_serialize_to_base64(&metadata_read).context(current_fn!())?);
+            token_hashes.push(access_token_read_hash);
+            access_types.push(b"Read".to_vec());
+            access_exp_dur_minutes_values.push(access_exp_dur_minutes);
+        }
 
-        let (data_capsule_update, enc_data_update) = encrypt(
-            &hospital_personnel_pre_public_key,
-            &serde_json::to_vec(&data_update).context(current_fn!())?,
-        )
-        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-        let metadata_update = MoveCreateAccessMetadata {
-            capsule: serde_serialize_to_base64(&data_capsule_update).context(current_fn!())?,
-            enc_data: STANDARD.encode(enc_data_update),
-        };
+        if let (Some(access_token_update), Some(access_token_update_hash)) =
+            (access_token_update, access_token_update_hash)
+        {
+            let data_update = MoveCreateAccessData {
+                access_token: access_token_update,
+                patient_name,
+                patient_iota_address: patient_iota_address.to_string(),
+                patient_pre_public_key: Some(patient_pre_public_key_b64),
+                enc_data_pre_secret_key_seed: Some(enc_data_pre_secret_key_seed_b64),
+                data_pre_secret_key_seed_capsule: Some(data_pre_secret_key_seed_capsule_b64),
+                related_rme_id,
+            };
+
+            let (data_capsule_update, enc_data_update) = encrypt(
+                &hospital_personnel_pre_public_key,
+                &serde_json::to_vec(&data_update).context(current_fn!())?,
+            )
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+            let metadata_update = MoveCreateAccessMetadata {
+                capsule: serde_serialize_to_base64(&data_capsule_update).context(current_fn!())?,
+                enc_data: STANDARD.encode(enc_data_update),
+            };
+            metadata.push(serde_serialize_to_base64(&metadata_update).context(current_fn!())?);
+            token_hashes.push(access_token_update_hash);
+            access_types.push(b"Update".to_vec());
+            access_exp_dur_minutes_values.push(access_exp_dur_minutes);
+        }
 
         let date = sys_time_to_iso(std::time::SystemTime::now());
 
-        (metadata_read, metadata_update, date)
+        (
+            metadata,
+            token_hashes,
+            access_types,
+            access_exp_dur_minutes_values,
+            date,
+        )
     };
-
-    let metadata = vec![
-        serde_serialize_to_base64(&metadata_read).context(current_fn!())?,
-        serde_serialize_to_base64(&metadata_update).context(current_fn!())?,
-    ];
 
     let _ = state
         .move_call
         .create_access(
             date,
             &hospital_personnel_iota_address,
+            access_types,
+            access_exp_dur_minutes,
             metadata,
-            vec![access_token_read_hash, access_token_update_hash],
-            administrative_access_exp_dur_minutes,
+            token_hashes,
             patient_iota_address,
             patient_iota_key_pair,
         )

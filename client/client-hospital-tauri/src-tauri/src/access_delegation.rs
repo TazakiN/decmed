@@ -3,9 +3,10 @@ use std::str::FromStr;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
-    admin_write_datasets, admin_write_functions, attenuate_macaroon, hash_macaroon_token,
-    CaveatKey, CaveatValue, DelegationAttenuationParams, DelegationChain, DelegationProofContext,
-    EffectiveCapability, Macaroon, ParsedCaveats,
+    admin_all_datasets, admin_all_functions, admin_write_datasets, admin_write_functions,
+    attenuate_macaroon, hash_macaroon_token, CaveatKey, CaveatValue,
+    DelegationAttenuationParams, DelegationChain, DelegationProofContext, EffectiveCapability,
+    Macaroon, ParsedCaveats,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
@@ -517,11 +518,17 @@ fn admin_delegation_params(
     };
     let (read_datasets, write_datasets, read_functions, write_functions) = match preset {
         "doctor" => {
-            let datasets = admin_write_datasets(encounter);
-            let read_functions = admin_write_functions(encounter);
-            let mut write_functions = read_functions.clone();
+            let read_datasets = admin_all_datasets();
+            let read_functions = admin_all_functions();
+            let write_datasets = admin_write_datasets(encounter);
+            let mut write_functions = admin_write_functions(encounter);
             write_functions.retain(|f| *f != FunctionCategory::ADMINISTRATIVE_GENERAL);
-            (datasets.clone(), datasets, read_functions, write_functions)
+            (
+                read_datasets,
+                write_datasets,
+                read_functions,
+                write_functions,
+            )
         }
         "nurse" => (
             vec![encounter],
@@ -1057,9 +1064,7 @@ pub async fn create_admin_delegated_access(
     let mut read_params = params.clone();
     read_params.write_datasets.clear();
     read_params.write_functions.clear();
-    if parent_read_related_rme_id.is_some() {
-        read_params.related_rme_id = None;
-    }
+    read_params.related_rme_id = None;
     let mut update_params = params;
     update_params.read_datasets.clear();
     update_params.read_functions.clear();
@@ -1093,7 +1098,13 @@ pub async fn create_admin_delegated_access(
     let patient_iota_address_for_seed = payload.patient_iota_address.clone();
     let patient_pre_public_key_for_seed = payload.patient_pre_public_key.clone();
 
-    let metadata_input = DelegatedAccessMetadataInput {
+    let read_metadata_input = DelegatedAccessMetadataInput {
+        patient_iota_address: payload.patient_iota_address.clone(),
+        patient_name: payload.patient_name.clone(),
+        patient_pre_public_key: payload.patient_pre_public_key.clone(),
+        related_rme_id: parent_read_related_rme_id.clone(),
+    };
+    let update_metadata_input = DelegatedAccessMetadataInput {
         patient_iota_address: payload.patient_iota_address,
         patient_name: payload.patient_name,
         patient_pre_public_key: payload.patient_pre_public_key,
@@ -1102,7 +1113,7 @@ pub async fn create_admin_delegated_access(
 
     let read_metadata = build_delegated_access_metadata(
         delegated_read_token.clone(),
-        &metadata_input,
+        &read_metadata_input,
         &read_params,
         Some(read_delegation_signature),
         Some(rewrap_enc_b64.clone()),
@@ -1112,7 +1123,7 @@ pub async fn create_admin_delegated_access(
 
     let update_metadata = build_delegated_access_metadata(
         delegated_update_token.clone(),
-        &metadata_input,
+        &update_metadata_input,
         &update_params,
         Some(update_delegation_signature),
         Some(rewrap_enc_b64),
@@ -1129,7 +1140,7 @@ pub async fn create_admin_delegated_access(
             &delegated_read_token,
             parent_read_token,
             MoveHospitalPersonnelAccessType::Read,
-            Some(related_rme_id.clone()),
+            parent_read_related_rme_id,
             expires_before,
         )?,
         build_delegation_audit_input(

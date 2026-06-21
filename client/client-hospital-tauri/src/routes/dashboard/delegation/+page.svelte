@@ -32,6 +32,7 @@
 	let { data } = $props();
 
 	type PatientAccess = {
+		key: string;
 		patientIotaAddress: string;
 		patientName: string;
 		read?: AccessCapabilityData;
@@ -39,7 +40,7 @@
 	};
 
 	let accesses = $state<PatientAccess[]>([]);
-	let selectedPatientAddress = $state('');
+	let selectedAccessKey = $state('');
 	let mode = $state<DelegationMode>('read_write');
 	let preset = $state<DelegationPreset>('nurse');
 	let previewReadDatasets = $state<DatasetCategory[]>([]);
@@ -57,34 +58,72 @@
 	const EXPIRY_SAFETY_WINDOW_MS = 1000;
 
 	const selectedAccess = $derived(
-		accesses.find((access) => access.patientIotaAddress === selectedPatientAddress)
+		accesses.find((access) => access.key === selectedAccessKey)
 	);
 	const activeRead = $derived(selectedAccess?.read);
 	const activeWrite = $derived(selectedAccess?.write);
 	const selectedDelegatee = $derived(
 		delegateeCandidates.find((candidate) => candidate.iotaAddress === selectedDelegateeAddress)
 	);
+	const accessKeyPart = (capability: AccessCapabilityData, index: number) => {
+		const scope = capability.relatedRmeId ?? capability.access.relatedRmeId ?? null;
+		const identity =
+			capability.access.tokenHash ??
+			capability.access.medicalMetadataIndex?.toString() ??
+			`${capability.access.exp}:${index}`;
+		return scope ? `${scope}:${identity}` : identity;
+	};
+
+	const preferReadCapability = (
+		current: AccessCapabilityData | undefined,
+		candidate: AccessCapabilityData
+	) => {
+		if (!current) return candidate;
+		const currentRme = current.relatedRmeId ?? current.access.relatedRmeId ?? null;
+		const candidateRme = candidate.relatedRmeId ?? candidate.access.relatedRmeId ?? null;
+		if (currentRme && !candidateRme) return candidate;
+		return current;
+	};
+
 	const groupAccesses = (capabilities: AccessCapabilitiesResponse) => {
-		const map = new Map<string, PatientAccess>();
+		const readsByPatient = new Map<string, AccessCapabilityData>();
 		for (const capability of capabilities.read.filter(isReadableCapability)) {
-			map.set(capability.access.patientIotaAddress, {
-				...(map.get(capability.access.patientIotaAddress) ?? {
-					patientIotaAddress: capability.access.patientIotaAddress,
-					patientName: capability.access.patientName
-				}),
-				read: capability
-			});
+			const patientAddress = capability.access.patientIotaAddress;
+			readsByPatient.set(
+				patientAddress,
+				preferReadCapability(readsByPatient.get(patientAddress), capability)
+			);
 		}
-		for (const capability of capabilities.write.filter(isWritableCapability)) {
-			map.set(capability.access.patientIotaAddress, {
-				...(map.get(capability.access.patientIotaAddress) ?? {
-					patientIotaAddress: capability.access.patientIotaAddress,
-					patientName: capability.access.patientName
-				}),
+
+		const rows: PatientAccess[] = [];
+		for (const [index, capability] of capabilities.write.filter(isWritableCapability).entries()) {
+			const patientAddress = capability.access.patientIotaAddress;
+			rows.push({
+				key: `${patientAddress}:write:${accessKeyPart(capability, index)}`,
+				patientIotaAddress: patientAddress,
+				patientName: capability.access.patientName,
+				read: readsByPatient.get(patientAddress),
 				write: capability
 			});
 		}
-		return [...map.values()];
+
+		for (const [index, [patientAddress, capability]] of [...readsByPatient].entries()) {
+			if (!rows.some((row) => row.patientIotaAddress === patientAddress)) {
+				rows.push({
+					key: `${patientAddress}:read:${accessKeyPart(capability, index)}`,
+					patientIotaAddress: patientAddress,
+					patientName: capability.access.patientName,
+					read: capability
+				});
+			}
+		}
+
+		return rows;
+	};
+
+	const accessOptionLabel = (access: PatientAccess) => {
+		const rmeId = access.write?.relatedRmeId ?? access.write?.access.relatedRmeId ?? null;
+		return rmeId ? `${access.patientName} - ${rmeId}` : access.patientName;
 	};
 
 	const delegateeLabel = (candidate: DelegateeCandidate) => {
@@ -173,8 +212,11 @@
 			return [];
 		}
 		accesses = groupAccesses(res.data.data);
-		if (!selectedPatientAddress) {
-			selectedPatientAddress = data.patientAddress ?? accesses[0]?.patientIotaAddress ?? '';
+		if (!selectedAccessKey || !accesses.some((access) => access.key === selectedAccessKey)) {
+			selectedAccessKey =
+				accesses.find((access) => access.patientIotaAddress === data.patientAddress)?.key ??
+				accesses[0]?.key ??
+				'';
 		}
 		applyPreset();
 		return accesses;
@@ -378,7 +420,7 @@
 	};
 
 	$effect(() => {
-		void selectedPatientAddress;
+		void selectedAccessKey;
 		void preset;
 		void mode;
 		applyPreset();
@@ -401,21 +443,21 @@
 				<p class="text-sm text-zinc-600">Belum ada akses pasien.</p>
 			{:else}
 				<div class="grid gap-3">
-					{#each delegationData.loadedAccesses as access (access.patientIotaAddress)}
+					{#each delegationData.loadedAccesses as access (access.key)}
 						<div class="border border-zinc-200 rounded-md p-3">
 							<div class="flex items-start justify-between gap-3">
 								<p class="font-medium">{access.patientName}</p>
 								<button
 									type="button"
 									class="rounded-full p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
-									onclick={() => togglePatientInfo(access.patientIotaAddress)}
+									onclick={() => togglePatientInfo(access.key)}
 									aria-label={`Toggle info for ${access.patientName}`}
-									aria-expanded={Boolean(visiblePatientInfo[access.patientIotaAddress])}
+									aria-expanded={Boolean(visiblePatientInfo[access.key])}
 								>
 									<LucideInfo size={16} />
 								</button>
 							</div>
-							{#if visiblePatientInfo[access.patientIotaAddress]}
+							{#if visiblePatientInfo[access.key]}
 								<div class="mt-2 grid gap-1 text-sm">
 									<p class="text-xs text-zinc-500 break-all">{access.patientIotaAddress}</p>
 									<p>Read: {access.read ? access.read.readFunctions.length : 0} functions</p>
@@ -432,9 +474,9 @@
 			<div class="bg-white border border-zinc-200 rounded-md p-4 flex flex-col gap-4">
 				<label class="flex flex-col gap-1">
 					<span class="text-sm font-medium">Pasien</span>
-					<select class="input-text max-w-md" bind:value={selectedPatientAddress}>
-						{#each delegationData.loadedAccesses as access (access.patientIotaAddress)}
-							<option value={access.patientIotaAddress}>{access.patientName}</option>
+					<select class="input-text max-w-md" bind:value={selectedAccessKey}>
+						{#each delegationData.loadedAccesses as access (access.key)}
+							<option value={access.key}>{accessOptionLabel(access)}</option>
 						{/each}
 					</select>
 				</label>

@@ -5,18 +5,25 @@
 
 	let { data } = $props();
 
-	const metadataState = $derived(new EmrMetadataListState({
-		accessToken: data.accessToken,
-		delegationSignature: data.delegationSignature,
-		patientIotaAddress: data.patientIotaAddress
-	}));
+	const metadataState = $derived(
+		new EmrMetadataListState({
+			accessToken: data.accessToken,
+			delegationSignature: data.delegationSignature,
+			patientIotaAddress: data.patientIotaAddress
+		})
+	);
 
-	const accessQuery = $derived(emrAccessQueryString({
-		accessToken: data.accessToken,
-		delegationSignature: data.delegationSignature,
-		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
-		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
-	}));
+	const accessQuery = $derived(
+		emrAccessQueryString({
+			accessToken: data.accessToken,
+			delegationSignature: data.delegationSignature,
+			encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
+			dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule,
+			patientName: data.patientName
+		})
+	);
+
+	const patientDisplayName = $derived(data.patientName || data.patientIotaAddress);
 
 	const formatDate = (value: string) => {
 		const parsed = new Date(value);
@@ -32,8 +39,7 @@
 	};
 </script>
 
-<h2 class="text-lg font-montserrat font-semibold">Rekam Medis</h2>
-<p class="text-sm text-zinc-500 my-2 break-all">{data.patientIotaAddress}</p>
+<h2 class="text-lg font-montserrat font-semibold">Rekam Medis Pasien: {patientDisplayName}</h2>
 
 {#if data.accessToken}
 	{#await metadataState.fetchMetadata}

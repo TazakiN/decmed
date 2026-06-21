@@ -41,7 +41,8 @@
 		accessToken: data.accessToken,
 		delegationSignature: data.delegationSignature,
 		encDataPreSecretKeySeed: data.encDataPreSecretKeySeed,
-		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule
+		dataPreSecretKeySeedCapsule: data.dataPreSecretKeySeedCapsule,
+		patientName: data.patientName
 	});
 
 	const formatDate = (value: string | number) => {

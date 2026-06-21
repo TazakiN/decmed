@@ -32,3 +32,9 @@ chain-id = "2304aa97"
 original-published-id = "0x728e2ae15c732ba68814ef7720b649b11a184a95aadb6b1a2ec93ade4590185e"
 latest-published-id = "0x77e3824ed86d5bb9e0b1bc7e71d2b644c775d0d54f59a29a3b4c3ac9e1fb82ab"
 published-version = "2"
+
+[env.localnet-vps]
+chain-id = "930a80c4"
+original-published-id = "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38"
+latest-published-id = "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38"
+published-version = "1"

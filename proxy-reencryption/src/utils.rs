@@ -1,55 +1,53 @@
-use std::{ fmt::{ self, Debug }, str::FromStr, time::SystemTime };
+use std::{
+    fmt::{self, Debug},
+    str::FromStr,
+    time::SystemTime,
+};
 
-use anyhow::{ anyhow, Context };
-use axum::{ http::StatusCode, response::{ IntoResponse, Response }, Json };
+use anyhow::{anyhow, Context};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use bip39::Mnemonic;
-use chrono::{ DateTime, Utc };
+use chrono::{DateTime, Utc};
 use iota_json_rpc_types::{
-    DevInspectResults,
-    IotaObjectData,
-    IotaObjectDataFilter,
-    IotaObjectDataOptions,
-    IotaObjectResponseQuery,
-    IotaTransactionBlockEffectsAPI,
+    DevInspectResults, IotaObjectData, IotaObjectDataFilter, IotaObjectDataOptions,
+    IotaObjectResponseQuery, IotaTransactionBlockEffectsAPI,
 };
 use iota_keys::key_derive::derive_key_pair_from_path;
-use iota_sdk::{ IotaClient, IotaClientBuilder };
+use iota_sdk::{IotaClient, IotaClientBuilder};
 use iota_types::{
-    base_types::{ IotaAddress, ObjectID, ObjectRef },
-    crypto::{ EmptySignInfo, IotaKeyPair, Signature, SignatureScheme },
+    base_types::{IotaAddress, ObjectID, ObjectRef},
+    crypto::{EmptySignInfo, IotaKeyPair, Signature, SignatureScheme},
     message_envelope::Envelope,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
-        CallArg,
-        ObjectArg,
-        ProgrammableTransaction,
-        SenderSignedData,
-        TransactionData,
+        CallArg, ObjectArg, ProgrammableTransaction, SenderSignedData, TransactionData,
         TransactionDataAPI,
     },
-    Identifier,
-    TypeTag,
+    Identifier, TypeTag,
 };
-use move_core_types::{ account_address::AccountAddress, language_storage::StructTag };
+use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use rand::Rng;
-use reqwest::{ Client, IntoUrl };
-use serde::{ de::{ self, DeserializeOwned }, Deserialize, Deserializer, Serialize };
+use reqwest::{Client, IntoUrl};
+use serde::{
+    de::{self, DeserializeOwned},
+    Deserialize, Deserializer, Serialize,
+};
 use serde_json::json;
 
-use base64::{ engine::general_purpose::STANDARD, Engine as _ };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use crate::{
     constants::{
-        DECMED_ORIGINAL_PACKAGE_ID,
-        DECMED_PACKAGE_ID,
-        GAS_STATION_BASE_URL,
-        IOTA_URL,
-        IPFS_BASE_URL,
-        IPFS_GATEWAY_BASE_URL,
+        DECMED_ORIGINAL_PACKAGE_ID, DECMED_PACKAGE_ID, GAS_STATION_BASE_URL, IOTA_URL,
+        IPFS_BASE_URL, IPFS_GATEWAY_BASE_URL,
     },
     current_fn,
     proxy_error::ProxyError,
-    types::{ ExecuteTxResponse, ReserveGasResponse, SuccessResponse, UtilIpfsAddResponse },
+    types::{ExecuteTxResponse, ReserveGasResponse, SuccessResponse, UtilIpfsAddResponse},
 };
 
 pub struct Utils {}
@@ -62,29 +60,29 @@ impl Utils {
         let res = req_client
             .post(format!("{}/add", IPFS_BASE_URL))
             .multipart(form)
-            .send().await
+            .send()
+            .await
             .context(current_fn!())?;
         let status = res.status();
         let body = res.text().await.context(current_fn!())?;
 
         if !status.is_success() {
             return Err(ProxyError::Anyhow {
-                source: anyhow!("IPFS add failed with status {status}: {body}").context(
-                    current_fn!()
-                ),
+                source: anyhow!("IPFS add failed with status {status}: {body}")
+                    .context(current_fn!()),
                 code: StatusCode::INTERNAL_SERVER_ERROR,
             });
         }
 
-        let res: UtilIpfsAddResponse = serde_json
-            ::from_str(&body)
+        let res: UtilIpfsAddResponse = serde_json::from_str(&body)
             .with_context(|| format!("Failed to decode IPFS add response body: {body}"))?;
 
         Ok(res.cid)
     }
 
     pub fn build_success_response<T>(data: T, status_code: StatusCode) -> Response
-        where T: Debug + Serialize
+    where
+        T: Debug + Serialize,
     {
         (
             status_code,
@@ -92,18 +90,23 @@ impl Utils {
                 data,
                 status_code: status_code.as_u16(),
             }),
-        ).into_response()
+        )
+            .into_response()
     }
 
     pub async fn construct_capability_call_arg(
         iota_client: &IotaClient,
-        capability_id: ObjectID
+        capability_id: ObjectID,
     ) -> Result<CallArg, ProxyError> {
         let cap_object = (*iota_client)
             .read_api()
-            .get_object_with_options(capability_id, IotaObjectDataOptions {
-                ..Default::default()
-            }).await
+            .get_object_with_options(
+                capability_id,
+                IotaObjectDataOptions {
+                    ..Default::default()
+                },
+            )
+            .await
             .context(current_fn!())?;
 
         let cap_object_arg = ObjectArg::ImmOrOwnedObject((
@@ -124,10 +127,11 @@ impl Utils {
         package: ObjectID,
         module: Identifier,
         type_arguments: Vec<TypeTag>,
-        call_args: Vec<CallArg>
+        call_args: Vec<CallArg>,
     ) -> Result<ProgrammableTransaction, ProxyError> {
         let mut builder = ProgrammableTransactionBuilder::new();
-        let function = Utils::construct_identifier_from_str(function_name).context(current_fn!())?;
+        let function =
+            Utils::construct_identifier_from_str(function_name).context(current_fn!())?;
 
         builder
             .move_call(package, module, function, type_arguments, call_args)
@@ -147,11 +151,8 @@ impl Utils {
     }
 
     pub fn construct_signature_from_str(signature: &str) -> Result<Signature, ProxyError> {
-        Ok(
-            Signature::from_str(signature).map_err(|e|
-                anyhow!(e.to_string()).context(current_fn!())
-            )?
-        )
+        Ok(Signature::from_str(signature)
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?)
     }
 
     pub fn construct_sponsored_tx_data(
@@ -160,14 +161,14 @@ impl Utils {
         pt: ProgrammableTransaction,
         gas_budget: u64,
         gas_price: u64,
-        sponsor_address: IotaAddress
+        sponsor_address: IotaAddress,
     ) -> TransactionData {
         let mut tx_data = TransactionData::new_programmable(
             sender,
             gas_payment.clone(),
             pt,
             gas_budget,
-            gas_price
+            gas_price,
         );
 
         tx_data.gas_data_mut().payment = gas_payment;
@@ -199,15 +200,14 @@ impl Utils {
     pub async fn do_http_get_request<T, E, U>(
         req_client: &Client,
         success_status_code: StatusCode,
-        url: U
-    )
-        -> Result<T, ProxyError>
-        where T: DeserializeOwned + From<String>, E: DeserializeOwned + Debug, U: IntoUrl
+        url: U,
+    ) -> Result<T, ProxyError>
+    where
+        T: DeserializeOwned + From<String>,
+        E: DeserializeOwned + Debug,
+        U: IntoUrl,
     {
-        let res = req_client
-            .get(url)
-            .send().await
-            .context(current_fn!())?;
+        let res = req_client.get(url).send().await.context(current_fn!())?;
         let res_status = res.status();
         let content_type = res
             .headers()
@@ -230,13 +230,13 @@ impl Utils {
             "application/json" => {
                 Ok(serde_json::from_slice(&res_body.to_vec()).context(current_fn!())?)
             }
-            "text/plain; charset=utf-8" =>
-                Ok(T::from(String::from_utf8(res_body.to_vec()).context(current_fn!())?)),
+            "text/plain; charset=utf-8" => Ok(T::from(
+                String::from_utf8(res_body.to_vec()).context(current_fn!())?,
+            )),
             _ => {
                 return Err(ProxyError::Anyhow {
-                    source: anyhow!(format!("Unknown content-type: {}", content_type)).context(
-                        current_fn!()
-                    ),
+                    source: anyhow!(format!("Unknown content-type: {}", content_type))
+                        .context(current_fn!()),
                     code: StatusCode::INTERNAL_SERVER_ERROR,
                 });
             }
@@ -244,7 +244,10 @@ impl Utils {
     }
 
     pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-        where D: Deserializer<'de>, T: FromStr, T::Err: fmt::Display
+    where
+        D: Deserializer<'de>,
+        T: FromStr,
+        T::Err: fmt::Display,
     {
         let opt = Option::<String>::deserialize(de)?;
         match opt.as_deref() {
@@ -255,7 +258,7 @@ impl Utils {
 
     pub async fn execute_tx(
         tx: Envelope<SenderSignedData, EmptySignInfo>,
-        reservation_id: u64
+        reservation_id: u64,
     ) -> Result<ExecuteTxResponse, ProxyError> {
         let (tx_base_64, signature_base_64) = tx.to_tx_bytes_and_signatures();
 
@@ -263,17 +266,19 @@ impl Utils {
         let res = req_client
             .post(format!("{}/execute_tx", GAS_STATION_BASE_URL))
             .bearer_auth("token")
-            .json(
-                &json!({
+            .json(&json!({
                 "reservation_id": reservation_id,
                 "tx_bytes": tx_base_64.encoded(),
                 "user_sig": signature_base_64[0].encoded()
-            })
-            )
-            .send().await
+            }))
+            .send()
+            .await
             .context(current_fn!())?;
 
-        let ex_tx_res = res.json::<ExecuteTxResponse>().await.context(current_fn!())?;
+        let ex_tx_res = res
+            .json::<ExecuteTxResponse>()
+            .await
+            .context(current_fn!())?;
 
         Ok(ex_tx_res)
     }
@@ -292,16 +297,14 @@ impl Utils {
 
     pub fn parse_macaroon_root_key(root_key: &str) -> Result<Vec<u8>, ProxyError> {
         let root_key = root_key.trim();
-        let key_bytes = hex
-            ::decode(root_key)
+        let key_bytes = hex::decode(root_key)
             .map_err(|_| anyhow!("MACAROON_ROOT_KEY must be a 128-character hex string"))
             .context(current_fn!())?;
 
         if key_bytes.len() != 64 {
             return Err(ProxyError::Anyhow {
-                source: anyhow!("MACAROON_ROOT_KEY must decode to exactly 64 bytes").context(
-                    current_fn!()
-                ),
+                source: anyhow!("MACAROON_ROOT_KEY must decode to exactly 64 bytes")
+                    .context(current_fn!()),
                 code: StatusCode::INTERNAL_SERVER_ERROR,
             });
         }
@@ -310,13 +313,12 @@ impl Utils {
     }
 
     pub fn generate_iota_keys_ed(seed: &[u8]) -> Result<(IotaAddress, IotaKeyPair), ProxyError> {
-        Ok(
-            derive_key_pair_from_path(
-                &seed,
-                Some(bip32::DerivationPath::from_str("m/44'/4218'/0'/0'/0'").unwrap()),
-                &SignatureScheme::ED25519
-            ).context(current_fn!())?
+        Ok(derive_key_pair_from_path(
+            &seed,
+            Some(bip32::DerivationPath::from_str("m/44'/4218'/0'/0'/0'").unwrap()),
+            &SignatureScheme::ED25519,
         )
+        .context(current_fn!())?)
     }
 
     pub fn generate_mnemonic(size: usize) -> Result<Mnemonic, ProxyError> {
@@ -328,41 +330,41 @@ impl Utils {
         let content = Utils::do_http_get_request::<String, String, _>(
             &req_client,
             StatusCode::OK,
-            format!("{}/ipfs/{}", IPFS_GATEWAY_BASE_URL, cid)
-        ).await.context(current_fn!())?;
+            format!("{}/ipfs/{}", IPFS_GATEWAY_BASE_URL, cid),
+        )
+        .await
+        .context(current_fn!())?;
 
         Ok(content)
     }
 
     pub async fn get_iota_client() -> Result<IotaClient, ProxyError> {
-        Ok(
-            IotaClientBuilder::default()
-                .build(IOTA_URL).await
-                .context(current_fn!())?
-        )
+        Ok(IotaClientBuilder::default()
+            .build(IOTA_URL)
+            .await
+            .context(current_fn!())?)
     }
 
     pub async fn get_proxy_cap(
         iota_client: &IotaClient,
         module: Identifier,
-        proxy_address: IotaAddress
+        proxy_address: IotaAddress,
     ) -> Result<IotaObjectData, ProxyError> {
         for package_id_str in [DECMED_PACKAGE_ID, DECMED_ORIGINAL_PACKAGE_ID] {
             let package_id = AccountAddress::from_str(package_id_str).context(current_fn!())?;
             let query = IotaObjectResponseQuery {
-                filter: Some(
-                    IotaObjectDataFilter::StructType(StructTag {
-                        address: package_id,
-                        module: module.clone(),
-                        name: Identifier::from_str("ProxyCap").context(current_fn!())?,
-                        type_params: vec![],
-                    })
-                ),
+                filter: Some(IotaObjectDataFilter::StructType(StructTag {
+                    address: package_id,
+                    module: module.clone(),
+                    name: Identifier::from_str("ProxyCap").context(current_fn!())?,
+                    type_params: vec![],
+                })),
                 options: None,
             };
             let res = iota_client
                 .read_api()
-                .get_owned_objects(proxy_address, query, None, 1).await
+                .get_owned_objects(proxy_address, query, None, 1)
+                .await
                 .context(current_fn!())?;
 
             if let Some(entry) = res.data.first() {
@@ -379,12 +381,11 @@ impl Utils {
     }
 
     pub async fn get_ref_gas_price(iota_client: &IotaClient) -> Result<u64, ProxyError> {
-        Ok(
-            (*iota_client)
-                .governance_api()
-                .get_reference_gas_price().await
-                .context(current_fn!())?
-        )
+        Ok((*iota_client)
+            .governance_api()
+            .get_reference_gas_price()
+            .await
+            .context(current_fn!())?)
     }
 
     pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<(), ProxyError> {
@@ -397,14 +398,29 @@ impl Utils {
 
         if response.effects.as_ref().unwrap().status().is_err() {
             return Err(ProxyError::Anyhow {
-                source: anyhow!(response.effects.unwrap().status().to_string()).context(
-                    current_fn!()
-                ),
+                source: anyhow!(response.effects.unwrap().status().to_string())
+                    .context(current_fn!()),
                 code: StatusCode::INTERNAL_SERVER_ERROR,
             });
         }
 
         Ok(())
+    }
+
+    pub fn is_stale_object_execution_error(response: &ExecuteTxResponse) -> bool {
+        let error = if let Some(error) = response.error.as_deref() {
+            error.to_string()
+        } else {
+            response
+                .effects
+                .as_ref()
+                .filter(|effects| effects.status().is_err())
+                .map(|effects| effects.status().to_string())
+                .unwrap_or_default()
+        };
+
+        error.contains("is not available for consumption")
+            || (error.contains("current version") && error.contains("Version"))
     }
 
     pub fn handle_error_move_call_read_only(response: DevInspectResults) -> Result<(), ProxyError> {
@@ -428,25 +444,24 @@ impl Utils {
     pub async fn move_call_read_only(
         sender: IotaAddress,
         iota_client: &IotaClient,
-        pt: ProgrammableTransaction
+        pt: ProgrammableTransaction,
     ) -> Result<DevInspectResults, ProxyError> {
-        Ok(
-            (*iota_client)
-                .read_api()
-                .dev_inspect_transaction_block(
-                    sender,
-                    iota_types::transaction::TransactionKind::ProgrammableTransaction(pt),
-                    None,
-                    None,
-                    None
-                ).await
-                .context(current_fn!())?
-        )
+        Ok((*iota_client)
+            .read_api()
+            .dev_inspect_transaction_block(
+                sender,
+                iota_types::transaction::TransactionKind::ProgrammableTransaction(pt),
+                None,
+                None,
+                None,
+            )
+            .await
+            .context(current_fn!())?)
     }
 
     pub fn parse_move_read_only_result<T: DeserializeOwned>(
         val: DevInspectResults,
-        index: usize
+        index: usize,
     ) -> Result<T, ProxyError> {
         let res = val.results.unwrap()[0].return_values[index].0.to_vec();
 
@@ -455,39 +470,42 @@ impl Utils {
 
     pub async fn reserve_gas(
         gas_budget: u64,
-        reserve_duration_secs: u64
+        reserve_duration_secs: u64,
     ) -> Result<(IotaAddress, u64, Vec<ObjectRef>), ProxyError> {
         let req_client = reqwest::Client::new();
         let res = req_client
             .post(format!("{}/reserve_gas", GAS_STATION_BASE_URL))
             .bearer_auth("token")
-            .json(
-                &json!({
+            .json(&json!({
               "gas_budget": gas_budget,
             "reserve_duration_secs": reserve_duration_secs
-            })
-            )
-            .send().await
+            }))
+            .send()
+            .await
             .context(current_fn!())?;
-        let res_body = res.json::<ReserveGasResponse>().await.context(current_fn!())?;
-        Ok(
-            res_body.result
-                .map(|result| {
-                    (
-                        result.sponsor_address,
-                        result.reservation_id,
-                        result.gas_coins
-                            .into_iter()
-                            .map(|c| c.to_object_ref())
-                            .collect(),
-                    )
-                })
-                .context(current_fn!())?
-        )
+        let res_body = res
+            .json::<ReserveGasResponse>()
+            .await
+            .context(current_fn!())?;
+        Ok(res_body
+            .result
+            .map(|result| {
+                (
+                    result.sponsor_address,
+                    result.reservation_id,
+                    result
+                        .gas_coins
+                        .into_iter()
+                        .map(|c| c.to_object_ref())
+                        .collect(),
+                )
+            })
+            .context(current_fn!())?)
     }
 
     pub fn serde_deserialize_from_base64<T>(val: String) -> Result<T, ProxyError>
-        where T: DeserializeOwned
+    where
+        T: DeserializeOwned,
     {
         let val = STANDARD.decode(val).context(current_fn!())?;
         let ori_val: T = serde_json::from_slice(&val).context(current_fn!())?;
@@ -495,7 +513,10 @@ impl Utils {
         Ok(ori_val)
     }
 
-    pub fn serde_serialize_to_base64<T>(val: &T) -> Result<String, ProxyError> where T: Serialize {
+    pub fn serde_serialize_to_base64<T>(val: &T) -> Result<String, ProxyError>
+    where
+        T: Serialize,
+    {
         let ser_val = serde_json::to_vec(val).context(current_fn!())?;
         Ok(STANDARD.encode(ser_val))
     }

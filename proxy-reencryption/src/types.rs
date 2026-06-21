@@ -1,15 +1,18 @@
 use std::fmt::Debug;
 
-use iota_json_rpc_types::{ IotaObjectRef, IotaTransactionBlockEffects };
-use iota_types::{ base_types::{ IotaAddress, ObjectID }, Identifier };
+use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
+use iota_types::{
+    base_types::{IotaAddress, ObjectID},
+    Identifier,
+};
 use r2d2::Pool;
 use redis::Client;
 use schemars::JsonSchema;
-use serde::{ de, Deserialize, Deserializer, Serialize };
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::move_call::MoveCall;
 use decmed_macaroon_auth::VerifiedDecmedToken;
-use decmed_rme_segment::{ DatasetCategory, FunctionCategory };
+use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthRole {
@@ -322,7 +325,10 @@ pub struct PatientPrivateAdministrativeMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct SuccessResponse<T> where T: Debug {
+pub struct SuccessResponse<T>
+where
+    T: Debug,
+{
     pub data: T,
     pub status_code: u16,
 }
@@ -340,20 +346,19 @@ pub struct UtilIpfsAddResponse {
 }
 
 fn deserialize_ipfs_size<'de, D>(deserializer: D) -> Result<u64, D::Error>
-    where D: Deserializer<'de>
+where
+    D: Deserializer<'de>,
 {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
 
     match value {
         None | Some(serde_json::Value::Null) => Ok(0),
-        Some(serde_json::Value::Number(number)) =>
-            number
-                .as_u64()
-                .ok_or_else(|| de::Error::custom("IPFS size must be an unsigned integer")),
-        Some(serde_json::Value::String(value)) =>
-            value
-                .parse::<u64>()
-                .map_err(|err| de::Error::custom(format!("Invalid IPFS size: {err}"))),
+        Some(serde_json::Value::Number(number)) => number
+            .as_u64()
+            .ok_or_else(|| de::Error::custom("IPFS size must be an unsigned integer")),
+        Some(serde_json::Value::String(value)) => value
+            .parse::<u64>()
+            .map_err(|err| de::Error::custom(format!("Invalid IPFS size: {err}"))),
         Some(_) => Err(de::Error::custom("IPFS size must be a number or string")),
     }
 }
@@ -364,9 +369,8 @@ mod tests {
 
     #[test]
     fn ipfs_add_response_accepts_cluster_shape_without_allocations() {
-        let response: UtilIpfsAddResponse = serde_json
-            ::from_str(r#"{"cid":"bafy123","name":"segment","size":126}"#)
-            .unwrap();
+        let response: UtilIpfsAddResponse =
+            serde_json::from_str(r#"{"cid":"bafy123","name":"segment","size":126}"#).unwrap();
 
         assert_eq!(response.cid, "bafy123");
         assert!(response.allocations.is_empty());
@@ -375,9 +379,8 @@ mod tests {
 
     #[test]
     fn ipfs_add_response_accepts_kubo_shape() {
-        let response: UtilIpfsAddResponse = serde_json
-            ::from_str(r#"{"Name":"segment","Hash":"Qm123","Size":"126"}"#)
-            .unwrap();
+        let response: UtilIpfsAddResponse =
+            serde_json::from_str(r#"{"Name":"segment","Hash":"Qm123","Size":"126"}"#).unwrap();
 
         assert_eq!(response.cid, "Qm123");
         assert_eq!(response.name, "segment");

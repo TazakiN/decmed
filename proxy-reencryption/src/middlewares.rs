@@ -1,28 +1,21 @@
-use std::{ str::FromStr, sync::Arc };
+use std::{str::FromStr, sync::Arc};
 
 use crate::{
     macaroon_auth::map_caveat_error,
-    proxy_error::{ ProxyError, ResultExt },
-    types::{ AppState, AuthRole, CurrentUser, MoveHospitalPersonnelRole, ReencryptionPurposeType },
+    proxy_error::{ProxyError, ResultExt},
+    types::{AppState, AuthRole, CurrentUser, MoveHospitalPersonnelRole, ReencryptionPurposeType},
     utils::Utils,
 };
 use anyhow::anyhow;
 use axum::{
-    extract::{ Request, State },
-    http::{ self, StatusCode },
+    extract::{Request, State},
+    http::{self, StatusCode},
     middleware::Next,
     response::Response,
 };
 use decmed_macaroon_auth::{
-    compute_revocation_keys,
-    hash_token,
-    verify_macaroon_signature,
-    DelegationChain,
-    EffectiveCapability,
-    Macaroon,
-    MacaroonKey,
-    ParsedCaveats,
-    VerifiedDecmedToken,
+    compute_revocation_keys, hash_token, verify_macaroon_signature, DelegationChain,
+    EffectiveCapability, Macaroon, MacaroonKey, ParsedCaveats, VerifiedDecmedToken,
 };
 use iota_types::base_types::IotaAddress;
 use redis::Commands;
@@ -34,7 +27,7 @@ pub const DELEGATION_SIGNATURE_HEADER: &str = "x-decmed-delegation-signature";
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut request: Request,
-    next: Next
+    next: Next,
 ) -> Result<Response, ProxyError> {
     let authorization_header = request
         .headers()
@@ -114,10 +107,10 @@ pub async fn auth_middleware(
 
         // DecMed token caveat role is legacy/deprecated for delegated tokens.
         // Identity role/sub-role must come from on-chain registry for the active subject.
-        let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
-            &active_subject_address,
-            proxy_iota_address
-        ).await?;
+        let (move_role, sub_role) = state
+            .move_call
+            .get_hospital_personnel_auth_info(&active_subject_address, proxy_iota_address)
+            .await?;
         let role = auth_role_from_move_role(move_role)?;
         let purpose = decmed_purpose_from_parsed(&parsed)?;
         let hospital_cid = effective.hospital_cid.clone();
@@ -149,19 +142,17 @@ pub async fn auth_middleware(
 }
 
 fn decmed_purpose_from_parsed(
-    parsed: &ParsedCaveats
+    parsed: &ParsedCaveats,
 ) -> Result<ReencryptionPurposeType, ProxyError> {
-    use decmed_macaroon_auth::{ CaveatKey, CaveatValue };
+    use decmed_macaroon_auth::{CaveatKey, CaveatValue};
 
     let purpose_caveats = parsed.all(CaveatKey::Purpose);
     let purpose_entry = purpose_caveats.first();
 
     let purpose_str = purpose_entry
-        .and_then(|c| {
-            match &c.value {
-                CaveatValue::Text(s) => Some(s.as_str()),
-                _ => None,
-            }
+        .and_then(|c| match &c.value {
+            CaveatValue::Text(s) => Some(s.as_str()),
+            _ => None,
         })
         .unwrap_or("Read");
 
@@ -183,10 +174,9 @@ fn auth_role_from_move_role(role: MoveHospitalPersonnelRole) -> Result<AuthRole,
     match role {
         MoveHospitalPersonnelRole::AdministrativePersonnel => Ok(AuthRole::AdministrativePersonnel),
         MoveHospitalPersonnelRole::MedicalPersonnel => Ok(AuthRole::MedicalPersonnel),
-        MoveHospitalPersonnelRole::Admin =>
-            Err(ProxyError::Anyhow {
-                source: anyhow!("Invalid personnel account"),
-                code: StatusCode::UNAUTHORIZED,
-            }),
+        MoveHospitalPersonnelRole::Admin => Err(ProxyError::Anyhow {
+            source: anyhow!("Invalid personnel account"),
+            code: StatusCode::UNAUTHORIZED,
+        }),
     }
 }

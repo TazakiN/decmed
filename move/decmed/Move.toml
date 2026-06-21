@@ -3,7 +3,7 @@ name = "decmed"
 edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
-published-at = "0x77e3824ed86d5bb9e0b1bc7e71d2b644c775d0d54f59a29a3b4c3ac9e1fb82ab"
+published-at = "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38"
 
 [dependencies]
 Iota = { git = "https://github.com/iotaledger/iota.git", subdir = "crates/iota-framework/packages/iota-framework", rev = "testnet", override = true }

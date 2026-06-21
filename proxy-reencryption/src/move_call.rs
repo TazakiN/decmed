@@ -4,23 +4,20 @@ use anyhow::Context;
 use axum::http::StatusCode;
 use iota_sdk::IotaClient;
 use iota_types::{
-    base_types::{ IotaAddress, ObjectID },
+    base_types::{IotaAddress, ObjectID},
     crypto::IotaKeyPair,
     gas_coin::NANOS_PER_IOTA,
-    transaction::{ CallArg, Transaction },
+    transaction::{CallArg, Transaction},
     Identifier,
 };
 
 use crate::{
-    constants::{ DECMED_MODULE_SHARED, GAS_BUDGET },
+    constants::{DECMED_MODULE_SHARED, GAS_BUDGET},
     current_fn,
-    proxy_error::{ ProxyError, ResultExt },
+    proxy_error::{ProxyError, ResultExt},
     types::{
-        DecmedPackage,
-        HospitalPersonnelSubRole,
-        MoveHospitalPersonnelRole,
-        MovePatientAdministrativeMetadata,
-        MovePatientMedicalMetadata,
+        DecmedPackage, HospitalPersonnelSubRole, MoveHospitalPersonnelRole,
+        MovePatientAdministrativeMetadata, MovePatientMedicalMetadata,
     },
     utils::Utils,
 };
@@ -34,7 +31,7 @@ impl MoveCall {
         Utils::construct_shared_object_call_arg(
             self.decmed_package.address_id_object_id,
             self.decmed_package.address_id_object_version,
-            mutable
+            mutable,
         )
     }
 
@@ -44,22 +41,23 @@ impl MoveCall {
 
     pub async fn construct_global_admin_cap(&self) -> Result<CallArg, ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
-        Ok(
-            Utils::construct_capability_call_arg(
-                &iota_client,
-                self.decmed_package.global_admin_cap_id
-            ).await.context(current_fn!())?
+        Ok(Utils::construct_capability_call_arg(
+            &iota_client,
+            self.decmed_package.global_admin_cap_id,
         )
+        .await
+        .context(current_fn!())?)
     }
 
     pub fn construct_hospital_personnel_id_account_object_call_arg(
         &self,
-        mutable: bool
+        mutable: bool,
     ) -> CallArg {
         Utils::construct_shared_object_call_arg(
             self.decmed_package.hospital_personnel_id_account_object_id,
-            self.decmed_package.hospital_personnel_id_account_object_version,
-            mutable
+            self.decmed_package
+                .hospital_personnel_id_account_object_version,
+            mutable,
         )
     }
 
@@ -67,7 +65,7 @@ impl MoveCall {
         Utils::construct_shared_object_call_arg(
             self.decmed_package.patient_id_account_object_id,
             self.decmed_package.patient_id_account_object_version,
-            mutable
+            mutable,
         )
     }
 
@@ -75,16 +73,21 @@ impl MoveCall {
         &self,
         iota_client: &IotaClient,
         module: Identifier,
-        proxy_iota_address: IotaAddress
+        proxy_iota_address: IotaAddress,
     ) -> Result<CallArg, ProxyError> {
-        let cap = Utils::get_proxy_cap(iota_client, module, proxy_iota_address).await.context(
-            current_fn!()
-        )?;
+        let cap = Utils::get_proxy_cap(iota_client, module, proxy_iota_address)
+            .await
+            .context(current_fn!())?;
+
+        println!(
+            "proxy-reencryption using ProxyCap object_id={} version={} digest={}",
+            cap.object_id, cap.version, cap.digest
+        );
 
         Ok(
-            Utils::construct_capability_call_arg(iota_client, cap.object_id).await.context(
-                current_fn!()
-            )?
+            Utils::construct_capability_call_arg(iota_client, cap.object_id)
+                .await
+                .context(current_fn!())?,
         )
     }
 
@@ -92,7 +95,7 @@ impl MoveCall {
         &self,
         proxy_iota_address: &IotaAddress,
         sender: IotaAddress,
-        sender_key_pair: IotaKeyPair
+        sender_key_pair: IotaKeyPair,
     ) -> Result<(), ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -102,15 +105,20 @@ impl MoveCall {
             vec![],
             vec![
                 CallArg::Pure(bcs::to_bytes(proxy_iota_address).context(current_fn!())?),
-                self.construct_global_admin_cap().await.context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_global_admin_cap()
+                    .await
+                    .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = Utils::reserve_gas(
-            NANOS_PER_IOTA * 2,
-            10
-        ).await.context(current_fn!())?;
-        let ref_gas_price = Utils::get_ref_gas_price(&iota_client).await.context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            Utils::reserve_gas(NANOS_PER_IOTA * 2, 10)
+                .await
+                .context(current_fn!())?;
+        let ref_gas_price = Utils::get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
 
         let tx_data = Utils::construct_sponsored_tx_data(
             sender,
@@ -118,13 +126,15 @@ impl MoveCall {
             pt,
             GAS_BUDGET,
             ref_gas_price,
-            sponsor_account
+            sponsor_account,
         );
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
 
-        let response = Utils::execute_tx(tx, reservation_id).await.context(current_fn!())?;
+        let response = Utils::execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_execute_tx(response).context(current_fn!())?;
 
@@ -137,7 +147,7 @@ impl MoveCall {
         metadata: String,
         patient_address: &IotaAddress,
         sender: IotaAddress,
-        sender_key_pair: IotaKeyPair
+        sender_key_pair: IotaKeyPair,
     ) -> Result<(), ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -153,21 +163,24 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = Utils::reserve_gas(
-            NANOS_PER_IOTA * 2,
-            10
-        ).await.context(current_fn!())?;
-        let ref_gas_price = Utils::get_ref_gas_price(&iota_client).await.context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            Utils::reserve_gas(NANOS_PER_IOTA * 2, 10)
+                .await
+                .context(current_fn!())?;
+        let ref_gas_price = Utils::get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
 
         let tx_data = Utils::construct_sponsored_tx_data(
             sender,
@@ -175,13 +188,15 @@ impl MoveCall {
             pt,
             GAS_BUDGET,
             ref_gas_price,
-            sponsor_account
+            sponsor_account,
         );
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
 
-        let response = Utils::execute_tx(tx, reservation_id).await.context(current_fn!())?;
+        let response = Utils::execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_execute_tx(response).context(current_fn!())?;
 
@@ -194,53 +209,74 @@ impl MoveCall {
         metadata: String,
         patient_address: &IotaAddress,
         sender: IotaAddress,
-        sender_key_pair: IotaKeyPair
+        sender_key_pair: IotaKeyPair,
     ) -> Result<(), ProxyError> {
-        let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
-        let pt = Utils::construct_pt(
-            "create_medical_record_segment",
-            self.decmed_package.package_id,
-            self.decmed_package.module_proxy.clone(),
-            vec![],
-            vec![
-                self.construct_address_id_object_call_arg(false),
-                self.construct_clock_call_arg(),
-                CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
-                self.construct_hospital_personnel_id_account_object_call_arg(true),
-                CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
-                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_patient_id_account_object_call_arg(true),
-                self
-                    .construct_proxy_cap(
+        const MAX_STALE_OBJECT_RETRIES: usize = 3;
+
+        for attempt in 0..=MAX_STALE_OBJECT_RETRIES {
+            let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
+            let pt = Utils::construct_pt(
+                "create_medical_record_segment",
+                self.decmed_package.package_id,
+                self.decmed_package.module_proxy.clone(),
+                vec![],
+                vec![
+                    self.construct_address_id_object_call_arg(false),
+                    self.construct_clock_call_arg(),
+                    CallArg::Pure(
+                        bcs::to_bytes(hospital_personnel_address).context(current_fn!())?,
+                    ),
+                    self.construct_hospital_personnel_id_account_object_call_arg(true),
+                    CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
+                    CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
+                    self.construct_patient_id_account_object_call_arg(true),
+                    self.construct_proxy_cap(
                         &iota_client,
                         Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                        sender,
+                    )
+                    .await
+                    .context(current_fn!())?,
+                ],
+            )
+            .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = Utils::reserve_gas(
-            NANOS_PER_IOTA * 2,
-            10
-        ).await.context(current_fn!())?;
-        let ref_gas_price = Utils::get_ref_gas_price(&iota_client).await.context(current_fn!())?;
+            let (sponsor_account, reservation_id, gas_coins) =
+                Utils::reserve_gas(NANOS_PER_IOTA * 2, 10)
+                    .await
+                    .context(current_fn!())?;
+            let ref_gas_price = Utils::get_ref_gas_price(&iota_client)
+                .await
+                .context(current_fn!())?;
 
-        let tx_data = Utils::construct_sponsored_tx_data(
-            sender,
-            gas_coins,
-            pt,
-            GAS_BUDGET,
-            ref_gas_price,
-            sponsor_account
-        );
+            let tx_data = Utils::construct_sponsored_tx_data(
+                sender,
+                gas_coins,
+                pt,
+                GAS_BUDGET,
+                ref_gas_price,
+                sponsor_account,
+            );
 
-        let signer = sender_key_pair;
-        let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
+            let tx = Transaction::from_data_and_signer(tx_data, vec![&sender_key_pair]);
+            let response = Utils::execute_tx(tx, reservation_id)
+                .await
+                .context(current_fn!())?;
 
-        let response = Utils::execute_tx(tx, reservation_id).await.context(current_fn!())?;
+            if Utils::is_stale_object_execution_error(&response)
+                && attempt < MAX_STALE_OBJECT_RETRIES
+            {
+                println!(
+                    "proxy-reencryption retrying create_medical_record_segment after stale object version (attempt {}/{})",
+                    attempt + 1,
+                    MAX_STALE_OBJECT_RETRIES
+                );
+                continue;
+            }
 
-        Utils::handle_error_execute_tx(response).context(current_fn!())?;
+            Utils::handle_error_execute_tx(response).context(current_fn!())?;
+            break;
+        }
 
         Ok(())
     }
@@ -249,7 +285,7 @@ impl MoveCall {
         &self,
         hospital_personnel_address: &IotaAddress,
         patient_address: &IotaAddress,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<MovePatientAdministrativeMetadata, ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -264,28 +300,27 @@ impl MoveCall {
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let role: MovePatientAdministrativeMetadata = Utils::parse_move_read_only_result(
-            response,
-            0
-        ).context(current_fn!())?;
+        let role: MovePatientAdministrativeMetadata =
+            Utils::parse_move_read_only_result(response, 0).context(current_fn!())?;
 
         Ok(role)
     }
@@ -293,7 +328,7 @@ impl MoveCall {
     pub async fn get_hospital_personnel_role(
         &self,
         hospital_personnel_address: &IotaAddress,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<MoveHospitalPersonnelRole, ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -305,28 +340,27 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_hospital_personnel_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let role: MoveHospitalPersonnelRole = Utils::parse_move_read_only_result(
-            response,
-            0
-        ).context(current_fn!())?;
+        let role: MoveHospitalPersonnelRole =
+            Utils::parse_move_read_only_result(response, 0).context(current_fn!())?;
 
         Ok(role)
     }
@@ -334,7 +368,7 @@ impl MoveCall {
     pub async fn get_hospital_personnel_auth_info(
         &self,
         hospital_personnel_address: &IotaAddress,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<(MoveHospitalPersonnelRole, Option<HospitalPersonnelSubRole>), ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -346,32 +380,29 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_hospital_personnel_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let role: MoveHospitalPersonnelRole = Utils::parse_move_read_only_result(
-            response.clone(),
-            0
-        ).context(current_fn!())?;
-        let sub_role: Option<HospitalPersonnelSubRole> = Utils::parse_move_read_only_result(
-            response,
-            1
-        ).context(current_fn!())?;
+        let role: MoveHospitalPersonnelRole =
+            Utils::parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
+        let sub_role: Option<HospitalPersonnelSubRole> =
+            Utils::parse_move_read_only_result(response, 1).context(current_fn!())?;
 
         Ok((role, sub_role))
     }
@@ -384,7 +415,7 @@ impl MoveCall {
         hospital_personnel_address: &IotaAddress,
         index: u64,
         patient_address: &IotaAddress,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<
         (
             MovePatientMedicalMetadata,
@@ -393,7 +424,7 @@ impl MoveCall {
             Option<u64>,
             Option<u64>,
         ),
-        ProxyError
+        ProxyError,
     > {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -409,42 +440,43 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let medical_metadata: MovePatientMedicalMetadata = Utils::parse_move_read_only_result(
-            response.clone(),
-            0
-        ).context(current_fn!())?;
+        let medical_metadata: MovePatientMedicalMetadata =
+            Utils::parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
         let administrative_metadata: MovePatientAdministrativeMetadata =
             Utils::parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
-        let current_index: u64 = Utils::parse_move_read_only_result(response.clone(), 2).context(
-            current_fn!()
-        )?;
-        let prev_index: Option<u64> = Utils::parse_move_read_only_result(
-            response.clone(),
-            3
-        ).context(current_fn!())?;
-        let next_index: Option<u64> = Utils::parse_move_read_only_result(response, 4).context(
-            current_fn!()
-        )?;
+        let current_index: u64 =
+            Utils::parse_move_read_only_result(response.clone(), 2).context(current_fn!())?;
+        let prev_index: Option<u64> =
+            Utils::parse_move_read_only_result(response.clone(), 3).context(current_fn!())?;
+        let next_index: Option<u64> =
+            Utils::parse_move_read_only_result(response, 4).context(current_fn!())?;
 
-        Ok((medical_metadata, administrative_metadata, current_index, prev_index, next_index))
+        Ok((
+            medical_metadata,
+            administrative_metadata,
+            current_index,
+            prev_index,
+            next_index,
+        ))
     }
 
     pub async fn get_medical_records(
@@ -453,7 +485,7 @@ impl MoveCall {
         patient_address: &IotaAddress,
         cursor: u64,
         size: u64,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<Vec<MovePatientMedicalMetadata>, ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -470,28 +502,27 @@ impl MoveCall {
                 self.construct_patient_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(&cursor).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&size).context(current_fn!())?),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let medical_metadata: Vec<MovePatientMedicalMetadata> = Utils::parse_move_read_only_result(
-            response,
-            0
-        ).context(current_fn!())?;
+        let medical_metadata: Vec<MovePatientMedicalMetadata> =
+            Utils::parse_move_read_only_result(response, 0).context(current_fn!())?;
 
         Ok(medical_metadata)
     }
@@ -501,8 +532,14 @@ impl MoveCall {
         hospital_personnel_address: &IotaAddress,
         index: u64,
         patient_address: &IotaAddress,
-        sender: IotaAddress
-    ) -> Result<(MovePatientMedicalMetadata, MovePatientAdministrativeMetadata), ProxyError> {
+        sender: IotaAddress,
+    ) -> Result<
+        (
+            MovePatientMedicalMetadata,
+            MovePatientAdministrativeMetadata,
+        ),
+        ProxyError,
+    > {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
             "get_medical_record_update",
@@ -517,28 +554,27 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let medical_metadata: MovePatientMedicalMetadata = Utils::parse_move_read_only_result(
-            response.clone(),
-            0
-        ).context(current_fn!())?;
+        let medical_metadata: MovePatientMedicalMetadata =
+            Utils::parse_move_read_only_result(response.clone(), 0).context(current_fn!())?;
         let administrative_metadata: MovePatientAdministrativeMetadata =
             Utils::parse_move_read_only_result(response.clone(), 1).context(current_fn!())?;
 
@@ -548,7 +584,7 @@ impl MoveCall {
     pub async fn is_patient_registered(
         &self,
         patient_address: &IotaAddress,
-        sender: IotaAddress
+        sender: IotaAddress,
     ) -> Result<bool, ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -560,19 +596,20 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_patient_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let response = Utils::move_call_read_only(sender, &iota_client, pt).await.context(
-            current_fn!()
-        )?;
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_move_call_read_only(response.clone())
             .context(current_fn!())
@@ -587,7 +624,7 @@ impl MoveCall {
         metadata: String,
         patient_address: &IotaAddress,
         sender: IotaAddress,
-        sender_key_pair: IotaKeyPair
+        sender_key_pair: IotaKeyPair,
     ) -> Result<(), ProxyError> {
         let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
         let pt = Utils::construct_pt(
@@ -603,21 +640,24 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
-                self
-                    .construct_proxy_cap(
-                        &iota_client,
-                        Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                        sender
-                    ).await
-                    .context(current_fn!())?
-            ]
-        ).context(current_fn!())?;
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
 
-        let (sponsor_account, reservation_id, gas_coins) = Utils::reserve_gas(
-            NANOS_PER_IOTA * 2,
-            10
-        ).await.context(current_fn!())?;
-        let ref_gas_price = Utils::get_ref_gas_price(&iota_client).await.context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) =
+            Utils::reserve_gas(NANOS_PER_IOTA * 2, 10)
+                .await
+                .context(current_fn!())?;
+        let ref_gas_price = Utils::get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
 
         let tx_data = Utils::construct_sponsored_tx_data(
             sender,
@@ -625,13 +665,15 @@ impl MoveCall {
             pt,
             GAS_BUDGET,
             ref_gas_price,
-            sponsor_account
+            sponsor_account,
         );
 
         let signer = sender_key_pair;
         let tx = Transaction::from_data_and_signer(tx_data, vec![&signer]);
 
-        let response = Utils::execute_tx(tx, reservation_id).await.context(current_fn!())?;
+        let response = Utils::execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
 
         Utils::handle_error_execute_tx(response).context(current_fn!())?;
 

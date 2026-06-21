@@ -9,7 +9,7 @@ metrics-port: 9184
 storage-config:
   redis:
     redis_url: "redis://redis:6379"
-fullnode-url: "https://api.testnet.iota.cafe"
+fullnode-url: "http://103.107.4.64:9000"
 coin-init-config:
   target-init-balance: 100000000
   refresh-interval-sec: 86400

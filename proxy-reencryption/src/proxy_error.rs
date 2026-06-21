@@ -1,5 +1,5 @@
 use axum::http::StatusCode;
-use axum::response::{ IntoResponse, Response };
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use decmed_macaroon_auth::WalletProofContext;
 use serde_json::json;
@@ -7,16 +7,16 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ProxyError {
-    #[error("Error (code {code}): {source}")] Anyhow {
+    #[error("Error (code {code}): {source}")]
+    Anyhow {
         #[source]
         source: anyhow::Error,
         code: StatusCode,
     },
-    #[error("{error}")] Caveat {
-        code: u16,
-        error: String,
-    },
-    #[error("{error}")] WalletProofChallenge {
+    #[error("{error}")]
+    Caveat { code: u16, error: String },
+    #[error("{error}")]
+    WalletProofChallenge {
         code: u16,
         error: String,
         proof_context: WalletProofContext,
@@ -27,22 +27,23 @@ impl IntoResponse for ProxyError {
     fn into_response(self) -> Response {
         let (error_message, code, proof_context) = match self {
             ProxyError::Anyhow { source, code } => (format!("{:?}", source), code, None),
-            ProxyError::Caveat { code, error } =>
-                (
-                    error.clone(),
-                    StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
-                    None,
-                ),
-            ProxyError::WalletProofChallenge { code, error, proof_context } =>
-                (
-                    error.clone(),
-                    StatusCode::from_u16(code).unwrap_or(StatusCode::UNAUTHORIZED),
-                    Some(proof_context),
-                ),
+            ProxyError::Caveat { code, error } => (
+                error.clone(),
+                StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
+                None,
+            ),
+            ProxyError::WalletProofChallenge {
+                code,
+                error,
+                proof_context,
+            } => (
+                error.clone(),
+                StatusCode::from_u16(code).unwrap_or(StatusCode::UNAUTHORIZED),
+                Some(proof_context),
+            ),
         };
 
-        let mut error_response =
-            json!({
+        let mut error_response = json!({
             "status_code": code.as_u16(),
             "error": error_message,
         });
@@ -55,7 +56,10 @@ impl IntoResponse for ProxyError {
 }
 
 impl serde::Serialize for ProxyError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::ser::Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
         serializer.serialize_str(&format!("{:?}", self))
     }
 }

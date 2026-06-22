@@ -20,13 +20,8 @@ export const load: PageLoad = async () => {
 			})) as SuccessResponse<InvokeGetHospitalsResponseData[]>;
 		});
 
-		if (!resInvokeGetHospitals.success) {
-			toast.error(resInvokeGetHospitals.error);
-			throw 'No hospital registered';
-		}
-
-		if (resInvokeGetHospitals.data.data.length === 0) {
-			throw 'No hospital registered';
+		if (!resInvokeGetHospitals.success || resInvokeGetHospitals.data.data.length === 0) {
+			throw new Error(resInvokeGetHospitals.success ? 'No hospital registered' : resInvokeGetHospitals.error);
 		}
 
 		return resInvokeGetHospitals.data.data;

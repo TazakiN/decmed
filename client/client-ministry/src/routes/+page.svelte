@@ -114,7 +114,7 @@
 		</div>
 	{:catch e}
 		<div class="my-4 flex items-center justify-center">
-			<p class="text-zinc-400">{e}.</p>
+			<p class="text-zinc-400">{e instanceof Error ? e.message : String(e)}</p>
 		</div>
 	{/await}
 </div>

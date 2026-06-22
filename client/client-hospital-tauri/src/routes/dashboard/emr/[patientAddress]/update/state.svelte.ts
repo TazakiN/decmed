@@ -95,7 +95,7 @@ export class EmrUpdateState {
 						return;
 					}
 
-					toast.success('Medical record updated sucessfully');
+					toast.success('Medical record updated successfully');
 				}
 			}
 		});
@@ -117,8 +117,6 @@ export class EmrUpdateState {
 				patientIotaAddress
 			})) as SuccessResponse<InvokeGetMedicalRecordResponseData>;
 		});
-
-		console.log('HEREEEE', resInvokeGetMedicalRecord);
 
 		if (!resInvokeGetMedicalRecord.success) {
 			toast.error(resInvokeGetMedicalRecord.error);

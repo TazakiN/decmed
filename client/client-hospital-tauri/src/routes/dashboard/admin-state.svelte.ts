@@ -5,7 +5,6 @@ import {
 } from '$lib/constants';
 import { addPersonnelSchemas } from '$lib/schema';
 import type {
-	Account,
 	AddPersonnelSchemaStep2,
 	HospitalPersonnel,
 	InvokeHospitalAdminAddActivationKeyResponse,
@@ -29,13 +28,6 @@ export class AdminHomeState {
 	isLoadingUpdateActivationKey = $state(false);
 	something: Infer<AddPersonnelSchemaStep2> | undefined = undefined;
 	addPersonnelFormMeta: SuperForm<Infer<AddPersonnelSchemaStep2>>;
-	accounts: Account[] = [
-		{
-			id: 'ADM-111111',
-			name: 'Administrative 1',
-			role: ADMINISTRATIVE_PERSONNEL_ROLE
-		}
-	];
 	roles = [
 		{
 			value: MEDICAL_PERSONNEL_ROLE,
@@ -66,10 +58,6 @@ export class AdminHomeState {
 	];
 
 	constructor({ addPersonnelForm }: Constructor) {
-		$effect(() => {
-			this.addPersonnelFormMeta.options.validators = zod(addPersonnelSchemas[this.currentStep - 1]);
-		});
-
 		this.addPersonnelFormMeta = superForm(addPersonnelForm, {
 			validators: false,
 			dataType: 'json',
@@ -123,8 +111,12 @@ export class AdminHomeState {
 			}
 		});
 
-		// this is magic tho :)
+		// ponytail: subscribe to form changes for step validation
 		this.addPersonnelFormMeta.form.subscribe((val) => (this.something = val));
+
+		$effect(() => {
+			this.addPersonnelFormMeta.options.validators = zod(addPersonnelSchemas[this.currentStep - 1]);
+		});
 	}
 
 	getHospitalPersonnels = async () => {

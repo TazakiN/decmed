@@ -21,7 +21,6 @@
 		validators: zod(activationSchema),
 		onUpdate: async ({ form, result, cancel }) => {
 			if (result.type === 'success') {
-				console.log(form.data);
 				const resInvokeActivateApp = await tryCatchAsVal(async () => {
 					return (await invoke('activate_app', {
 						activationKey: form.data.activationKey,
@@ -30,7 +29,6 @@
 				});
 
 				if (!resInvokeActivateApp.success) {
-					console.log(resInvokeActivateApp.error);
 					toast.error(resInvokeActivateApp.error);
 					cancel();
 					return;
@@ -49,13 +47,11 @@
 		});
 
 		if (!resInvokeGlobalAdminAddActivationKey.success) {
-			console.log(resInvokeGlobalAdminAddActivationKey.error);
 			toast.error(resInvokeGlobalAdminAddActivationKey.error);
 			return;
 		}
 
 		toast.success('Success');
-		console.log(resInvokeGlobalAdminAddActivationKey.data);
 	}
 </script>
 

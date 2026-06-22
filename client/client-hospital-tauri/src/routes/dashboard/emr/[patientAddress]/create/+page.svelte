@@ -80,7 +80,7 @@
 	</div>
 {:catch e}
 	<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500">
-		<p>Something went wrong. Administrataive data not found.</p>
+		<p>Something went wrong. Administrative data not found.</p>
 	</div>
 {/await}
 

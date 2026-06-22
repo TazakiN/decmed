@@ -18,10 +18,6 @@ export class SignInState {
 	authContext = getAuthContext();
 
 	constructor({ signInForm }: Constructor) {
-		$effect(() => {
-			this.signInFormMeta.options.validators = zod(signInSchemas[this.currentStep - 1]);
-		});
-
 		this.signInFormMeta = superForm(signInForm, {
 			validators: false,
 			dataType: 'json',
@@ -96,6 +92,10 @@ export class SignInState {
 					}
 				}
 			}
+		});
+
+		$effect(() => {
+			this.signInFormMeta.options.validators = zod(signInSchemas[this.currentStep - 1]);
 		});
 	}
 }

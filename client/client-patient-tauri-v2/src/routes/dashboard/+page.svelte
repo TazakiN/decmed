@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { compareDatasets, datasetLabels, formatDateTime, timeValue } from '$lib/rme.js';
+	import { compareDatasets, formatDateTime, timeValue } from '$lib/rme.js';
 	import type {
 		DatasetCategory,
 		FunctionCategory,

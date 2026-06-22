@@ -3,6 +3,7 @@
 	import { waitMs } from '$lib/utils.js';
 	import { Loader2 } from '@lucide/svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import { formatDateTime } from '$lib/rme';
 	import moment from 'moment';
 
 	let { data } = $props();
@@ -21,14 +22,7 @@
 				{#each accessLog.data as access}
 					<div class="bg-zinc-100 border border-zinc-300 p-3 rounded-md flex flex-col gap-2">
 						<p>
-							{new Date(access.date).toLocaleDateString('id-ID', {
-								year: 'numeric',
-								month: 'short',
-								day: 'numeric',
-								hour: 'numeric',
-								minute: 'numeric',
-								hourCycle: 'h23'
-							})}
+						{formatDateTime(access.date)}
 						</p>
 						<div class="flex flex-col">
 							<p class="text-sm text-zinc-400">Hospital:</p>
@@ -42,20 +36,7 @@
 							<p class="text-sm text-zinc-400">Access Type:</p>
 							<p>{access.access_type}</p>
 						</div>
-						<!-- {#if access.is_delegated}
-							<div class="flex flex-col">
-								<p class="text-sm text-zinc-400">Delegated By:</p>
-								<p class="break-all">{access.delegated_by_address ?? '-'}</p>
-							</div>
-						{/if} -->
-						<!-- <div class="flex flex-col">
-							<p class="text-sm text-zinc-400">Access Data Type:</p>
-							<div class="flex items-center gap-2">
-								{#each access.access_data_type as dtType}
-									<p class="bg-white px-2">{dtType}</p>
-								{/each}
-							</div>
-						</div> -->
+
 						{#if !access.is_revoked && moment(access.date)
 								.add(access.exp_dur, 'minutes')
 								.isAfter(moment())}

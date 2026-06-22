@@ -262,7 +262,7 @@ fn admin_read_without_rme_reads_any_episode() {
 
 #[test]
 fn admin_write_parent_assigns_rme_on_delegate() {
-    const DELEGATED_RME: &str = "RME-2026-abc12345";
+    const DELEGATED_RME: &str = "RME-000123";
     let datasets = admin_write_datasets(DatasetCategory::RAWAT_JALAN);
     let functions = admin_write_functions(DatasetCategory::RAWAT_JALAN);
     let mut params = DelegationAttenuationParams {
@@ -905,7 +905,7 @@ fn admin_write_delegates_doctor_preset_succeeds() {
 
 #[test]
 fn admin_write_seed_token_administrative_general_on_encounter_lab_apotek() {
-    const DELEGATED_RME: &str = "RME-2026-seed00001";
+    const DELEGATED_RME: &str = "RME-000001";
     for dataset in [
         DatasetCategory::RAWAT_JALAN,
         DatasetCategory::LABORATORIUM,

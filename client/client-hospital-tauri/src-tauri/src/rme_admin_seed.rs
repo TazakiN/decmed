@@ -347,7 +347,7 @@ mod tests {
             .with_timezone(&Utc);
         let (seed, params) = seed_token_for_dataset(
             &parent,
-            "RME-2026-seed-test",
+            "RME-000001",
             DatasetCategory::LABORATORIUM,
             "0x7777777777777777777777777777777777777777777777777777777777777777",
             expires,
@@ -371,7 +371,7 @@ mod tests {
             .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
         assert_eq!(
             effective.related_rme_id.as_deref(),
-            Some("RME-2026-seed-test")
+            Some("RME-000001")
         );
         assert_eq!(effective.hospital_cid.as_deref(), Some("hospital-001"));
     }

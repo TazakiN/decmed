@@ -24,10 +24,6 @@
 				class="flex items-center justify-center cursor-pointer"
 				onclick={() => copyToClipboard(profile.id || '')}><Copy size={16} /></button
 			>
-			<!-- <p class="break-all line-clamp-1">Id Hash:</p>
-		<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
-			{profile.idHash}
-		</p> -->
 			<p class="break-all">Name:</p>
 			<p class="bg-white border border-zinc-200 px-2 py-1 truncate rounded-md text-sm">
 				{profile.name}

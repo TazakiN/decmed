@@ -62,7 +62,7 @@ export class EmrCreateState {
 						return;
 					}
 
-					toast.success('Medical record created sucessfully');
+					toast.success('Medical record created successfully');
 					await goto('/dashboard');
 				}
 			}
@@ -76,8 +76,6 @@ export class EmrCreateState {
 				patientIotaAddress
 			})) as SuccessResponse<InvokeGetPatientAdministrativeDataResponseData>;
 		});
-
-		console.log(resInvokeGetPatientAdministrativeData);
 
 		if (!resInvokeGetPatientAdministrativeData.success) {
 			toast.error(resInvokeGetPatientAdministrativeData.error);

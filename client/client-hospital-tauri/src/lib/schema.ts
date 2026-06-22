@@ -91,7 +91,7 @@ const pinSchema = {
 		.regex(/^\d{6}$/, { message: 'PIN is invalid.' })
 		.min(1, { message: 'PIN is required.' })
 		.max(6, { message: 'PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
+		
 };
 
 const nameSchema = {
@@ -101,7 +101,7 @@ const nameSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
 			message: 'Name must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 export const medicalDataMainCategory = {
@@ -122,7 +122,7 @@ const anamnesisSchema = {
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Anamnesis must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const physicalCheckSchema = {
@@ -135,7 +135,7 @@ const physicalCheckSchema = {
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Physical check must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const psychologicalCheckSchema = {
@@ -148,7 +148,7 @@ const psychologicalCheckSchema = {
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Psychological check must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const diagnoseSchema = {
@@ -161,7 +161,7 @@ const diagnoseSchema = {
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Diagnose must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const therapySchema = {
@@ -174,7 +174,7 @@ const therapySchema = {
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Therapy must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 // const _hospitalSchema = {
@@ -184,7 +184,7 @@ const therapySchema = {
 // 		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
 // 			message: 'Hospital must consist of alphanumeric characters only of length 2 - 100.'
 // 		})
-// 		.transform((val) => val.trim())
+// 		
 // };
 
 export const activationSchema = z.object({
@@ -195,7 +195,7 @@ export const activationSchema = z.object({
 		})
 		.trim()
 		.min(1, { message: 'ID is required.' })
-		.transform((val) => val.trim()),
+		,
 	activationKey: z
 		.string({
 			required_error: 'Activation Key is required.',
@@ -204,7 +204,7 @@ export const activationSchema = z.object({
 		.trim()
 		.min(1, { message: 'Activation Key is required.' })
 		.max(36, { message: 'Activation Key is invalid.' })
-		.transform((val) => val.trim())
+		
 });
 
 export const signInSchemaStep1 = z.object(pinSchema);
@@ -219,7 +219,7 @@ export const signInSchemaStep2 = signInSchemaStep1.extend({
 		.regex(/^\d{6}$/, { message: 'Confirm PIN is invalid.' })
 		.min(1, { message: 'Confirm PIN is required.' })
 		.max(6, { message: 'Confirm PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
+		
 });
 
 export const signInSchemaStep3 = signInSchemaStep2
@@ -231,7 +231,7 @@ export const signInSchemaStep3 = signInSchemaStep2
 			})
 			.trim()
 			.min(1, { message: 'Seed Words is required.' })
-			.transform((val) => val.trim())
+			
 			.refine(
 				(val) => {
 					const words = val.split(' ');
@@ -254,6 +254,7 @@ export const signInSchemaStep3 = signInSchemaStep2
 
 export const signUpSchemaStep1 = signInSchemaStep1;
 export const signUpSchemaStep2 = signInSchemaStep2;
+export const signUpSchemaStep3 = z.object({});
 export const signUpSchemaStep4 = signInSchemaStep3;
 
 export const medicalPersonnelSubRoleSchema = z.enum(MEDICAL_PERSONNEL_SUB_ROLES, {
@@ -269,7 +270,7 @@ export const addPersonnelSchemaStep1 = z.object({
 		})
 		.trim()
 		.min(1, { message: 'ID is required.' })
-		.transform((val) => val.trim()),
+		,
 	role: z.enum([ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE], {
 		required_error: 'Role is required.',
 		invalid_type_error: 'Role is invalid.'
@@ -336,6 +337,6 @@ export const signInSchemas = [signInSchemaStep1, signInSchemaStep2, signInSchema
 export const signUpSchemas = [
 	signUpSchemaStep1,
 	signUpSchemaStep2,
-	signUpSchemaStep2,
+	signUpSchemaStep3,
 	signUpSchemaStep4
 ];

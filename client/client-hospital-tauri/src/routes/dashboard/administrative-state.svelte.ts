@@ -4,9 +4,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 
 export class AdministrativeHomeState {
-	tabs = ['read', 'write'];
-	currentTab = $state(this.tabs[0]);
-
 	constructor() {}
 
 	get_read_access = async () => {

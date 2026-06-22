@@ -1,4 +1,3 @@
-export const AUTH_CONTEXT_DEFAULT_KEY = '$_auth_context';
 export const SIGNUP_TOTAL_STEP = 5;
 export const SIGNIN_TOTAL_STEP = 3;
 export const ONE_KB = 1024;

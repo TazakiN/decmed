@@ -7,6 +7,8 @@ import { toast } from 'svelte-sonner';
 import { type Infer, type SuperValidated, type SuperForm, superForm } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 
+const SUCCESS_DELAY_MS = 2000;
+
 type ConstructorProps = {
 	addHospitalForm: SuperValidated<Infer<AddHospitalSchema>>;
 };
@@ -40,7 +42,7 @@ export class HomeState {
 						return;
 					}
 
-					await waitMs(2000);
+					await waitMs(SUCCESS_DELAY_MS);
 					this.isAddHospitalDialogOpen = false;
 
 					toast.success('Hospital successfully registered');
@@ -62,7 +64,7 @@ export class HomeState {
 			return;
 		}
 
-		await waitMs(2000);
+		await waitMs(SUCCESS_DELAY_MS);
 		invalidateAll();
 		this.isLoadingUpdateActivationKey = false;
 		toast.success('Activation key updated successfully');

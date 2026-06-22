@@ -1,10 +1,8 @@
 <script lang="ts">
 	import {
 		compareDatasets,
-		compareFunctions,
 		datasetLabels,
 		formatDateTime,
-		functionLabels,
 		timeValue
 	} from '$lib/rme.js';
 	import type {

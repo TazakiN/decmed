@@ -25,8 +25,6 @@ export const load: LayoutLoad = async ({ url }) => {
 		role: null
 	};
 
-	console.log(resInvokeAuthState);
-
 	if (!resInvokeAuthState.success) {
 		const redirect_code = resInvokeAuthState.error.match(/\$<(\d+)>\$/);
 		if (!redirect_code) {
@@ -64,8 +62,6 @@ export const load: LayoutLoad = async ({ url }) => {
 	if (resInvokeAuthState.success) {
 		defaultData.role = resInvokeAuthState.data.data;
 	}
-
-	console.log(defaultData);
 
 	return defaultData;
 };

@@ -53,6 +53,7 @@
 	let visiblePatientInfo = $state<Record<string, boolean>>({});
 	let currentRole = $state<GetProfileData['role'] | null>(null);
 	let delegationExpiresAtLocal = $state('');
+	let lastAccessKey = $state('');
 
 	const DEFAULT_DELEGATION_DURATION_MS = 24 * 60 * 60 * 1000;
 	const EXPIRY_SAFETY_WINDOW_MS = 1000;
@@ -424,7 +425,10 @@
 		void preset;
 		void mode;
 		applyPreset();
-		setDefaultDelegationExpiry();
+		if (selectedAccessKey !== lastAccessKey) {
+			lastAccessKey = selectedAccessKey;
+			setDefaultDelegationExpiry();
+		}
 	});
 </script>
 

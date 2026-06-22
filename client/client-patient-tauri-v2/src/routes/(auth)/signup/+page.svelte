@@ -8,7 +8,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
 	import { toast } from 'svelte-sonner';
-	import SuperDebug, { superForm } from 'sveltekit-superforms';
+	import { superForm } from 'sveltekit-superforms';
 	import { zod } from 'sveltekit-superforms/adapters';
 
 	let { data } = $props();
@@ -110,7 +110,7 @@
 
 			if (valid) currentStep += 1;
 
-			if (currentStep == 3) {
+			if (currentStep === 3) {
 				const resInvokeGenerateMnemonic = await tryCatchAsVal(async () => {
 					return (await invoke('generate_mnemonic')) as SuccessResponse<string>;
 				});
@@ -153,6 +153,8 @@
 		await navigator.clipboard.writeText(mnemonic);
 	};
 
+	// ponytail: copyMnemonic uses clipboard directly instead of importing copyToClipboard - one less import
+
 	$effect(() => {
 		signUpFormOptions.validators = zod(signUpSchemas[currentStep - 1]);
 	});
@@ -186,8 +188,7 @@
 				<form method="post" use:signUpFormEnhance class="flex flex-col flex-1 w-full">
 					<div class="flex-1 flex flex-col justify-center w-full gap-4">
 						<h3 class="font-medium">Sign Up</h3>
-						<!-- <SuperDebug data={$signUpForm} /> -->
-						{#if currentStep === 1}
+{#if currentStep === 1}
 							<p>Enter PIN:</p>
 
 							<PinInput.Root

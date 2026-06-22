@@ -279,5 +279,3 @@ export type SignInSchemaStep3 = typeof signInSchemaStep3;
 export type UpdateMedicalRecordSchema = typeof updateMedicalRecordSchema;
 
 export type MedicalData = z.infer<typeof createMedicalRecordSchema>;
-export type MedicalDataMainCategory = DatasetCategory;
-export type MedicalDataSubCategory = FunctionCategory;

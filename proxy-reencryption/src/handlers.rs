@@ -50,6 +50,8 @@ use decmed_macaroon_auth::{
     WalletProofContext,
 };
 
+const RME_COUNTER_KEY: &str = "rme:encounter-counter";
+
 pub struct Handlers {}
 
 #[derive(Debug)]
@@ -201,16 +203,11 @@ fn revocation_ttl(expires_before: Option<&str>) -> Result<u64, ProxyError> {
 }
 
 fn reserve_related_rme_id(conn: &mut redis::Connection) -> Result<String, ProxyError> {
-    let now = chrono::Utc::now();
-    let year = now.format("%Y").to_string();
-    let sequence: u64 = conn
-        .incr(format!("rme:encounter-counter:{year}"), 1)
-        .context(current_fn!())?;
+    let sequence: u64 = conn.incr(RME_COUNTER_KEY, 1).context(current_fn!())?;
 
     // related_rme_id is the encounter/RME id. Do not derive it from
     // metadata.index; that index identifies individual segment metadata.
-    let year = year.parse::<i32>().context(current_fn!())?;
-    Ok(format_related_rme_id(year, sequence))
+    Ok(format_related_rme_id(sequence))
 }
 
 fn get_access_keys_for_current_user(

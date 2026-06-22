@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatDateTime } from '$lib/rme';
 	import type { DelegationAuditPersonnelSummary } from '$lib/types';
 
 	let { data } = $props();
@@ -7,18 +8,6 @@
 		const role = person.subRole ?? person.role;
 		const name = person.name ?? '-';
 		return role ? `${name} (${role})` : name;
-	};
-
-	const formatDateTime = (value: string | null) => {
-		if (!value) return '-';
-		return new Date(value).toLocaleDateString('id-ID', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: 'numeric',
-			hourCycle: 'h23'
-		});
 	};
 
 	const statusClass = (status: string) => {

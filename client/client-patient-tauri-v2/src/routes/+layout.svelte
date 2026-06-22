@@ -2,12 +2,9 @@
 	import '../app.css';
 	import '@fontsource-variable/inter';
 	import '@fontsource-variable/montserrat';
-	// import { createAuthContext } from './(context)/auth-context.svelte';
 	import { Toaster } from 'svelte-sonner';
 
 	let { children } = $props();
-
-	// createAuthContext();
 </script>
 
 <Toaster position="top-right" richColors />

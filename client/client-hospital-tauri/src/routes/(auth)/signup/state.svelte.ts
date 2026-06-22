@@ -7,7 +7,7 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { getAuthContext } from '../../(context)/auth-context.svelte';
 import { tryCatchAsVal } from '$lib/utils';
 import { toast } from 'svelte-sonner';
-import { invalidate, invalidateAll } from '$app/navigation';
+import { invalidateAll } from '$app/navigation';
 
 type Constructor = {
 	signUpForm: SuperValidated<Infer<SignUpSchemaStep4>>;
@@ -20,10 +20,6 @@ export class SignUpState {
 	authContext = getAuthContext();
 
 	constructor({ signUpForm }: Constructor) {
-		$effect(() => {
-			this.signUpFormMeta.options.validators = zod(signUpSchemas[this.currentStep - 1]);
-		});
-
 		this.signUpFormMeta = superForm(signUpForm, {
 			validators: false,
 			dataType: 'json',
@@ -111,6 +107,10 @@ export class SignUpState {
 					}
 				}
 			}
+		});
+
+		$effect(() => {
+			this.signUpFormMeta.options.validators = zod(signUpSchemas[this.currentStep - 1]);
 		});
 	}
 

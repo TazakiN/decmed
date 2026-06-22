@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SIGNIN_TOTAL_STEP } from '$lib/constants';
-	import SuperDebug, { superForm } from 'sveltekit-superforms';
+	import { superForm } from 'sveltekit-superforms';
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
 	import { cn, tryCatchAsVal } from '$lib/utils';
 	import { zod } from 'sveltekit-superforms/adapters';
@@ -144,7 +144,6 @@
 				<form method="post" use:signInFormEnhance class="flex flex-col flex-1 w-full">
 					<div class="flex-1 flex flex-col justify-center w-full gap-4">
 						<h3 class="font-medium">Sign In</h3>
-						<!-- <SuperDebug data={$signInForm} /> -->
 						{#if currentStep === 1}
 							<p>Enter PIN:</p>
 

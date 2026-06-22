@@ -3,7 +3,6 @@
 	import { cn } from '$lib/utils';
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
 	import { SignUpState } from './state.svelte';
-	import SuperDebug from 'sveltekit-superforms';
 
 	let { data } = $props();
 	const signUpState = new SignUpState({ signUpForm: data.signUpForm });
@@ -45,7 +44,6 @@
 				<form method="post" use:signUpFormEnhance class="flex flex-col flex-1 w-full">
 					<div class="flex-1 flex flex-col justify-center w-full gap-4">
 						<h3 class="font-medium">Register</h3>
-						<!-- <SuperDebug data={$signUpForm} /> -->
 						{#if signUpState.currentStep === 1}
 							<p>Enter PIN:</p>
 

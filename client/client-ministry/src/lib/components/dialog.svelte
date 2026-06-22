@@ -5,9 +5,6 @@
 	type Props = Dialog.RootProps & {
 		title: Snippet;
 		contentProps?: WithoutChild<Dialog.ContentProps>;
-		withCloseButton?: boolean;
-		trigger?: Snippet;
-		closeButtonEvent?: () => void;
 	};
 
 	let {
@@ -15,19 +12,11 @@
 		children,
 		contentProps,
 		title,
-		trigger,
-		withCloseButton = false,
-		closeButtonEvent = () => {},
 		...restProps
 	}: Props = $props();
 </script>
 
 <Dialog.Root bind:open {...restProps}>
-	{#if trigger}
-		<Dialog.Trigger class="max-w-max rounded-lg bg-zinc-800 px-4 py-1 text-zinc-200">
-			{@render trigger()}
-		</Dialog.Trigger>
-	{/if}
 	<Dialog.Portal>
 		<Dialog.Overlay class="fixed inset-0 z-50 bg-zinc-800/40" />
 		<Dialog.Content
@@ -38,11 +27,7 @@
 				{@render title()}
 			</Dialog.Title>
 			{@render children?.()}
-			{#if withCloseButton}
-				<Dialog.Close class="mt-2 rounded-lg bg-zinc-100 px-4 py-1" onclick={closeButtonEvent}
-					>Cancel</Dialog.Close
-				>
-			{/if}
+			<Dialog.Close class="mt-2 rounded-lg bg-zinc-100 px-4 py-1">Cancel</Dialog.Close>
 		</Dialog.Content>
 	</Dialog.Portal>
 </Dialog.Root>

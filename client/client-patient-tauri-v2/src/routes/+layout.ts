@@ -23,8 +23,6 @@ export const load: LayoutLoad = async ({ url }) => {
 		redirect_to: null
 	};
 
-	console.log(resInvokeAuthState);
-
 	if (!resInvokeAuthState.success) {
 		defaultData.redirect_to = '/signin';
 		if (url.pathname === '/signup') {
@@ -41,8 +39,6 @@ export const load: LayoutLoad = async ({ url }) => {
 	if (!defaultData.redirect_to && !url.pathname.startsWith('/dashboard')) {
 		defaultData.redirect_to = '/dashboard';
 	}
-
-	console.log(defaultData);
 
 	return defaultData;
 };

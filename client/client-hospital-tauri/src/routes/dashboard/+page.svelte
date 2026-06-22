@@ -9,8 +9,6 @@
 	} from '$lib/constants';
 
 	let { data } = $props();
-
-	console.log(data.role);
 </script>
 
 {#if data.role === ADMIN_ROLE}

@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export async function copyToClipboard(str: string) {
-	navigator.clipboard.writeText(str);
+	await navigator.clipboard.writeText(str);
 }
 
 export async function reset() {
@@ -20,7 +20,7 @@ export async function tryCatchAsVal<T>(func: () => Promise<T>): Promise<TryCatch
 		const result = await func();
 		return { success: true, data: result };
 	} catch (e) {
-		return { success: false, error: e as string };
+		return { success: false, error: e instanceof Error ? e.message : String(e) };
 	}
 }
 

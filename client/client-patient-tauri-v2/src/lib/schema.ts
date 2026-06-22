@@ -11,7 +11,7 @@ const confirmPinSchema = {
 		.regex(/^\d{6}$/, { message: 'Confirm PIN is invalid.' })
 		.min(1, { message: 'Confirm PIN is required.' })
 		.max(6, { message: 'Confirm PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
+		
 };
 
 const nameSchema = {
@@ -21,7 +21,7 @@ const nameSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
 			message: 'Name must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const birthPlaceSchema = {
@@ -34,7 +34,7 @@ const birthPlaceSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
 			message: 'Birth place must consist of alphanumeric characters only of length 2 - 50.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const dateOfBirthSchema = {
@@ -47,7 +47,7 @@ const dateOfBirthSchema = {
 		.regex(/^\d{4}-\d{2}-\d{2}$/, {
 			message: 'Date of birth is invalid.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const genderSchema = {
@@ -64,7 +64,7 @@ const religionSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
 			message: 'Religion must consist of alphanumeric characters only of length 2 - 50.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const educationSchema = {
@@ -77,7 +77,7 @@ const educationSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
 			message: 'Education must consist of alphanumeric characters only of length 2 - 50.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const occupationSchema = {
@@ -90,7 +90,7 @@ const occupationSchema = {
 		.regex(/^[a-zA-Z0-9 ]{2,50}$/, {
 			message: 'Occupation must consist of alphanumeric characters only of length 2 - 50.'
 		})
-		.transform((val) => val.trim())
+		
 };
 
 const maritalStatusSchema = {
@@ -108,7 +108,7 @@ const nikSchema = {
 		.trim()
 		.regex(/^\d{16}$/, { message: 'NIK is invalid.' })
 		.min(1, { message: 'NIK is required.' })
-		.transform((val) => val.trim())
+		
 };
 
 const pinSchema = {
@@ -121,7 +121,7 @@ const pinSchema = {
 		.regex(/^\d{6}$/, { message: 'PIN is invalid.' })
 		.min(1, { message: 'PIN is required.' })
 		.max(6, { message: 'PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
+		
 };
 
 const seedWordsSchema = {
@@ -132,7 +132,7 @@ const seedWordsSchema = {
 		})
 		.trim()
 		.min(1, { message: 'Seed Words is required.' })
-		.transform((val) => val.trim())
+		
 		.refine(
 			(val) => {
 				const words = val.split(' ');
@@ -185,6 +185,7 @@ export const signInSchemaStep3 = signInSchemaStep2
 
 export const signUpSchemaStep1 = signInSchemaStep1;
 export const signUpSchemaStep2 = signInSchemaStep2;
+export const signUpSchemaStep3 = z.object({});
 export const signUpSchemaStep4 = z.object(seedWordsSchema);
 export const signUpSchemaStep5 = signInSchemaStep3;
 
@@ -192,7 +193,7 @@ export const signInSchemas = [signInSchemaStep1, signInSchemaStep2, signInSchema
 export const signUpSchemas = [
 	signUpSchemaStep1,
 	signUpSchemaStep2,
-	signUpSchemaStep2,
+	signUpSchemaStep3,
 	signUpSchemaStep4,
 	signUpSchemaStep5
 ];

@@ -3,8 +3,6 @@
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
 	import { SignInState } from './state.svelte.js';
 	import { SIGNIN_TOTAL_STEP } from '$lib/constants.js';
-	import SuperDebug from 'sveltekit-superforms';
-
 	let { data } = $props();
 
 	const signInState = new SignInState({ signInForm: data.signInForm });
@@ -47,7 +45,6 @@
 				<form method="post" use:signInFormEnhance class="flex flex-col flex-1 w-full">
 					<div class="flex-1 flex flex-col justify-center w-full gap-4">
 						<h3 class="font-medium">Sign In</h3>
-						<!-- <SuperDebug data={$signInForm} /> -->
 						{#if signInState.currentStep === 1}
 							<p>Enter PIN:</p>
 

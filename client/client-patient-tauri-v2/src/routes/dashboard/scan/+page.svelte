@@ -117,7 +117,6 @@
 				}
 
 				if (!resInvokeCreateAccess.success) {
-					console.log(resInvokeCreateAccess.error);
 					toast.error(resInvokeCreateAccess.error);
 				}
 
@@ -215,7 +214,7 @@
 		<PinInput.Root
 			maxlength={6}
 			pattern={REGEXP_ONLY_DIGITS}
-			name="confirmPin"
+			name="pin"
 			class="flex items-center gap-2"
 			bind:value={$enterPinForm.pin}
 		>

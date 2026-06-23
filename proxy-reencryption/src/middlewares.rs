@@ -57,6 +57,13 @@ pub async fn auth_middleware(
         let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
         let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
 
+        if effective.is_expired(chrono::Utc::now()) {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Token has expired"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+
         // Check revocation status in Redis
         {
             let token_str = &bearer_token;

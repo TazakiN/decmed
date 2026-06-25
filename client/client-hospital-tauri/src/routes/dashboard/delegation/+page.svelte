@@ -82,7 +82,11 @@
 		if (!current) return candidate;
 		const currentRme = current.relatedRmeId ?? current.access.relatedRmeId ?? null;
 		const candidateRme = candidate.relatedRmeId ?? candidate.access.relatedRmeId ?? null;
-		if (currentRme && !candidateRme) return candidate;
+		const currentScore = current.readDatasets.length * 100 + current.readFunctions.length;
+		const candidateScore = candidate.readDatasets.length * 100 + candidate.readFunctions.length;
+
+		if (candidateScore > currentScore) return candidate;
+		if (candidateScore === currentScore && currentRme && !candidateRme) return candidate;
 		return current;
 	};
 

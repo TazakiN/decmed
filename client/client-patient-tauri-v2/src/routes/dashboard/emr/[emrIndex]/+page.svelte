@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		compareDatasets,
+		compareFunctions,
 		datasetLabels,
 		formatDateTime,
 		timeValue

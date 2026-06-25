@@ -1,8 +1,14 @@
 <script lang="ts">
 	import { formatDateTime } from '$lib/rme';
-	import type { DelegationAuditPersonnelSummary } from '$lib/types';
+	import type {
+		DelegationAuditEdge,
+		DelegationAuditPersonnelSummary,
+		InvokeDelegationAuditChain
+	} from '$lib/types';
 
 	let { data } = $props();
+
+	type DelegationStatus = InvokeDelegationAuditChain['status'];
 
 	const personLabel = (person: DelegationAuditPersonnelSummary) => {
 		const role = person.subRole ?? person.role;
@@ -14,6 +20,42 @@
 		if (status === 'Active') return 'bg-emerald-100 text-emerald-700';
 		if (status === 'Expired') return 'bg-amber-100 text-amber-700';
 		return 'bg-red-100 text-red-700';
+	};
+
+	const dateValue = (value: string | null | undefined) => {
+		if (!value) return null;
+		const time = new Date(value).getTime();
+		return Number.isNaN(time) ? null : time;
+	};
+
+	const isExpired = (value: string | null | undefined) => {
+		const time = dateValue(value);
+		return time !== null && time <= Date.now();
+	};
+
+	const effectiveExpiresAt = (chain: InvokeDelegationAuditChain, edge: DelegationAuditEdge) => {
+		return [chain.rootGrant?.expiresAt, edge.expiresAt]
+			.filter((value): value is string => Boolean(value))
+			.sort((left, right) => (dateValue(left) ?? 0) - (dateValue(right) ?? 0))[0];
+	};
+
+	const edgeStatus = (
+		chain: InvokeDelegationAuditChain,
+		edge: DelegationAuditEdge
+	): DelegationStatus => {
+		if (edge.revoked || chain.rootGrant?.revoked || chain.status === 'Revoked') {
+			return 'Revoked';
+		}
+
+		if (
+			chain.status === 'Expired' ||
+			isExpired(chain.rootGrant?.expiresAt) ||
+			isExpired(edge.expiresAt)
+		) {
+			return 'Expired';
+		}
+
+		return 'Active';
 	};
 </script>
 
@@ -32,9 +74,7 @@
 						<div class="flex items-start justify-between gap-3">
 							<div>
 								<p class="font-medium">
-									{chain.rootGrant
-										? personLabel(chain.rootGrant.personnel)
-										: '-'}
+									{chain.rootGrant ? personLabel(chain.rootGrant.personnel) : '-'}
 								</p>
 							</div>
 							<span class={`px-2 py-1 rounded text-xs font-medium ${statusClass(chain.status)}`}>
@@ -48,14 +88,18 @@
 								<span class="bg-white px-2 py-1 rounded break-all">RME: {chain.relatedRmeId}</span>
 							{/if}
 							{#if chain.rootGrant}
-								<span class="bg-white px-2 py-1 rounded">
-									Root expires: {formatDateTime(chain.rootGrant.expiresAt)}
-								</span>
+								{#if chain.rootGrant.expiresAt}
+									<span class="bg-white px-2 py-1 rounded">
+										Root expires: {formatDateTime(chain.rootGrant.expiresAt)}
+									</span>
+								{/if}
 							{/if}
 						</div>
 
 						<div class="flex flex-col gap-2">
 							{#each chain.edges as edge}
+								{@const status = edgeStatus(chain, edge)}
+								{@const expiresAt = effectiveExpiresAt(chain, edge)}
 								<div class="bg-white border border-zinc-200 rounded-md p-3">
 									<div class="flex flex-col gap-1">
 										<p class="font-medium">
@@ -64,12 +108,18 @@
 									</div>
 									<div class="mt-2 flex flex-wrap gap-2 text-xs">
 										<span class="bg-zinc-100 px-2 py-1 rounded">Depth: {edge.depth}</span>
-										<span class="bg-zinc-100 px-2 py-1 rounded">
-											Expires: {formatDateTime(edge.expiresAt)}
-										</span>
-										{#if edge.revoked}
+										{#if edge.expiresAt}
+											<span class="bg-zinc-100 px-2 py-1 rounded">
+												Expires: {formatDateTime(edge.expiresAt)}
+											</span>
+										{/if}
+										{#if status === 'Revoked'}
 											<span class="bg-red-100 text-red-700 px-2 py-1 rounded">
-												Revoked: {formatDateTime(edge.revokedAt)}
+												{edge.revokedAt ? `Revoked: ${formatDateTime(edge.revokedAt)}` : 'Revoked'}
+											</span>
+										{:else if status === 'Expired'}
+											<span class="bg-amber-100 text-amber-700 px-2 py-1 rounded">
+												{expiresAt ? `Expired: ${formatDateTime(expiresAt)}` : 'Expired'}
 											</span>
 										{:else}
 											<span class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">

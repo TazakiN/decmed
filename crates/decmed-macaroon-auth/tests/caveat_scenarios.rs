@@ -355,7 +355,36 @@ fn doctor_patient_mismatch() {
 }
 
 #[test]
-fn doctor_rme_mismatch() {
+fn doctor_read_ignores_rme_mismatch() {
+    let mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
+    let verifier = MockVerifier {
+        expect_address: Some(DOCTOR.into()),
+        valid_sig: "valid-sig".into(),
+    };
+    let segment = SegmentAccessContext {
+        segment_id: "seg".into(),
+        patient_address: PATIENT.into(),
+        related_rme_id: "RME-999".into(),
+        dataset_category: DatasetCategory::LABORATORIUM,
+        function_category: FunctionCategory::LABORATORIUM,
+    };
+    assert!(verify_decmed_token(
+        &mac,
+        &root_key(),
+        &(TokenVerificationContext {
+            operation: AccessMode::Read,
+            segment,
+            wallet_signature_b64: Some("valid-sig".into()),
+            wallet_timestamp: None,
+            now: Utc::now(),
+        }),
+        Some(&verifier),
+    )
+    .is_ok());
+}
+
+#[test]
+fn doctor_write_keeps_rme_mismatch() {
     let mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
     let segment = SegmentAccessContext {
         segment_id: "seg".into(),
@@ -368,7 +397,7 @@ fn doctor_rme_mismatch() {
         &mac,
         &root_key(),
         &(TokenVerificationContext {
-            operation: AccessMode::Read,
+            operation: AccessMode::Write,
             segment,
             wallet_signature_b64: None,
             wallet_timestamp: None,
@@ -537,6 +566,39 @@ fn apotek_read_therapy_ok() {
         AccessMode::Read,
         DatasetCategory::APOTEK,
         FunctionCategory::TERAPI,
+        None,
+        None
+    )
+    .is_ok());
+}
+
+#[test]
+fn apotek_read_medication_history_ok() {
+    let p = DelegationAttenuationParams {
+        delegated_by: DOCTOR.to_string(),
+        delegated_to: LAB.to_string(),
+        read_datasets: vec![DatasetCategory::APOTEK],
+        write_datasets: vec![DatasetCategory::APOTEK],
+        read_functions: vec![
+            FunctionCategory::ADMINISTRATIVE_GENERAL,
+            FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT,
+            FunctionCategory::TERAPI,
+            FunctionCategory::PERESEPAN,
+            FunctionCategory::DISPENSING,
+        ],
+        write_functions: vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
+        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T16:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc),
+        max_delegation_depth: 0,
+        related_rme_id: None,
+    };
+    let token = attenuate_macaroon(&doctor_token(), &p).unwrap();
+    assert!(verify_ctx(
+        &token,
+        AccessMode::Read,
+        DatasetCategory::APOTEK,
+        FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT,
         None,
         None
     )

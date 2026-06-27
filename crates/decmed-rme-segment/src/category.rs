@@ -110,8 +110,9 @@ pub(crate) const LABORATORIUM_FUNCTIONS: [FunctionCategory; 3] = [
     FunctionCategory::LABORATORIUM,
 ];
 
-pub(crate) const APOTEK_FUNCTIONS: [FunctionCategory; 4] = [
+pub(crate) const APOTEK_FUNCTIONS: [FunctionCategory; 5] = [
     FunctionCategory::ADMINISTRATIVE_GENERAL,
+    FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT,
     FunctionCategory::TERAPI,
     FunctionCategory::PERESEPAN,
     FunctionCategory::DISPENSING,

@@ -174,7 +174,7 @@ impl InitialDoctorTokenParams {
         related_rme_id: &str,
         rm_address: &str
     ) -> Self {
-        use DatasetCategory::{ APOTEK, LABORATORIUM as LabDataset, RAWAT_JALAN };
+        use DatasetCategory::{ APOTEK, LABORATORIUM as LabDataset, RAWAT_INAP, RAWAT_JALAN };
         use FunctionCategory::{
             ADMINISTRATIVE_GENERAL,
             ANAMNESIS,
@@ -183,20 +183,24 @@ impl InitialDoctorTokenParams {
             LABORATORIUM as LabFunction,
             PEMERIKSAAN_FISIK,
             PEMERIKSAAN_PSIKOLOGIS,
+            PERENCANAAN_PEMULANGAN,
             PERESEPAN,
+            RIWAYAT_PENGGUNAAN_OBAT,
             TERAPI,
         };
         Self {
             patient_address: patient_address.to_string(),
             related_rme_id: related_rme_id.to_string(),
             root_subject: rm_address.to_string(),
-            read_datasets: vec![RAWAT_JALAN, LabDataset, APOTEK],
+            read_datasets: vec![RAWAT_JALAN, RAWAT_INAP, LabDataset, APOTEK],
             write_datasets: vec![RAWAT_JALAN, LabDataset, APOTEK],
             read_functions: vec![
                 ADMINISTRATIVE_GENERAL,
                 ANAMNESIS,
                 PEMERIKSAAN_FISIK,
                 PEMERIKSAAN_PSIKOLOGIS,
+                RIWAYAT_PENGGUNAAN_OBAT,
+                PERENCANAAN_PEMULANGAN,
                 LabFunction,
                 PERESEPAN,
                 DIAGNOSIS,
@@ -366,7 +370,10 @@ pub fn issue_initial_token(
 ) -> Result<String, CaveatVerificationError> {
     issue_decmed_token(root_key, DecmedTokenFields {
         patient_address: &params.patient_address,
-        related_rme_id: Some(&params.related_rme_id),
+        related_rme_id: match params.purpose.as_deref() {
+            Some("Read") => None,
+            _ => Some(&params.related_rme_id),
+        },
         root_subject: &params.root_subject,
         read_datasets: &params.read_datasets,
         write_datasets: &params.write_datasets,

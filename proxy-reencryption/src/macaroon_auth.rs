@@ -3,8 +3,8 @@ use std::str::FromStr;
 use axum::http::StatusCode;
 use decmed_macaroon_auth::{
     verify_decmed_token, verify_segment_access, AccessMode, CaveatVerificationError,
-    DelegationProofContext, Macaroon, MacaroonKey, ParsedCaveats, SegmentAccessContext,
-    TokenVerificationContext, VerifiedDecmedToken, WalletProofContext, WalletSignatureVerifier,
+    DelegationProofContext, Macaroon, MacaroonKey, SegmentAccessContext, TokenVerificationContext,
+    VerifiedDecmedToken, WalletProofContext, WalletSignatureVerifier,
 };
 use decmed_rme_segment::RmeSegmentMetadata;
 use iota_types::base_types::IotaAddress;

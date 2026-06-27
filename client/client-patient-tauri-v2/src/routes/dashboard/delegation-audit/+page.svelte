@@ -43,19 +43,39 @@
 		chain: InvokeDelegationAuditChain,
 		edge: DelegationAuditEdge
 	): DelegationStatus => {
-		if (edge.revoked || chain.rootGrant?.revoked || chain.status === 'Revoked') {
+		const expiresAt = effectiveExpiresAt(chain, edge);
+		const expiresAtMs = dateValue(expiresAt);
+		const revokedAtMs = dateValue(edge.revokedAt);
+
+		if (edge.revoked) {
+			if (expiresAtMs !== null && revokedAtMs !== null && expiresAtMs <= revokedAtMs) {
+				return 'Expired';
+			}
+
 			return 'Revoked';
 		}
 
-		if (
-			chain.status === 'Expired' ||
-			isExpired(chain.rootGrant?.expiresAt) ||
-			isExpired(edge.expiresAt)
-		) {
+		if (chain.rootGrant?.revoked) {
+			return 'Revoked';
+		}
+
+		if (chain.status === 'Expired' || isExpired(expiresAt)) {
 			return 'Expired';
 		}
 
 		return 'Active';
+	};
+
+	const chainDisplayStatus = (chain: InvokeDelegationAuditChain): DelegationStatus => {
+		if (chain.edges.length === 0) return chain.status;
+
+		const edgeStatuses = chain.edges.map((edge) => edgeStatus(chain, edge));
+
+		if (edgeStatuses.every((status) => status === 'Expired')) return 'Expired';
+		if (edgeStatuses.some((status) => status === 'Active')) return 'Active';
+		if (edgeStatuses.some((status) => status === 'Revoked')) return 'Revoked';
+
+		return chain.status;
 	};
 </script>
 
@@ -70,6 +90,7 @@
 		{#if delegationAudit.data.length > 0}
 			<div class="flex flex-col gap-3">
 				{#each delegationAudit.data as chain}
+					{@const displayStatus = chainDisplayStatus(chain)}
 					<div class="bg-zinc-100 border border-zinc-300 p-3 rounded-md flex flex-col gap-3">
 						<div class="flex items-start justify-between gap-3">
 							<div>
@@ -77,8 +98,8 @@
 									{chain.rootGrant ? personLabel(chain.rootGrant.personnel) : '-'}
 								</p>
 							</div>
-							<span class={`px-2 py-1 rounded text-xs font-medium ${statusClass(chain.status)}`}>
-								{chain.status}
+							<span class={`px-2 py-1 rounded text-xs font-medium ${statusClass(displayStatus)}`}>
+								{displayStatus}
 							</span>
 						</div>
 

@@ -1442,70 +1442,88 @@ impl Handlers {
                         code: StatusCode::BAD_REQUEST,
                     });
                     }
-                    if let Some(related_rme_id) = payload.related_rme_id.clone() {
-                        response_related_rme_id = Some(related_rme_id.clone());
-                        let read_token = if access_mode.includes_read() {
-                            let expires_before = requested_expiry.clone().unwrap_or_else(|| {
-                                now + chrono::Duration::seconds(read_keys_duration as i64)
-                            });
-                            let mut read_params =
-                                InitialDoctorTokenParams::example_rm_initial_token(
-                                    &patient_iota_address.to_string(),
-                                    &related_rme_id,
-                                    &root_subject,
-                                )
-                                .into_read_only();
-                            read_params.expires_before = expires_before;
-                            read_params.hospital_cid = Some(hospital_cid.to_string());
-                            issued_expiries.push(expires_before);
-                            Some(issue_initial_token(&root_key, &read_params).map_err(|e| {
-                                ProxyError::Caveat {
-                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                                    error: e.to_string(),
-                                }
-                            })?)
-                        } else {
-                            None
-                        };
-
-                        let update_token = if access_mode.includes_update() {
-                            let update_keys_duration = update_keys_duration.ok_or_else(|| {
-                                ProxyError::Anyhow {
-                                    source: anyhow!("Update access is not available"),
-                                    code: StatusCode::BAD_REQUEST,
-                                }
-                            })?;
-                            let update_expires = requested_expiry.clone().unwrap_or_else(|| {
-                                now + chrono::Duration::seconds(update_keys_duration as i64)
-                            });
-                            let mut update_params =
-                                InitialDoctorTokenParams::example_rm_initial_token(
-                                    &patient_iota_address.to_string(),
-                                    &related_rme_id,
-                                    &root_subject,
-                                )
-                                .into_update_only();
-                            update_params.expires_before = update_expires;
-                            update_params.hospital_cid = Some(hospital_cid.to_string());
-                            issued_expiries.push(update_expires);
-                            Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
-                                ProxyError::Caveat {
-                                    code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                                    error: e.to_string(),
-                                }
-                            })?)
-                        } else {
-                            None
-                        };
-                        (read_token, update_token)
-                    } else {
+                    let related_rme_id = payload.related_rme_id.clone();
+                    if access_mode.includes_update() && related_rme_id.is_none() {
                         return Err(ProxyError::Anyhow {
                             source: anyhow!(
-                                "related_rme_id is required for MedicalPersonnel access grant"
+                                "related_rme_id is required for MedicalPersonnel update grant"
                             ),
                             code: StatusCode::BAD_REQUEST,
                         });
                     }
+                    if access_mode.includes_update() {
+                        let related_rme_id = related_rme_id.as_ref().ok_or_else(|| {
+                            ProxyError::Anyhow {
+                                source: anyhow!(
+                                    "related_rme_id is required for MedicalPersonnel update grant"
+                                ),
+                                code: StatusCode::BAD_REQUEST,
+                            }
+                        })?;
+                        response_related_rme_id = Some(related_rme_id.clone());
+                    }
+                    let read_token = if access_mode.includes_read() {
+                        let expires_before = requested_expiry.clone().unwrap_or_else(|| {
+                            now + chrono::Duration::seconds(read_keys_duration as i64)
+                        });
+                        let mut read_params =
+                            InitialDoctorTokenParams::example_rm_initial_token(
+                                &patient_iota_address.to_string(),
+                                related_rme_id.as_deref().unwrap_or_default(),
+                                &root_subject,
+                            )
+                            .into_read_only();
+                        read_params.expires_before = expires_before;
+                        read_params.hospital_cid = Some(hospital_cid.to_string());
+                        issued_expiries.push(expires_before);
+                        Some(issue_initial_token(&root_key, &read_params).map_err(|e| {
+                            ProxyError::Caveat {
+                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                error: e.to_string(),
+                            }
+                        })?)
+                    } else {
+                        None
+                    };
+
+                    let update_token = if access_mode.includes_update() {
+                        let update_keys_duration = update_keys_duration.ok_or_else(|| {
+                            ProxyError::Anyhow {
+                                source: anyhow!("Update access is not available"),
+                                code: StatusCode::BAD_REQUEST,
+                            }
+                        })?;
+                        let update_expires = requested_expiry.clone().unwrap_or_else(|| {
+                            now + chrono::Duration::seconds(update_keys_duration as i64)
+                        });
+                        let related_rme_id = related_rme_id.as_deref().ok_or_else(|| {
+                            ProxyError::Anyhow {
+                                source: anyhow!(
+                                    "related_rme_id is required for MedicalPersonnel update grant"
+                                ),
+                                code: StatusCode::BAD_REQUEST,
+                            }
+                        })?;
+                        let mut update_params =
+                            InitialDoctorTokenParams::example_rm_initial_token(
+                                &patient_iota_address.to_string(),
+                                related_rme_id,
+                                &root_subject,
+                            )
+                            .into_update_only();
+                        update_params.expires_before = update_expires;
+                        update_params.hospital_cid = Some(hospital_cid.to_string());
+                        issued_expiries.push(update_expires);
+                        Some(issue_initial_token(&root_key, &update_params).map_err(|e| {
+                            ProxyError::Caveat {
+                                code: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                                error: e.to_string(),
+                            }
+                        })?)
+                    } else {
+                        None
+                    };
+                    (read_token, update_token)
                 }
                 AuthRole::Patient => {
                     return Err(ProxyError::Anyhow {

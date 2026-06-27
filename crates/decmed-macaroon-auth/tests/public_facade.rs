@@ -16,7 +16,7 @@ fn public_facade_supports_low_level_macaroon_flow() {
     let deserialized = Macaroon::deserialize(&serialized).unwrap();
 
     assert!(deserialized
-        .first_party_caveats()
+        .caveats()
         .iter()
         .any(|caveat| matches!(caveat, Caveat::FirstParty(_))));
 

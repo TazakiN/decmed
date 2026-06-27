@@ -180,7 +180,12 @@ mod tests {
         assert_eq!(rawat_jalan.len(), 11);
         assert!(rawat_jalan.contains(&FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN));
         assert_eq!(get_allowed_function_categories(DatasetCategory::LABORATORIUM).len(), 3);
-        assert_eq!(get_allowed_function_categories(DatasetCategory::APOTEK).len(), 4);
+        assert_eq!(get_allowed_function_categories(DatasetCategory::APOTEK).len(), 5);
+        assert!(
+            get_allowed_function_categories(DatasetCategory::APOTEK).contains(
+                &FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT
+            )
+        );
         assert!(
             get_allowed_function_categories(DatasetCategory::RAWAT_INAP).contains(
                 &FunctionCategory::PERENCANAAN_PEMULANGAN

@@ -33,11 +33,6 @@ pub fn segment_allowed_for_list(
     if segment.patient_address != patient_iota_address {
         return false;
     }
-    if let Some(token_rme) = verified.effective.related_rme_id.as_deref() {
-        if token_rme != segment.related_rme_id {
-            return false;
-        }
-    }
     let ctx = TokenVerificationContext {
         operation: AccessMode::Read,
         segment: SegmentAccessContext {
@@ -286,6 +281,12 @@ mod tests {
             DatasetCategory::RAWAT_JALAN,
             FunctionCategory::ANAMNESIS,
         );
+        let mut allowed_other_episode = sample_segment(
+            "0xpatient",
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS,
+        );
+        allowed_other_episode.related_rme_id = "rme-2".to_string();
         let denied = sample_segment(
             "0xpatient",
             DatasetCategory::LABORATORIUM,
@@ -293,6 +294,11 @@ mod tests {
         );
 
         assert!(segment_allowed_for_list(&verified, &allowed, "0xpatient"));
+        assert!(segment_allowed_for_list(
+            &verified,
+            &allowed_other_episode,
+            "0xpatient"
+        ));
         assert!(!segment_allowed_for_list(&verified, &denied, "0xpatient"));
     }
 

@@ -64,30 +64,18 @@ pub async fn auth_middleware(
             });
         }
 
-        // Check revocation status in Redis
         {
-            let token_str = &bearer_token;
-            let token_hash = hash_token(token_str);
-            let revocation_keys = compute_revocation_keys(&parsed, &delegation, &token_hash)
-                .map_err(|e| anyhow!(e.to_string()))
-                .code(StatusCode::UNAUTHORIZED)?;
-
             let mut conn = state.redis_pool.get().map_err(|e| ProxyError::Anyhow {
                 source: anyhow!("Revocation store unavailable: {e}"),
                 code: StatusCode::SERVICE_UNAVAILABLE,
             })?;
-            for key in revocation_keys {
-                let revoked: bool = conn.exists(&key).map_err(|e| ProxyError::Anyhow {
+
+            ensure_token_not_revoked(&parsed, &delegation, &bearer_token, |key| {
+                conn.exists(key).map_err(|e| ProxyError::Anyhow {
                     source: anyhow!("Revocation check failed: {e}"),
                     code: StatusCode::SERVICE_UNAVAILABLE,
-                })?;
-                if revoked {
-                    return Err(ProxyError::Anyhow {
-                        source: anyhow!("Token has been revoked"),
-                        code: StatusCode::UNAUTHORIZED,
-                    });
-                }
-            }
+                })
+            })?;
         }
 
         // Verify delegation proof for cross-person delegation only.
@@ -150,6 +138,32 @@ pub async fn auth_middleware(
         source: anyhow!("Token is not a valid DecMed token"),
         code: StatusCode::UNAUTHORIZED,
     });
+}
+
+pub fn ensure_token_not_revoked<F>(
+    parsed: &ParsedCaveats,
+    delegation: &DelegationChain,
+    bearer_token: &str,
+    mut is_revoked: F,
+) -> Result<(), ProxyError>
+where
+    F: FnMut(&str) -> Result<bool, ProxyError>,
+{
+    let token_hash = hash_token(bearer_token);
+    let revocation_keys = compute_revocation_keys(parsed, delegation, &token_hash)
+        .map_err(|e| anyhow!(e.to_string()))
+        .code(StatusCode::UNAUTHORIZED)?;
+
+    for key in revocation_keys {
+        if is_revoked(&key)? {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Token has been revoked"),
+                code: StatusCode::UNAUTHORIZED,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn decmed_purpose_from_parsed(

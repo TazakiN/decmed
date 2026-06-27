@@ -105,7 +105,13 @@ export function presetScope({
 	} else if (preset === 'apotek') {
 		rawReadDatasets = [encounterDataset, 'APOTEK'];
 		rawWriteDatasets = ['APOTEK'];
-		rawReadFunctions = ['ADMINISTRATIVE_GENERAL', 'TERAPI', 'PERESEPAN', 'DISPENSING'];
+		rawReadFunctions = [
+			'ADMINISTRATIVE_GENERAL',
+			'RIWAYAT_PENGGUNAAN_OBAT',
+			'TERAPI',
+			'PERESEPAN',
+			'DISPENSING'
+		];
 		rawWriteFunctions = ['PERESEPAN', 'DISPENSING'];
 	} else {
 		rawReadDatasets = [encounterDataset];

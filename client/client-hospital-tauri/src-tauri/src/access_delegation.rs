@@ -554,10 +554,11 @@ fn admin_delegation_params(
             vec![FunctionCategory::LABORATORIUM],
         ),
         "apotek" => (
-            vec![DatasetCategory::APOTEK],
+            vec![encounter, DatasetCategory::APOTEK],
             vec![DatasetCategory::APOTEK],
             vec![
                 FunctionCategory::ADMINISTRATIVE_GENERAL,
+                FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT,
                 FunctionCategory::TERAPI,
                 FunctionCategory::PERESEPAN,
                 FunctionCategory::DISPENSING,
@@ -739,12 +740,6 @@ pub async fn create_delegated_access(
         ));
     }
 
-    let read_parent_related = payload
-        .parent_read_token
-        .as_deref()
-        .map(related_rme_from_token)
-        .transpose()?
-        .flatten();
     let write_parent_related = payload
         .parent_write_token
         .as_deref()
@@ -754,7 +749,6 @@ pub async fn create_delegated_access(
     let generated_write_related_rme_id = if matches!(mode, "write" | "read_write")
         && payload.related_rme_id.is_none()
         && write_parent_related.is_none()
-        && read_parent_related.is_none()
     {
         let token = payload
             .parent_write_token
@@ -770,20 +764,10 @@ pub async fn create_delegated_access(
     } else {
         None
     };
-    let read_effective_related_rme_id = read_parent_related
-        .clone()
-        .or_else(|| payload.related_rme_id.clone())
-        .or_else(|| {
-            if matches!(mode, "read_write") {
-                generated_write_related_rme_id.clone()
-            } else {
-                None
-            }
-        });
+    let read_effective_related_rme_id: Option<String> = None;
     let write_effective_related_rme_id = write_parent_related
         .clone()
         .or_else(|| payload.related_rme_id.clone())
-        .or_else(|| read_parent_related.clone())
         .or_else(|| generated_write_related_rme_id.clone());
     let response_related_rme_id = if matches!(mode, "write" | "read_write") {
         write_effective_related_rme_id.clone()
@@ -812,11 +796,7 @@ pub async fn create_delegated_access(
             read_functions.clone(),
             Vec::new(),
             expires_before,
-            if read_parent_related.is_some() {
-                None
-            } else {
-                read_effective_related_rme_id.clone()
-            },
+            None,
         );
         let token = attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {
             HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
@@ -1052,7 +1032,6 @@ pub async fn create_admin_delegated_access(
                 .context(current_fn!()),
         )
     })?;
-    let parent_read_related_rme_id = related_rme_from_token(parent_read_token)?;
     let params = admin_delegation_params(
         &payload.preset,
         encounter,
@@ -1102,7 +1081,7 @@ pub async fn create_admin_delegated_access(
         patient_iota_address: payload.patient_iota_address.clone(),
         patient_name: payload.patient_name.clone(),
         patient_pre_public_key: payload.patient_pre_public_key.clone(),
-        related_rme_id: parent_read_related_rme_id.clone(),
+        related_rme_id: None,
     };
     let update_metadata_input = DelegatedAccessMetadataInput {
         patient_iota_address: payload.patient_iota_address,
@@ -1140,7 +1119,7 @@ pub async fn create_admin_delegated_access(
             &delegated_read_token,
             parent_read_token,
             MoveHospitalPersonnelAccessType::Read,
-            parent_read_related_rme_id,
+            None,
             expires_before,
         )?,
         build_delegation_audit_input(

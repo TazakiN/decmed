@@ -149,7 +149,15 @@ pub struct PatientRevocationPayload {
     pub purpose: String,
     pub root_subject: String,
     #[serde(default)]
+    pub delegated_by: Option<String>,
+    #[serde(default)]
+    pub delegated_to: Option<String>,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
+    #[serde(default)]
     pub token_hash: Option<String>,
+    #[serde(default)]
+    pub parent_token_hash: Option<String>,
     #[serde(default)]
     pub expires_before: Option<String>,
     pub tx_digest: String,
@@ -161,7 +169,11 @@ pub struct PatientRevocationSignedPayload {
     pub patient_address: String,
     pub purpose: String,
     pub root_subject: String,
+    pub delegated_by: Option<String>,
+    pub delegated_to: Option<String>,
+    pub related_rme_id: Option<String>,
     pub token_hash: Option<String>,
+    pub parent_token_hash: Option<String>,
     pub expires_before: Option<String>,
     pub tx_digest: String,
 }
@@ -172,7 +184,11 @@ impl From<&PatientRevocationPayload> for PatientRevocationSignedPayload {
             patient_address: payload.patient_address.clone(),
             purpose: payload.purpose.clone(),
             root_subject: payload.root_subject.clone(),
+            delegated_by: payload.delegated_by.clone(),
+            delegated_to: payload.delegated_to.clone(),
+            related_rme_id: payload.related_rme_id.clone(),
             token_hash: payload.token_hash.clone(),
+            parent_token_hash: payload.parent_token_hash.clone(),
             expires_before: payload.expires_before.clone(),
             tx_digest: payload.tx_digest.clone(),
         }

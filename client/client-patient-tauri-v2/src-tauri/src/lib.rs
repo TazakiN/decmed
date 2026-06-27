@@ -163,6 +163,7 @@ pub fn run() {
             home::get_medical_records,
             home::get_medical_record,
             access::revoke_access,
+            access::revoke_delegated_access,
             access::get_access_log,
             access::get_delegation_audit,
         ])

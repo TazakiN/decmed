@@ -41,6 +41,7 @@ use crate::types::{
 };
 use crate::utils::Utils;
 use decmed_macaroon_auth::{
+    edge_revocation_key,
     format_related_rme_id, issue_admin_personnel_token, issue_initial_token, AccessMode,
     AdminTokenKind, InitialAdminPersonnelTokenParams, InitialDoctorTokenParams, Macaroon,
     MacaroonKey,
@@ -1689,7 +1690,17 @@ impl Handlers {
         let mut conn = state.redis_pool.get().context(current_fn!())?;
         let ttl = revocation_ttl(payload.expires_before.as_deref())?;
 
-        // Set exact token revocation key if token_hash is provided, otherwise fallback to root revocation key
+        let is_edge_revocation = payload.delegated_by.is_some() || payload.delegated_to.is_some();
+        if payload.delegated_by.is_some() != payload.delegated_to.is_some() {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("delegated_by and delegated_to must be provided together"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        // Set exact token revocation key if token_hash is provided. Delegated edge
+        // revocations also set an edge key so descendants that include this edge
+        // in their delegation chain are blocked without revoking the root grant.
         if let Some(token_hash) = &payload.token_hash {
             let token_key = decmed_macaroon_auth::token_revocation_key(token_hash);
             let _: () = conn
@@ -1699,7 +1710,26 @@ impl Handlers {
                     SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
                 )
                 .context(current_fn!())?;
-        } else {
+        }
+
+        if let (Some(delegated_by), Some(delegated_to)) =
+            (&payload.delegated_by, &payload.delegated_to)
+        {
+            let edge_key = edge_revocation_key(
+                &payload.patient_address,
+                &payload.purpose,
+                delegated_by,
+                delegated_to,
+                payload.related_rme_id.as_deref(),
+            );
+            let _: () = conn
+                .set_options(
+                    edge_key,
+                    payload.tx_digest.clone(),
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
+                )
+                .context(current_fn!())?;
+        } else if !is_edge_revocation {
             let root_key = decmed_macaroon_auth::root_revocation_key(
                 &payload.patient_address,
                 &payload.purpose,
@@ -1711,7 +1741,7 @@ impl Handlers {
                     payload.tx_digest.clone(),
                     SetOptions::default().with_expiration(SetExpiry::EX(ttl)),
                 )
-                .context(current_fn!())?;
+            .context(current_fn!())?;
         }
 
         let _: usize = conn
@@ -1720,6 +1750,11 @@ impl Handlers {
                 payload.root_subject, payload.patient_address
             ))
             .context(current_fn!())?;
+        if let Some(delegated_to) = &payload.delegated_to {
+            let _: usize = conn
+                .del(format!("keys:{}@{}", delegated_to, payload.patient_address))
+                .context(current_fn!())?;
+        }
 
         Ok(Utils::build_success_response(
             json!({ "revoked": true }),

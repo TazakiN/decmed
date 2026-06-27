@@ -79,15 +79,11 @@
 		if (res.success) writeCapabilities = res.data.data.write;
 	};
 
-	const correctionCapability = (
-		datasetCategory: DatasetCategory,
-		segment: RmeSegmentListItem
-	) => {
+	const correctionCapability = (datasetCategory: DatasetCategory, segment: RmeSegmentListItem) => {
 		const relatedRmeId = decodeURIComponent(data.relatedRmeId);
 		return (
 			writeCapabilities.find((capability) => {
-				const capabilityRmeId =
-					capability.relatedRmeId ?? capability.access.relatedRmeId ?? null;
+				const capabilityRmeId = capability.relatedRmeId ?? capability.access.relatedRmeId ?? null;
 				return (
 					capability.access.patientIotaAddress === data.patientIotaAddress &&
 					(!capabilityRmeId || capabilityRmeId === relatedRmeId) &&
@@ -249,16 +245,16 @@
 				{#each dataset.segments as segment (segment.segment_id)}
 					<div class="bg-white border border-zinc-200 rounded-md p-4">
 						<div class="flex items-start justify-between gap-3">
-								<div class="grid grid-cols-[80px_1fr] gap-2 text-sm">
-									<span class="text-zinc-500">Fungsi</span>
-									<span class="font-medium">
-										{functionLabels[segment.function_category]}
-										{#if segment.correction_of_index !== null}
-											<span class="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-												Correction
-											</span>
-										{/if}
-									</span>
+							<div class="grid grid-cols-[80px_1fr] gap-2 text-sm">
+								<span class="text-zinc-500">Data</span>
+								<span class="font-medium">
+									{functionLabels[segment.function_category]}
+									{#if segment.correction_of_index !== null}
+										<span class="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+											Correction
+										</span>
+									{/if}
+								</span>
 							</div>
 							<button
 								type="button"
@@ -276,21 +272,21 @@
 								<span class="text-zinc-500">Waktu</span>
 								<span>{formatDate(segment.created_at)}</span>
 								<span class="text-zinc-500">Author</span>
-									<span class="break-all"
-										>{detailState.authorNameMap[segment.author_address] ||
-											segment.author_address}</span
-									>
-									{#if segment.correction_of_index !== null}
-										<span class="text-zinc-500">Correction</span>
-										<span>Index #{segment.correction_of_index}</span>
-										<span class="text-zinc-500">Alasan</span>
-										<span>{segment.correction_reason}</span>
-										{#if segment.updated_at !== null}
-											<span class="text-zinc-500">Diperbarui</span>
-											<span>{formatDate(segment.updated_at)}</span>
-										{/if}
+								<span class="break-all"
+									>{detailState.authorNameMap[segment.author_address] ||
+										segment.author_address}</span
+								>
+								{#if segment.correction_of_index !== null}
+									<span class="text-zinc-500">Correction</span>
+									<span>Index #{segment.correction_of_index}</span>
+									<span class="text-zinc-500">Alasan</span>
+									<span>{segment.correction_reason}</span>
+									{#if segment.updated_at !== null}
+										<span class="text-zinc-500">Diperbarui</span>
+										<span>{formatDate(segment.updated_at)}</span>
 									{/if}
-								</div>
+								{/if}
+							</div>
 						{/if}
 
 						{#if detailState.errorByListIndex[segment.list_index]}
@@ -323,60 +319,60 @@
 											disabled
 											value={segmentPayloadText(record.segment.payload)}
 											class="border border-zinc-300 p-2 w-full focus:outline-none focus:ring-3 ring-zinc-500 rounded-md min-h-28"
-											></textarea>
-										{/if}
+										></textarea>
+									{/if}
 
-										{#if correctionCapability(dataset.dataset_category, segment)}
-											{#if correctingSegmentId === segment.segment_id}
-												<div
-													class="mt-4 space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3"
-												>
-													<p class="text-sm font-medium">Perbaikan Segmen</p>
-													<label class="block text-sm">
-														<span class="mb-1 block font-medium">Alasan perbaikan</span>
-														<input
-															class="input-text w-full"
-															bind:value={correctionReason}
-															placeholder="Alasan singkat, tanpa data klinis sensitif"
-														/>
-													</label>
-													<label class="block text-sm">
-														<span class="mb-1 block font-medium">Payload perbaikan</span>
-														<textarea
-															class="input-text min-h-32 w-full font-mono text-sm"
-															bind:value={correctionPayload}
-														></textarea>
-													</label>
-													<div class="flex gap-2">
-														<button
-															type="button"
-															class="button-dark px-3 py-1.5 text-sm disabled:opacity-50"
-															disabled={isSubmittingCorrection}
-															onclick={() => submitCorrection(dataset.dataset_category, segment)}
-														>
-															{isSubmittingCorrection ? 'Menyimpan...' : 'Simpan correction'}
-														</button>
-														<button
-															type="button"
-															class="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
-															disabled={isSubmittingCorrection}
-															onclick={closeCorrection}
-														>
-															Batal
-														</button>
-													</div>
+									{#if correctionCapability(dataset.dataset_category, segment)}
+										{#if correctingSegmentId === segment.segment_id}
+											<div
+												class="mt-4 space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3"
+											>
+												<p class="text-sm font-medium">Perbaikan Segmen</p>
+												<label class="block text-sm">
+													<span class="mb-1 block font-medium">Alasan perbaikan</span>
+													<input
+														class="input-text w-full"
+														bind:value={correctionReason}
+														placeholder="Alasan singkat, tanpa data klinis sensitif"
+													/>
+												</label>
+												<label class="block text-sm">
+													<span class="mb-1 block font-medium">Payload perbaikan</span>
+													<textarea
+														class="input-text min-h-32 w-full font-mono text-sm"
+														bind:value={correctionPayload}
+													></textarea>
+												</label>
+												<div class="flex gap-2">
+													<button
+														type="button"
+														class="button-dark px-3 py-1.5 text-sm disabled:opacity-50"
+														disabled={isSubmittingCorrection}
+														onclick={() => submitCorrection(dataset.dataset_category, segment)}
+													>
+														{isSubmittingCorrection ? 'Menyimpan...' : 'Simpan correction'}
+													</button>
+													<button
+														type="button"
+														class="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm"
+														disabled={isSubmittingCorrection}
+														onclick={closeCorrection}
+													>
+														Batal
+													</button>
 												</div>
-											{:else}
-												<button
-													type="button"
-													class="mt-4 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50"
-													onclick={() => openCorrection(segment)}
-												>
-													Buat correction
-												</button>
-											{/if}
+											</div>
+										{:else}
+											<button
+												type="button"
+												class="mt-4 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50"
+												onclick={() => openCorrection(segment)}
+											>
+												Buat correction
+											</button>
 										{/if}
-									{:else if record.medicalData}
+									{/if}
+								{:else if record.medicalData}
 									<p class="text-sm text-zinc-600">Data legacy (bukan segment RME).</p>
 									<pre
 										class="text-xs mt-2 p-2 bg-zinc-50 border rounded-md overflow-auto">{JSON.stringify(

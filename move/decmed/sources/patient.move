@@ -53,7 +53,7 @@ use iota::clock::Clock;
 use iota::event;
 use iota::table_vec;
 
-use std::string::String;
+use std::string::{Self, String};
 
 // Constants
 
@@ -65,6 +65,7 @@ const EHospitalPersonnelNotFound: u64 = 3004;
 const EInvalidMetadataLength: u64 = 3005;
 const EInvalidAccessType: u64 = 3006;
 const EDuplicateAccessType: u64 = 3007;
+const EDelegationNotFound: u64 = 3008;
 
 // Enums
 
@@ -88,7 +89,10 @@ fun append_delegation_revoked_audit(
     delegated_by: address,
     delegated_to: address,
     access_type: HospitalPersonnelAccessType,
+    related_rme_id: Option<String>,
     delegation_depth: u8,
+    token_hash: Option<String>,
+    parent_token_hash: Option<String>,
     expires_at_ms: Option<u64>,
 ) {
     let delegation_audit_log = patient_account.borrow_mut_delegation_audit_log();
@@ -101,13 +105,29 @@ fun append_delegation_revoked_audit(
         delegated_by,
         delegated_to,
         access_type,
-        option::none(),
+        related_rme_id,
         delegation_depth,
-        option::none(),
-        option::none(),
+        token_hash,
+        parent_token_hash,
         expires_at_ms,
     );
     delegation_audit_log.push_back(entry);
+}
+
+fun option_string_from_sentinel(value: String): Option<String> {
+    if (value == string::utf8(b"")) {
+        option::none()
+    } else {
+        option::some(value)
+    }
+}
+
+fun option_u64_from_sentinel(value: u64): Option<u64> {
+    if (value == 0) {
+        option::none()
+    } else {
+        option::some(value)
+    }
 }
 
 /// ## Params:
@@ -699,7 +719,10 @@ entry fun revoke_access(
                         *read_delegated_by.borrow(),
                         candidate_address,
                         hospital_personnel_access_type_read(),
+                        option::none(),
                         read_delegation_depth,
+                        option::none(),
+                        option::none(),
                         read_exp,
                     );
                     event::emit(
@@ -741,13 +764,294 @@ entry fun revoke_access(
                         *update_delegated_by.borrow(),
                         candidate_address,
                         hospital_personnel_access_type_update(),
+                        option::none(),
                         update_delegation_depth,
+                        option::none(),
+                        option::none(),
                         update_exp,
                     );
                     event::emit(
                         PatientCascadeRevokedEvent {
                             patient_address: ctx.sender(),
                             root_revoked_personnel_address: hospital_personnel_address,
+                            affected_delegatee_address: candidate_address,
+                            access_type: hospital_personnel_access_type_update(),
+                            revoked_at_ms: clock.timestamp_ms(),
+                        }
+                    );
+                };
+            };
+
+            if (candidate_revoked) {
+                revoked_addresses.push_back(candidate_address);
+                changed = true;
+            };
+
+            idx = idx + 1;
+        };
+    };
+}
+
+entry fun revoke_delegated_access_by_patient(
+    address_id: &AddressId,
+    clock: &Clock,
+    root_subject: address,
+    delegated_by: address,
+    delegated_to: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    admin_personnel_id: String,
+    access_type: vector<u8>,
+    related_rme_id: Option<String>,
+    audit_token_hash: String,
+    audit_parent_token_hash: String,
+    audit_delegation_depth: u8,
+    audit_expires_at_ms: u64,
+    patient_id_account: &mut PatientIdAccount,
+    ctx: &TxContext,
+)
+{
+    let address_id_table = address_id.borrow_table();
+    let patient_id = *address_id_table.borrow(ctx.sender());
+    let delegated_to_personnel_id = *address_id_table.borrow(delegated_to);
+
+    assert!(
+        access_type == b"Read" || access_type == b"Update" || access_type == b"Read,Update",
+        EInvalidAccessType,
+    );
+    let revoke_read = access_type == b"Read" || access_type == b"Read,Update";
+    let revoke_update = access_type == b"Update" || access_type == b"Read,Update";
+
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+
+    assert!(
+        hospital_personnel_id_account_table.contains(delegated_to_personnel_id),
+        EHospitalPersonnelNotFound,
+    );
+
+    let mut direct_revoked = false;
+    let hospital_id = {
+        let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegated_to_personnel_id);
+        let hospital_id = *delegatee_account.borrow_hospital_id();
+        let delegatee_access_option = delegatee_account.borrow_mut_access();
+
+        if (delegatee_access_option.is_some()) {
+            let delegatee_access = delegatee_access_option.borrow_mut();
+
+            if (revoke_read) {
+                let delegatee_read = delegatee_access.borrow_mut_read();
+                let mut should_revoke_read = false;
+                if (delegatee_read.contains(&patient_id)) {
+                    let source = delegatee_read.get(&patient_id);
+                    let source_delegated_by = source.borrow_delegated_by();
+                    if (
+                        source_delegated_by.is_some()
+                        && *source_delegated_by.borrow() == delegated_by
+                    ) {
+                        should_revoke_read = true;
+                    };
+                };
+                if (should_revoke_read) {
+                    delegatee_read.remove(&patient_id);
+                    direct_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        root_subject,
+                        delegated_by,
+                        delegated_to,
+                        hospital_personnel_access_type_read(),
+                        related_rme_id,
+                        audit_delegation_depth,
+                        option_string_from_sentinel(audit_token_hash),
+                        option_string_from_sentinel(audit_parent_token_hash),
+                        option_u64_from_sentinel(audit_expires_at_ms),
+                    );
+                };
+            };
+
+            if (revoke_update) {
+                let delegatee_update = delegatee_access.borrow_mut_update();
+                let mut should_revoke_update = false;
+                if (delegatee_update.contains(&patient_id)) {
+                    let source = delegatee_update.get(&patient_id);
+                    let source_delegated_by = source.borrow_delegated_by();
+                    if (
+                        source_delegated_by.is_some()
+                        && *source_delegated_by.borrow() == delegated_by
+                    ) {
+                        should_revoke_update = true;
+                    };
+                };
+                if (should_revoke_update) {
+                    delegatee_update.remove(&patient_id);
+                    direct_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        root_subject,
+                        delegated_by,
+                        delegated_to,
+                        hospital_personnel_access_type_update(),
+                        related_rme_id,
+                        audit_delegation_depth,
+                        option_string_from_sentinel(audit_token_hash),
+                        option_string_from_sentinel(audit_parent_token_hash),
+                        option_u64_from_sentinel(audit_expires_at_ms),
+                    );
+                };
+            };
+        };
+
+        hospital_id
+    };
+    assert!(direct_revoked, EDelegationNotFound);
+
+    let hospital_admin_id = encode_hospital_personnel_id(hospital_id, admin_personnel_id);
+    if (!hospital_personnel_id_account_table.contains(hospital_admin_id)) {
+        return
+    };
+
+    let mut personnel_ids = vector::empty<String>();
+    {
+        let hospital_admin_account = hospital_personnel_id_account_table.borrow(hospital_admin_id);
+        if (hospital_admin_account.borrow_personnels().is_none()) {
+            return
+        };
+        let hospital_admin_personnels = hospital_admin_account.borrow_personnels().borrow();
+        let mut idx = 0;
+        let personnel_len = hospital_admin_personnels.size();
+        while (idx < personnel_len) {
+            let (personnel_id, _) = hospital_admin_personnels.get_entry_by_idx(idx);
+            personnel_ids.push_back(*personnel_id);
+            idx = idx + 1;
+        };
+    };
+
+    let mut revoked_addresses = vector::empty<address>();
+    revoked_addresses.push_back(delegated_to);
+    let mut changed = true;
+    while (changed) {
+        changed = false;
+        let mut idx = 0;
+        while (idx < personnel_ids.length()) {
+            let personnel_id = *personnel_ids.borrow(idx);
+            if (!hospital_personnel_id_account_table.contains(personnel_id)) {
+                idx = idx + 1;
+                continue
+            };
+
+            let candidate_account = hospital_personnel_id_account_table.borrow_mut(personnel_id);
+            if (candidate_account.borrow_address().is_none()) {
+                idx = idx + 1;
+                continue
+            };
+            let candidate_address = *candidate_account.borrow_address().borrow();
+            if (revoked_addresses.contains(&candidate_address)) {
+                idx = idx + 1;
+                continue
+            };
+            let candidate_access_option = candidate_account.borrow_mut_access();
+            if (candidate_access_option.is_none()) {
+                idx = idx + 1;
+                continue
+            };
+
+            let mut candidate_revoked = false;
+            let candidate_access = candidate_access_option.borrow_mut();
+
+            if (revoke_read) {
+                let candidate_read = candidate_access.borrow_mut_read();
+                let mut should_revoke_read = false;
+                let mut read_delegated_by = option::none<address>();
+                let mut read_delegation_depth = 0;
+                let mut read_exp = option::none<u64>();
+                if (candidate_read.contains(&patient_id)) {
+                    let source = candidate_read.get(&patient_id);
+                    let candidate_delegated_by = source.borrow_delegated_by();
+                    if (
+                        candidate_delegated_by.is_some()
+                        && revoked_addresses.contains(candidate_delegated_by.borrow())
+                    ) {
+                        should_revoke_read = true;
+                        read_delegated_by = candidate_delegated_by;
+                        read_delegation_depth = source.borrow_delegation_depth();
+                        read_exp = option::some(source.borrow_exp());
+                    };
+                };
+                if (should_revoke_read) {
+                    candidate_read.remove(&patient_id);
+                    candidate_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        root_subject,
+                        *read_delegated_by.borrow(),
+                        candidate_address,
+                        hospital_personnel_access_type_read(),
+                        option::none(),
+                        read_delegation_depth,
+                        option::none(),
+                        option::none(),
+                        read_exp,
+                    );
+                    event::emit(
+                        PatientCascadeRevokedEvent {
+                            patient_address: ctx.sender(),
+                            root_revoked_personnel_address: delegated_to,
+                            affected_delegatee_address: candidate_address,
+                            access_type: hospital_personnel_access_type_read(),
+                            revoked_at_ms: clock.timestamp_ms(),
+                        }
+                    );
+                };
+            };
+
+            if (revoke_update) {
+                let candidate_update = candidate_access.borrow_mut_update();
+                let mut should_revoke_update = false;
+                let mut update_delegated_by = option::none<address>();
+                let mut update_delegation_depth = 0;
+                let mut update_exp = option::none<u64>();
+                if (candidate_update.contains(&patient_id)) {
+                    let source = candidate_update.get(&patient_id);
+                    let candidate_delegated_by = source.borrow_delegated_by();
+                    if (
+                        candidate_delegated_by.is_some()
+                        && revoked_addresses.contains(candidate_delegated_by.borrow())
+                    ) {
+                        should_revoke_update = true;
+                        update_delegated_by = candidate_delegated_by;
+                        update_delegation_depth = source.borrow_delegation_depth();
+                        update_exp = option::some(source.borrow_exp());
+                    };
+                };
+                if (should_revoke_update) {
+                    candidate_update.remove(&patient_id);
+                    candidate_revoked = true;
+                    append_delegation_revoked_audit(
+                        patient_account,
+                        clock.timestamp_ms(),
+                        ctx.sender(),
+                        root_subject,
+                        *update_delegated_by.borrow(),
+                        candidate_address,
+                        hospital_personnel_access_type_update(),
+                        option::none(),
+                        update_delegation_depth,
+                        option::none(),
+                        option::none(),
+                        update_exp,
+                    );
+                    event::emit(
+                        PatientCascadeRevokedEvent {
+                            patient_address: ctx.sender(),
+                            root_revoked_personnel_address: delegated_to,
                             affected_delegatee_address: candidate_address,
                             access_type: hospital_personnel_access_type_update(),
                             revoked_at_ms: clock.timestamp_ms(),

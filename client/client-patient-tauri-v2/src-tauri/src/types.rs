@@ -203,6 +203,8 @@ pub struct DelegationAuditPersonnelSummary {
 #[serde(rename_all = "camelCase")]
 pub struct DelegationAuditRootGrant {
     pub personnel: DelegationAuditPersonnelSummary,
+    pub index: u64,
+    pub token_hash: Option<String>,
     pub granted_at: Option<String>,
     pub expires_at: Option<String>,
     pub revoked: bool,

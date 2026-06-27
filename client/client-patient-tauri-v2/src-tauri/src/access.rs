@@ -36,7 +36,11 @@ struct PatientRevocationSignedPayload {
     patient_address: String,
     purpose: String,
     root_subject: String,
+    delegated_by: Option<String>,
+    delegated_to: Option<String>,
+    related_rme_id: Option<String>,
     token_hash: Option<String>,
+    parent_token_hash: Option<String>,
     expires_before: Option<String>,
     tx_digest: String,
 }
@@ -81,6 +85,8 @@ struct ChainState {
 #[derive(Clone, Debug)]
 struct RootGrantState {
     personnel: DelegationAuditPersonnelSummary,
+    index: u64,
+    token_hash: Option<String>,
     granted_at: Option<String>,
     expires_at: Option<String>,
     revoked: bool,
@@ -95,6 +101,23 @@ fn ms_to_rfc3339(ms: u64) -> Option<String> {
 fn access_expires_at(date: &str, exp_dur_minutes: u64) -> Option<String> {
     let parsed = DateTime::parse_from_rfc3339(date).ok()?.with_timezone(&Utc);
     Some((parsed + chrono::Duration::minutes(exp_dur_minutes as i64)).to_rfc3339())
+}
+
+fn parse_expires_at_ms(value: Option<&str>) -> Result<Option<u64>, PatientError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .map_err(|e| anyhow!(e))
+        .context(current_fn!())?
+        .with_timezone(&Utc);
+    let millis = parsed.timestamp_millis();
+    if millis < 0 {
+        return Err(anyhow!("Delegation expiry is before Unix epoch")
+            .context(current_fn!())
+            .into());
+    }
+    Ok(Some(millis as u64))
 }
 
 async fn fetch_all_access_logs(
@@ -166,9 +189,7 @@ pub async fn get_access_log(
         patient_iota_address
     };
 
-    let access_log: Vec<MovePatientAccessLog> = state
-        .move_call
-        .get_access_log(0, 10, patient_iota_address)
+    let access_log: Vec<MovePatientAccessLog> = fetch_all_access_logs(&state.move_call, patient_iota_address)
         .await
         .context(current_fn!())?;
 
@@ -251,6 +272,8 @@ pub async fn get_delegation_audit(
                 key,
                 RootGrantState {
                     personnel: summary,
+                    index: log.index,
+                    token_hash: log.token_hash.clone(),
                     granted_at: Some(log.date.clone()),
                     expires_at: access_expires_at(&log.date, log.exp_dur),
                     revoked: log.is_revoked,
@@ -401,6 +424,20 @@ pub async fn get_delegation_audit(
         }
     }
 
+    for ((root_subject, access_type), _) in &root_grants {
+        let has_chain = chains
+            .keys()
+            .any(|key| key.root_subject == *root_subject && key.access_type == *access_type);
+        if !has_chain {
+            chains.entry(ChainKey {
+                root_subject: root_subject.clone(),
+                access_type: *access_type,
+                related_rme_id: None,
+            })
+            .or_default();
+        }
+    }
+
     let now_ms = Utc::now().timestamp_millis().max(0) as u64;
     let mut response = Vec::new();
 
@@ -441,6 +478,12 @@ pub async fn get_delegation_audit(
             .as_ref()
             .map(|grant| grant.revoked)
             .unwrap_or(false);
+        let root_expired = root_grant_state
+            .as_ref()
+            .and_then(|grant| grant.expires_at.as_deref())
+            .and_then(|expires_at| DateTime::parse_from_rfc3339(expires_at).ok())
+            .map(|expires_at| expires_at.timestamp_millis().max(0) as u64 <= now_ms)
+            .unwrap_or(false);
         let all_edges_revoked = !edges.is_empty() && edges.iter().all(|edge| edge.revoked);
         let active_edges = edges
             .iter()
@@ -455,7 +498,7 @@ pub async fn get_delegation_audit(
 
         let status = if root_revoked || all_edges_revoked {
             "Revoked"
-        } else if all_active_edges_expired {
+        } else if root_expired || all_active_edges_expired {
             "Expired"
         } else {
             "Active"
@@ -468,6 +511,8 @@ pub async fn get_delegation_audit(
             related_rme_id: key.related_rme_id,
             root_grant: root_grant_state.map(|grant| DelegationAuditRootGrant {
                 personnel: grant.personnel,
+                index: grant.index,
+                token_hash: grant.token_hash,
                 granted_at: grant.granted_at,
                 expires_at: grant.expires_at,
                 revoked: grant.revoked,
@@ -478,16 +523,23 @@ pub async fn get_delegation_audit(
     }
 
     response.sort_by(|left, right| {
-        right
+        let right_date = right
             .edges
             .first()
             .and_then(|edge| edge.expires_at.as_deref())
-            .cmp(
-                &left
-                    .edges
-                    .first()
-                    .and_then(|edge| edge.expires_at.as_deref()),
-            )
+            .or(right.root_grant
+                .as_ref()
+                .and_then(|grant| grant.expires_at.as_deref()));
+        let left_date = left
+            .edges
+            .first()
+            .and_then(|edge| edge.expires_at.as_deref())
+            .or(left
+                .root_grant
+                .as_ref()
+                .and_then(|grant| grant.expires_at.as_deref()));
+
+        right_date.cmp(&left_date)
     });
 
     Ok(SuccessResponse {
@@ -549,7 +601,11 @@ pub async fn revoke_access(
         patient_address: patient_iota_address.to_string(),
         purpose,
         root_subject,
+        delegated_by: None,
+        delegated_to: None,
+        related_rme_id: None,
         token_hash,
+        parent_token_hash: None,
         expires_before,
         tx_digest,
     };
@@ -562,7 +618,123 @@ pub async fn revoke_access(
         "patient_address": signed_payload.patient_address,
         "purpose": signed_payload.purpose,
         "root_subject": signed_payload.root_subject,
+        "delegated_by": signed_payload.delegated_by,
+        "delegated_to": signed_payload.delegated_to,
+        "related_rme_id": signed_payload.related_rme_id,
         "token_hash": signed_payload.token_hash,
+        "parent_token_hash": signed_payload.parent_token_hash,
+        "expires_before": signed_payload.expires_before,
+        "tx_digest": signed_payload.tx_digest,
+        "signature": signature_b64,
+    });
+
+    let proxy_resp = req_client
+        .post(&proxy_url)
+        .json(&proxy_body)
+        .send()
+        .await
+        .context(current_fn!())?;
+
+    let proxy_status = proxy_resp.status();
+    if !proxy_status.is_success() {
+        let err_text = proxy_resp.text().await.unwrap_or_default();
+        return Err(
+            anyhow!("Proxy revocation failed: {proxy_status} {err_text}")
+                .context(current_fn!())
+                .into(),
+        );
+    }
+
+    Ok(SuccessResponse {
+        data: (),
+        status: ResponseStatus::Success,
+    })
+}
+
+#[tauri::command]
+pub async fn revoke_delegated_access(
+    state: State<'_, Mutex<AppState>>,
+    root_subject: String,
+    delegated_by: String,
+    delegated_to: String,
+    access_type: String,
+    related_rme_id: Option<String>,
+    token_hash: Option<String>,
+    parent_token_hash: Option<String>,
+    delegation_depth: u8,
+    expires_before: Option<String>,
+) -> Result<SuccessResponse<()>, PatientError> {
+    let state = state.lock().await;
+    let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
+        .context(current_fn!())?;
+
+    let pin = state
+        .auth_state
+        .session_pin
+        .clone()
+        .ok_or(anyhow!("Session PIN Not found"))
+        .context(current_fn!())?;
+    let patient_iota_address =
+        get_iota_address_from_keys_entry(&keys_entry).context(current_fn!())?;
+    let patient_iota_key_pair =
+        get_iota_key_pair_from_keys_entry(&keys_entry, pin.clone()).context(current_fn!())?;
+    let root_subject_address = IotaAddress::from_str(&root_subject).context(current_fn!())?;
+    let delegated_by_address = IotaAddress::from_str(&delegated_by).context(current_fn!())?;
+    let delegated_to_address = IotaAddress::from_str(&delegated_to).context(current_fn!())?;
+    let admin_personnel_id = argon_hash("admin".to_string()).context(current_fn!())?;
+    let expires_at_ms = parse_expires_at_ms(expires_before.as_deref())?;
+
+    let tx_digest = state
+        .move_call
+        .revoke_delegated_access_by_patient(
+            root_subject_address,
+            delegated_by_address,
+            delegated_to_address,
+            admin_personnel_id,
+            access_type.clone().into_bytes(),
+            related_rme_id.clone(),
+            token_hash.clone().unwrap_or_default(),
+            parent_token_hash.clone().unwrap_or_default(),
+            delegation_depth,
+            expires_at_ms.unwrap_or_default(),
+            patient_iota_address,
+            patient_iota_key_pair,
+        )
+        .await
+        .context(current_fn!())?;
+
+    let req_client = reqwest::Client::new();
+    let proxy_url = format!("{}/revocations/patient", PROXY_BASE_URL);
+
+    let patient_iota_key_pair =
+        get_iota_key_pair_from_keys_entry(&keys_entry, pin).context(current_fn!())?;
+
+    let signed_payload = PatientRevocationSignedPayload {
+        patient_address: patient_iota_address.to_string(),
+        purpose: access_type,
+        root_subject,
+        delegated_by: Some(delegated_by),
+        delegated_to: Some(delegated_to),
+        related_rme_id,
+        token_hash,
+        parent_token_hash,
+        expires_before,
+        tx_digest,
+    };
+    let canonical = serde_json::to_string(&signed_payload).context(current_fn!())?;
+    let intent_message = IntentMessage::new(Intent::personal_message(), canonical);
+    let signature = Signature::new_secure(&intent_message, &patient_iota_key_pair);
+    let signature_b64 = signature.encode_base64();
+
+    let proxy_body = serde_json::json!({
+        "patient_address": signed_payload.patient_address,
+        "purpose": signed_payload.purpose,
+        "root_subject": signed_payload.root_subject,
+        "delegated_by": signed_payload.delegated_by,
+        "delegated_to": signed_payload.delegated_to,
+        "related_rme_id": signed_payload.related_rme_id,
+        "token_hash": signed_payload.token_hash,
+        "parent_token_hash": signed_payload.parent_token_hash,
         "expires_before": signed_payload.expires_before,
         "tx_digest": signed_payload.tx_digest,
         "signature": signature_b64,

@@ -456,6 +456,73 @@ impl MoveCall {
         Ok(tx_digest)
     }
 
+    pub async fn revoke_delegated_access_by_patient(
+        &self,
+        root_subject: IotaAddress,
+        delegated_by: IotaAddress,
+        delegated_to: IotaAddress,
+        admin_personnel_id: String,
+        access_type: Vec<u8>,
+        related_rme_id: Option<String>,
+        audit_token_hash: String,
+        audit_parent_token_hash: String,
+        audit_delegation_depth: u8,
+        audit_expires_at_ms: u64,
+        sender: IotaAddress,
+        sender_key_pair: IotaKeyPair,
+    ) -> Result<String, PatientError> {
+        let iota_client = get_iota_client().await.context(current_fn!())?;
+        let pt = construct_pt(
+            String::from("revoke_delegated_access_by_patient"),
+            self.decmed_package.package_id,
+            self.decmed_package.module_patient.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(true),
+                self.construct_clock_call_arg(),
+                CallArg::Pure(bcs::to_bytes(&root_subject).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&delegated_by).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&delegated_to).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(true),
+                CallArg::Pure(bcs::to_bytes(&admin_personnel_id).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&access_type).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&related_rme_id).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&audit_token_hash).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&audit_parent_token_hash).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&audit_delegation_depth).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&audit_expires_at_ms).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(true),
+            ],
+        )
+        .context(current_fn!())?;
+        let (sponsor_account, reservation_id, gas_coins) = reserve_gas(NANOS_PER_IOTA * 2, 10)
+            .await
+            .context(current_fn!())?;
+        let ref_gas_price = get_ref_gas_price(&iota_client)
+            .await
+            .context(current_fn!())?;
+
+        let tx_data = construct_sponsored_tx_data(
+            sender,
+            gas_coins,
+            pt,
+            GAS_BUDGET,
+            ref_gas_price,
+            sponsor_account,
+        );
+
+        let tx = Transaction::from_data_and_signer(tx_data, vec![&sender_key_pair]);
+        let tx_digest = tx.digest().to_string();
+
+        let response = execute_tx(tx, reservation_id)
+            .await
+            .context(current_fn!())?;
+
+        handle_error_execute_tx(response).context(current_fn!())?;
+
+        Ok(tx_digest)
+    }
+
     pub async fn signup(
         &self,
         patient_id: String,

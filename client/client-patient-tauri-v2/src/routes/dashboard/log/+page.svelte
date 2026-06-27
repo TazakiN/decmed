@@ -22,7 +22,7 @@
 				{#each accessLog.data as access}
 					<div class="bg-zinc-100 border border-zinc-300 p-3 rounded-md flex flex-col gap-2">
 						<p>
-						{formatDateTime(access.date)}
+							{formatDateTime(access.date)}
 						</p>
 						<div class="flex flex-col">
 							<p class="text-sm text-zinc-400">Hospital:</p>

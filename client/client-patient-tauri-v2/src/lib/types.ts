@@ -50,6 +50,8 @@ export type DelegationAuditPersonnelSummary = {
 
 export type DelegationAuditRootGrant = {
 	personnel: DelegationAuditPersonnelSummary;
+	index: number;
+	tokenHash: string | null;
 	grantedAt: string | null;
 	expiresAt: string | null;
 	revoked: boolean;

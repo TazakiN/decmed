@@ -154,7 +154,6 @@ export type RmeSegmentMetadata = {
 	author_address: string;
 	correction_of_index: number | null;
 	correction_reason: string | null;
-	updated_at: number | null;
 };
 
 export type TauriMedicalDataMainCategory = DatasetCategory;

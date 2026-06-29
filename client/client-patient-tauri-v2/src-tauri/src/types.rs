@@ -100,8 +100,6 @@ pub struct CommandGetMedicalRecordsResponseData {
     pub correction_of_index: Option<u64>,
     #[serde(rename = "correctionReason")]
     pub correction_reason: Option<String>,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

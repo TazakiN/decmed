@@ -35,8 +35,6 @@ pub struct MedicalRecordMetadataFlatItem {
     pub correction_of_index: Option<u64>,
     #[serde(default)]
     pub correction_reason: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -56,7 +54,6 @@ pub struct RmeSegmentListItem {
     pub list_index: u64,
     pub correction_of_index: Option<u64>,
     pub correction_reason: Option<String>,
-    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -171,7 +168,6 @@ pub fn group_medical_record_metadata(
                         list_index: seg.list_index,
                         correction_of_index: seg.correction_of_index,
                         correction_reason: seg.correction_reason.clone(),
-                        updated_at: seg.updated_at,
                     });
             }
 
@@ -463,7 +459,6 @@ mod tests {
             author_address: "0xauthor".to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 
@@ -488,7 +483,6 @@ mod tests {
             author_address: author.to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 
@@ -543,7 +537,6 @@ mod tests {
         );
         correction.correction_of_index = Some(2);
         correction.correction_reason = Some("Koreksi anamnesis".to_string());
-        correction.updated_at = Some(1_768_000_000_000);
 
         let grouped = group_medical_record_metadata(vec![
             correction,
@@ -570,7 +563,6 @@ mod tests {
             segment.correction_reason.as_deref(),
             Some("Koreksi anamnesis")
         );
-        assert_eq!(segment.updated_at, Some(1_768_000_000_000));
     }
 
     #[test]

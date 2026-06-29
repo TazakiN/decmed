@@ -73,7 +73,6 @@ mod tests {
             author_address: "iota:doctor-address".to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 
@@ -257,13 +256,11 @@ mod tests {
         let metadata = client_segment.into_metadata(
             "bafy-correction".to_string(),
             "2026-05-18T10:30:00.000Z".to_string(),
-            Some(1_768_000_000_000)
         );
         metadata.validate().unwrap();
 
         assert_eq!(metadata.correction_of_index, Some(7));
         assert_eq!(metadata.correction_reason.as_deref(), Some("Memperbaiki salah ketik"));
-        assert_eq!(metadata.updated_at, Some(1_768_000_000_000));
     }
 
     #[test]
@@ -294,37 +291,15 @@ mod tests {
     }
 
     #[test]
-    fn correction_metadata_requires_consistent_updated_at() {
-        let mut missing_updated_at = sample_metadata(b"encrypted segment");
-        missing_updated_at.correction_of_index = Some(2);
-        missing_updated_at.correction_reason = Some("Alasan".to_string());
-        assert_eq!(
-            missing_updated_at.validate().unwrap_err(),
-            SegmentValidationError::MissingField("updated_at")
-        );
-
-        let mut unexpected_updated_at = sample_metadata(b"encrypted segment");
-        unexpected_updated_at.updated_at = Some(1_768_000_000_000);
-        assert!(
-            matches!(
-                unexpected_updated_at.validate(),
-                Err(SegmentValidationError::InvalidCorrection(_))
-            )
-        );
-    }
-
-    #[test]
     fn legacy_metadata_without_correction_fields_defaults_to_none() {
         let mut value = serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
         let object = value.as_object_mut().unwrap();
         object.remove("correction_of_index");
         object.remove("correction_reason");
-        object.remove("updated_at");
 
         let decoded: RmeSegmentMetadata = serde_json::from_value(value).unwrap();
         assert_eq!(decoded.correction_of_index, None);
         assert_eq!(decoded.correction_reason, None);
-        assert_eq!(decoded.updated_at, None);
         decoded.validate().unwrap();
     }
 
@@ -419,7 +394,6 @@ mod tests {
         let metadata = client_segment.into_metadata(
             "bafy...".to_string(),
             "2026-05-18T10:30:00.000Z".to_string(),
-            None
         );
 
         assert_eq!(metadata.ipfs_cid, "bafy...");

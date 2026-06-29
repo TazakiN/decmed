@@ -141,7 +141,6 @@ pub fn to_metadata_item(
         author_address: segment.author_address.clone(),
         correction_of_index: segment.correction_of_index,
         correction_reason: segment.correction_reason.clone(),
-        updated_at: segment.updated_at,
     }
 }
 
@@ -225,7 +224,6 @@ mod tests {
             author_address: "0xauthor".to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 
@@ -250,7 +248,6 @@ mod tests {
             author_address: author.to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 
@@ -440,7 +437,6 @@ mod tests {
         );
         correction.correction_of_index = Some(2);
         correction.correction_reason = Some("Koreksi isi anamnesis".to_string());
-        correction.updated_at = Some(1_768_000_000_000);
 
         let items = collapse_to_active_metadata_items(vec![original, correction]);
 

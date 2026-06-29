@@ -37,4 +37,6 @@ pub enum CaveatVerificationError {
     RelatedRmeAssignmentRequiresEmptyParent,
     #[error("Token has been revoked")]
     RevokedToken,
+    #[error("Wallet proof timestamp is out of acceptable range")]
+    TimestampOutOfRange,
 }

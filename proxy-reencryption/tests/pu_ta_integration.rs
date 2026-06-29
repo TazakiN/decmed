@@ -107,7 +107,6 @@ fn segment(dataset_category: DatasetCategory, function_category: FunctionCategor
         author_address: DOCTOR.to_string(),
         correction_of_index: None,
         correction_reason: None,
-        updated_at: None,
     }
 }
 

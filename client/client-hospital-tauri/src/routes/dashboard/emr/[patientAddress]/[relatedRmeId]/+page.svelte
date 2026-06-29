@@ -281,10 +281,6 @@
 									<span>Index #{segment.correction_of_index}</span>
 									<span class="text-zinc-500">Alasan</span>
 									<span>{segment.correction_reason}</span>
-									{#if segment.updated_at !== null}
-										<span class="text-zinc-500">Diperbarui</span>
-										<span>{formatDate(segment.updated_at)}</span>
-									{/if}
 								{/if}
 							</div>
 						{/if}

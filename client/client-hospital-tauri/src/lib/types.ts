@@ -149,7 +149,6 @@ export type RmeSegmentMetadata = {
 	author_address: string;
 	correction_of_index: number | null;
 	correction_reason: string | null;
-	updated_at: number | null;
 };
 
 export type CreateRmeSegmentResponse = {
@@ -162,7 +161,6 @@ export type CreateRmeSegmentResponse = {
 	created_at: string;
 	correction_of_index: number | null;
 	correction_reason: string | null;
-	updated_at: number | null;
 };
 
 export type CreateRmeSegmentRequest = {
@@ -220,7 +218,6 @@ export type RmeSegmentListItem = {
 	list_index: number;
 	correction_of_index: number | null;
 	correction_reason: string | null;
-	updated_at: number | null;
 };
 
 export type RmeDatasetGroup = {

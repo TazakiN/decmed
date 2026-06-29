@@ -155,7 +155,6 @@ impl ClientEncryptedRmeSegment {
         self,
         ipfs_cid: String,
         created_at: String,
-        updated_at: Option<u64>
     ) -> RmeSegmentMetadata {
         RmeSegmentMetadata {
             segment_id: self.segment_id,
@@ -172,7 +171,6 @@ impl ClientEncryptedRmeSegment {
             author_address: self.author_address,
             correction_of_index: self.correction_of_index,
             correction_reason: self.correction_reason,
-            updated_at,
         }
     }
 }
@@ -196,8 +194,6 @@ pub struct RmeSegmentMetadata {
     pub correction_of_index: Option<u64>,
     #[serde(default)]
     pub correction_reason: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<u64>,
 }
 
 impl RmeSegmentMetadata {
@@ -206,7 +202,6 @@ impl RmeSegmentMetadata {
         assert_valid_correction_metadata(
             self.correction_of_index,
             self.correction_reason.as_deref(),
-            self.updated_at
         )?;
 
         for (field, value) in [
@@ -248,7 +243,6 @@ pub struct CreateRmeSegmentResponse {
     pub created_at: String,
     pub correction_of_index: Option<u64>,
     pub correction_reason: Option<String>,
-    pub updated_at: Option<u64>,
 }
 
 impl From<&RmeSegmentMetadata> for CreateRmeSegmentResponse {
@@ -263,7 +257,6 @@ impl From<&RmeSegmentMetadata> for CreateRmeSegmentResponse {
             created_at: metadata.created_at.clone(),
             correction_of_index: metadata.correction_of_index,
             correction_reason: metadata.correction_reason.clone(),
-            updated_at: metadata.updated_at,
         }
     }
 }

@@ -33,7 +33,6 @@ struct StoredRmeSegmentMetadata {
     related_rme_id: String,
     correction_of_index: Option<u64>,
     correction_reason: Option<String>,
-    updated_at: Option<u64>,
 }
 
 fn deserialize_stored_rme_segment_metadata(
@@ -61,7 +60,6 @@ fn deserialize_stored_rme_segment_metadata(
         related_rme_id: segment_metadata.related_rme_id,
         correction_of_index: segment_metadata.correction_of_index,
         correction_reason: segment_metadata.correction_reason,
-        updated_at: segment_metadata.updated_at,
     }))
 }
 
@@ -181,7 +179,6 @@ pub async fn get_medical_records(
                     related_rme_id: medical_metadata.related_rme_id,
                     correction_of_index: medical_metadata.correction_of_index,
                     correction_reason: medical_metadata.correction_reason,
-                    updated_at: medical_metadata.updated_at,
                 });
             }
             Ok(None) => skipped_legacy += 1,
@@ -305,7 +302,6 @@ mod tests {
             related_rme_id: related_rme_id.to_string(),
             correction_of_index: None,
             correction_reason: None,
-            updated_at: None,
         }
     }
 

@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use axum::http::StatusCode;
+use chrono::{TimeDelta, Utc};
 use decmed_macaroon_auth::{
     verify_decmed_token, verify_segment_access, AccessMode, CaveatVerificationError,
     DelegationProofContext, Macaroon, MacaroonKey, SegmentAccessContext, TokenVerificationContext,
@@ -22,6 +23,14 @@ impl WalletSignatureVerifier for IotaWalletVerifier {
         signature_b64: &str,
         expected_address: &str,
     ) -> Result<(), CaveatVerificationError> {
+        let ts = chrono::DateTime::parse_from_rfc3339(&context.timestamp)
+            .map_err(|_| CaveatVerificationError::TimestampOutOfRange)?
+            .with_timezone(&Utc);
+        let now = Utc::now();
+        if (now - ts).abs() > TimeDelta::minutes(5) {
+            return Err(CaveatVerificationError::TimestampOutOfRange);
+        }
+
         let address = IotaAddress::from_str(expected_address)
             .map_err(|_| CaveatVerificationError::InvalidWalletSignature)?;
         let message = context.canonical_message()?;
@@ -48,7 +57,8 @@ pub fn caveat_error_to_status(err: &CaveatVerificationError) -> StatusCode {
         | CaveatVerificationError::DelegationDepthExceeded
         | CaveatVerificationError::DelegationDepthNotMonotonic => StatusCode::FORBIDDEN,
         CaveatVerificationError::WalletSignatureRequired
-        | CaveatVerificationError::InvalidWalletSignature => StatusCode::UNAUTHORIZED,
+        | CaveatVerificationError::InvalidWalletSignature
+        | CaveatVerificationError::TimestampOutOfRange => StatusCode::UNAUTHORIZED,
         CaveatVerificationError::DatasetCategoryNotAllowed
         | CaveatVerificationError::FunctionCategoryNotAllowed => StatusCode::FORBIDDEN,
         _ => StatusCode::BAD_REQUEST,

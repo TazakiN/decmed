@@ -31,18 +31,8 @@ pub fn assert_valid_correction_request(
 pub fn assert_valid_correction_metadata(
     correction_of_index: Option<u64>,
     correction_reason: Option<&str>,
-    updated_at: Option<u64>
 ) -> Result<(), SegmentValidationError> {
-    assert_valid_correction_request(correction_of_index, correction_reason)?;
-
-    match (correction_of_index, updated_at) {
-        (None, None) | (Some(_), Some(_)) => Ok(()),
-        (Some(_), None) => Err(SegmentValidationError::MissingField("updated_at")),
-        (None, Some(_)) =>
-            Err(
-                SegmentValidationError::InvalidCorrection("updated_at requires correction_of_index")
-            ),
-    }
+    assert_valid_correction_request(correction_of_index, correction_reason)
 }
 
 pub fn get_allowed_function_categories(dataset_category: DatasetCategory) -> Vec<FunctionCategory> {

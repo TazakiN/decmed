@@ -17,6 +17,16 @@ const accessStatus = (access: InvokeGetAccessLog): InvokeDelegationAuditChain['s
 	return 'Active';
 };
 
+const latestDelegationDate = (chain: InvokeDelegationAuditChain) => {
+	const delegatedAt = chain.edges
+		.map((edge) => edge.delegatedAt)
+		.filter((value): value is string => Boolean(value))
+		.sort()
+		.at(-1);
+
+	return delegatedAt ?? chain.rootGrant?.grantedAt ?? '';
+};
+
 const withRootGrantFallback = async (): Promise<SuccessResponse<InvokeDelegationAuditChain[]>> => {
 	const [delegationAudit, accessLog] = await Promise.all([
 		invoke('get_delegation_audit') as Promise<SuccessResponse<InvokeDelegationAuditChain[]>>,
@@ -27,11 +37,11 @@ const withRootGrantFallback = async (): Promise<SuccessResponse<InvokeDelegation
 	const existingRootKeys = new Set(
 		chains
 			.filter((chain) => chain.rootGrant)
-			.map((chain) => `${chain.rootSubject}:${chain.accessType}:${chain.relatedRmeId ?? ''}`)
+			.map((chain) => `${chain.rootSubject}:${chain.accessType}`)
 	);
 
 	for (const access of accessLog.data) {
-		const key = `${access.hospital_personnel_address}:${access.access_type}:`;
+		const key = `${access.hospital_personnel_address}:${access.access_type}`;
 		if (existingRootKeys.has(key)) continue;
 
 		chains.push({
@@ -59,9 +69,7 @@ const withRootGrantFallback = async (): Promise<SuccessResponse<InvokeDelegation
 	}
 
 	chains.sort((left, right) => {
-		const rightDate = right.edges[0]?.expiresAt ?? right.rootGrant?.expiresAt ?? '';
-		const leftDate = left.edges[0]?.expiresAt ?? left.rootGrant?.expiresAt ?? '';
-		return rightDate.localeCompare(leftDate);
+		return latestDelegationDate(right).localeCompare(latestDelegationDate(left));
 	});
 
 	return {

@@ -216,6 +216,7 @@ pub struct DelegationAuditEdge {
     pub depth: u8,
     pub token_hash: Option<String>,
     pub parent_token_hash: Option<String>,
+    pub delegated_at: Option<String>,
     pub expires_at: Option<String>,
     pub revoked: bool,
     pub revoked_at: Option<String>,

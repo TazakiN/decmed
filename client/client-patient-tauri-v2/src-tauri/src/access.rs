@@ -53,6 +53,7 @@ struct ChainKey {
     root_subject: String,
     access_type: MoveHospitalPersonnelAccessType,
     related_rme_id: Option<String>,
+    root_token_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -72,6 +73,7 @@ struct EdgeState {
     depth: u8,
     token_hash: Option<String>,
     parent_token_hash: Option<String>,
+    delegated_at_ms: Option<u64>,
     expires_at_ms: Option<u64>,
     revoked: bool,
     revoked_at_ms: Option<u64>,
@@ -174,6 +176,101 @@ fn fallback_personnel(address: &str) -> DelegationAuditPersonnelSummary {
     }
 }
 
+fn resolved_root_token_hash(
+    token_hash: Option<&str>,
+    root_grants_by_token: &HashMap<String, RootGrantState>,
+    edge_parent_by_token: &HashMap<String, String>,
+) -> Option<String> {
+    let mut token_hash = token_hash?;
+    let mut remaining = edge_parent_by_token.len() + 1;
+
+    while remaining > 0 {
+        if root_grants_by_token.contains_key(token_hash) {
+            return Some(token_hash.to_string());
+        }
+
+        let Some(parent_token_hash) = edge_parent_by_token.get(token_hash) else {
+            break;
+        };
+
+        token_hash = parent_token_hash.as_str();
+        remaining -= 1;
+    }
+
+    None
+}
+
+fn entry_root_token_hash(
+    entry: &MovePatientDelegationAuditEntry,
+    root_grants_by_token: &HashMap<String, RootGrantState>,
+    edge_parent_by_token: &HashMap<String, String>,
+) -> Option<String> {
+    resolved_root_token_hash(
+        entry.parent_token_hash.as_deref(),
+        root_grants_by_token,
+        edge_parent_by_token,
+    )
+    .or_else(|| {
+        resolved_root_token_hash(
+            entry.token_hash.as_deref(),
+            root_grants_by_token,
+            edge_parent_by_token,
+        )
+    })
+}
+
+fn root_grant_status(root_grant: &RootGrantState, now_ms: u64) -> &'static str {
+    if root_grant.revoked {
+        return "Revoked";
+    }
+
+    let root_expired = root_grant
+        .expires_at
+        .as_deref()
+        .and_then(|expires_at| DateTime::parse_from_rfc3339(expires_at).ok())
+        .map(|expires_at| expires_at.timestamp_millis().max(0) as u64 <= now_ms)
+        .unwrap_or(false);
+
+    if root_expired {
+        "Expired"
+    } else {
+        "Active"
+    }
+}
+
+fn edge_summary_status(edges: &[EdgeState], now_ms: u64) -> &'static str {
+    let all_edges_revoked = !edges.is_empty() && edges.iter().all(|edge| edge.revoked);
+    let active_edges = edges
+        .iter()
+        .filter(|edge| !edge.revoked)
+        .collect::<Vec<_>>();
+    let all_active_edges_expired = !active_edges.is_empty()
+        && active_edges.iter().all(|edge| {
+            edge.expires_at_ms
+                .map(|expires| expires <= now_ms)
+                .unwrap_or(false)
+        });
+
+    if all_edges_revoked {
+        "Revoked"
+    } else if all_active_edges_expired {
+        "Expired"
+    } else {
+        "Active"
+    }
+}
+
+fn root_grant_response(root_grant: RootGrantState) -> DelegationAuditRootGrant {
+    DelegationAuditRootGrant {
+        personnel: root_grant.personnel,
+        index: root_grant.index,
+        token_hash: root_grant.token_hash,
+        granted_at: root_grant.granted_at,
+        expires_at: root_grant.expires_at,
+        revoked: root_grant.revoked,
+    }
+}
+
 #[tauri::command]
 pub async fn get_access_log(
     state: State<'_, Mutex<AppState>>,
@@ -189,9 +286,10 @@ pub async fn get_access_log(
         patient_iota_address
     };
 
-    let access_log: Vec<MovePatientAccessLog> = fetch_all_access_logs(&state.move_call, patient_iota_address)
-        .await
-        .context(current_fn!())?;
+    let access_log: Vec<MovePatientAccessLog> =
+        fetch_all_access_logs(&state.move_call, patient_iota_address)
+            .await
+            .context(current_fn!())?;
 
     let access_log = access_log
         .into_iter()
@@ -243,8 +341,9 @@ pub async fn get_delegation_audit(
         .context(current_fn!())?;
 
     let mut personnel_cache: HashMap<String, DelegationAuditPersonnelSummary> = HashMap::new();
-    let mut root_grants: HashMap<(String, MoveHospitalPersonnelAccessType), RootGrantState> =
+    let mut latest_root_grants: HashMap<(String, MoveHospitalPersonnelAccessType), RootGrantState> =
         HashMap::new();
+    let mut root_grants_by_token: HashMap<String, RootGrantState> = HashMap::new();
 
     for log in &access_logs {
         let address = log.hospital_personnel_address.to_string();
@@ -263,22 +362,25 @@ pub async fn get_delegation_audit(
             .or_insert_with(|| summary.clone());
 
         let key = (address, log.access_type);
-        let should_replace = root_grants
+        let root_grant = RootGrantState {
+            personnel: summary,
+            index: log.index,
+            token_hash: log.token_hash.clone(),
+            granted_at: Some(log.date.clone()),
+            expires_at: access_expires_at(&log.date, log.exp_dur),
+            revoked: log.is_revoked,
+        };
+
+        if let Some(token_hash) = &log.token_hash {
+            root_grants_by_token.insert(token_hash.clone(), root_grant.clone());
+        }
+
+        let should_replace = latest_root_grants
             .get(&key)
             .map(|current| current.granted_at.as_deref().unwrap_or_default() < log.date.as_str())
             .unwrap_or(true);
         if should_replace {
-            root_grants.insert(
-                key,
-                RootGrantState {
-                    personnel: summary,
-                    index: log.index,
-                    token_hash: log.token_hash.clone(),
-                    granted_at: Some(log.date.clone()),
-                    expires_at: access_expires_at(&log.date, log.exp_dur),
-                    revoked: log.is_revoked,
-                },
-            );
+            latest_root_grants.insert(key, root_grant);
         }
     }
 
@@ -323,16 +425,33 @@ pub async fn get_delegation_audit(
     }
 
     audit_entries.sort_by_key(|entry| entry.index);
+    let mut edge_parent_by_token: HashMap<String, String> = HashMap::new();
+    for entry in &audit_entries {
+        if matches!(
+            entry.event_type,
+            MovePatientDelegationAuditEventType::Delegated
+        ) {
+            if let (Some(token_hash), Some(parent_token_hash)) =
+                (&entry.token_hash, &entry.parent_token_hash)
+            {
+                edge_parent_by_token.insert(token_hash.clone(), parent_token_hash.clone());
+            }
+        }
+    }
+
     let mut chains: BTreeMap<ChainKey, ChainState> = BTreeMap::new();
 
     for entry in audit_entries {
         let root_subject = entry.root_subject.to_string();
         let delegated_by = entry.delegated_by.to_string();
         let delegated_to = entry.delegated_to.to_string();
+        let root_token_hash =
+            entry_root_token_hash(&entry, &root_grants_by_token, &edge_parent_by_token);
         let chain_key = ChainKey {
             root_subject: root_subject.clone(),
             access_type: entry.access_type,
             related_rme_id: entry.related_rme_id.clone(),
+            root_token_hash: root_token_hash.clone(),
         };
 
         match entry.event_type {
@@ -353,6 +472,7 @@ pub async fn get_delegation_audit(
                         depth: entry.delegation_depth,
                         token_hash: entry.token_hash,
                         parent_token_hash: entry.parent_token_hash,
+                        delegated_at_ms: Some(entry.timestamp_ms),
                         expires_at_ms: entry.expires_at_ms,
                         revoked: false,
                         revoked_at_ms: None,
@@ -360,13 +480,25 @@ pub async fn get_delegation_audit(
                 );
             }
             MovePatientDelegationAuditEventType::Revoked => {
-                let matching_chain_keys = if entry.related_rme_id.is_some() {
-                    vec![chain_key.clone()]
-                } else {
+                let matching_chain_keys = {
                     let keys = chains
                         .keys()
                         .filter(|key| {
-                            key.root_subject == root_subject && key.access_type == entry.access_type
+                            key.root_subject == root_subject
+                                && key.access_type == entry.access_type
+                                && entry
+                                    .related_rme_id
+                                    .as_ref()
+                                    .map(|related_rme_id| {
+                                        key.related_rme_id.as_ref() == Some(related_rme_id)
+                                    })
+                                    .unwrap_or(true)
+                                && root_token_hash
+                                    .as_ref()
+                                    .map(|token_hash| {
+                                        key.root_token_hash.as_ref() == Some(token_hash)
+                                    })
+                                    .unwrap_or(true)
                         })
                         .cloned()
                         .collect::<Vec<_>>();
@@ -413,6 +545,7 @@ pub async fn get_delegation_audit(
                                 depth: entry.delegation_depth,
                                 token_hash: entry.token_hash.clone(),
                                 parent_token_hash: entry.parent_token_hash.clone(),
+                                delegated_at_ms: None,
                                 expires_at_ms: entry.expires_at_ms,
                                 revoked: true,
                                 revoked_at_ms: Some(entry.timestamp_ms),
@@ -424,17 +557,21 @@ pub async fn get_delegation_audit(
         }
     }
 
-    for ((root_subject, access_type), _) in &root_grants {
-        let has_chain = chains
-            .keys()
-            .any(|key| key.root_subject == *root_subject && key.access_type == *access_type);
+    for ((root_subject, access_type), root_grant) in &latest_root_grants {
+        let has_chain = chains.keys().any(|key| {
+            key.root_subject == *root_subject
+                && key.access_type == *access_type
+                && key.root_token_hash == root_grant.token_hash
+        });
         if !has_chain {
-            chains.entry(ChainKey {
-                root_subject: root_subject.clone(),
-                access_type: *access_type,
-                related_rme_id: None,
-            })
-            .or_default();
+            chains
+                .entry(ChainKey {
+                    root_subject: root_subject.clone(),
+                    access_type: *access_type,
+                    related_rme_id: None,
+                    root_token_hash: root_grant.token_hash.clone(),
+                })
+                .or_default();
         }
     }
 
@@ -442,16 +579,23 @@ pub async fn get_delegation_audit(
     let mut response = Vec::new();
 
     for (key, chain) in chains {
-        let root_grant_state = root_grants
-            .get(&(key.root_subject.clone(), key.access_type))
-            .cloned();
+        let root_grant_state = key
+            .root_token_hash
+            .as_ref()
+            .and_then(|token_hash| root_grants_by_token.get(token_hash).cloned())
+            .or_else(|| {
+                latest_root_grants
+                    .get(&(key.root_subject.clone(), key.access_type))
+                    .cloned()
+            });
         let mut edges = chain.edges.into_values().collect::<Vec<_>>();
-        edges.sort_by_key(|edge| {
-            (
-                edge.depth,
-                edge.delegated_by.clone(),
-                edge.delegated_to.clone(),
-            )
+        edges.sort_by(|left, right| {
+            right
+                .delegated_at_ms
+                .cmp(&left.delegated_at_ms)
+                .then_with(|| left.depth.cmp(&right.depth))
+                .then_with(|| left.delegated_by.cmp(&right.delegated_by))
+                .then_with(|| left.delegated_to.cmp(&right.delegated_to))
         });
 
         let rendered_edges = edges
@@ -468,55 +612,24 @@ pub async fn get_delegation_audit(
                 depth: edge.depth,
                 token_hash: edge.token_hash.clone(),
                 parent_token_hash: edge.parent_token_hash.clone(),
+                delegated_at: edge.delegated_at_ms.and_then(ms_to_rfc3339),
                 expires_at: edge.expires_at_ms.and_then(ms_to_rfc3339),
                 revoked: edge.revoked,
                 revoked_at: edge.revoked_at_ms.and_then(ms_to_rfc3339),
             })
             .collect::<Vec<_>>();
 
-        let root_revoked = root_grant_state
+        let status = root_grant_state
             .as_ref()
-            .map(|grant| grant.revoked)
-            .unwrap_or(false);
-        let root_expired = root_grant_state
-            .as_ref()
-            .and_then(|grant| grant.expires_at.as_deref())
-            .and_then(|expires_at| DateTime::parse_from_rfc3339(expires_at).ok())
-            .map(|expires_at| expires_at.timestamp_millis().max(0) as u64 <= now_ms)
-            .unwrap_or(false);
-        let all_edges_revoked = !edges.is_empty() && edges.iter().all(|edge| edge.revoked);
-        let active_edges = edges
-            .iter()
-            .filter(|edge| !edge.revoked)
-            .collect::<Vec<_>>();
-        let all_active_edges_expired = !active_edges.is_empty()
-            && active_edges.iter().all(|edge| {
-                edge.expires_at_ms
-                    .map(|expires| expires <= now_ms)
-                    .unwrap_or(false)
-            });
-
-        let status = if root_revoked || all_edges_revoked {
-            "Revoked"
-        } else if root_expired || all_active_edges_expired {
-            "Expired"
-        } else {
-            "Active"
-        }
-        .to_string();
+            .map(|root_grant| root_grant_status(root_grant, now_ms))
+            .unwrap_or_else(|| edge_summary_status(&edges, now_ms))
+            .to_string();
 
         response.push(InvokeDelegationAuditChain {
             root_subject: key.root_subject,
             access_type: key.access_type,
             related_rme_id: key.related_rme_id,
-            root_grant: root_grant_state.map(|grant| DelegationAuditRootGrant {
-                personnel: grant.personnel,
-                index: grant.index,
-                token_hash: grant.token_hash,
-                granted_at: grant.granted_at,
-                expires_at: grant.expires_at,
-                revoked: grant.revoked,
-            }),
+            root_grant: root_grant_state.map(root_grant_response),
             edges: rendered_edges,
             status,
         });
@@ -525,19 +638,22 @@ pub async fn get_delegation_audit(
     response.sort_by(|left, right| {
         let right_date = right
             .edges
-            .first()
-            .and_then(|edge| edge.expires_at.as_deref())
-            .or(right.root_grant
+            .iter()
+            .filter_map(|edge| edge.delegated_at.as_deref())
+            .max()
+            .or(right
+                .root_grant
                 .as_ref()
-                .and_then(|grant| grant.expires_at.as_deref()));
+                .and_then(|grant| grant.granted_at.as_deref()));
         let left_date = left
             .edges
-            .first()
-            .and_then(|edge| edge.expires_at.as_deref())
+            .iter()
+            .filter_map(|edge| edge.delegated_at.as_deref())
+            .max()
             .or(left
                 .root_grant
                 .as_ref()
-                .and_then(|grant| grant.expires_at.as_deref()));
+                .and_then(|grant| grant.granted_at.as_deref()));
 
         right_date.cmp(&left_date)
     });

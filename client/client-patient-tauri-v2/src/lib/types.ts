@@ -63,6 +63,7 @@ export type DelegationAuditEdge = {
 	depth: number;
 	tokenHash: string | null;
 	parentTokenHash: string | null;
+	delegatedAt: string | null;
 	expiresAt: string | null;
 	revoked: boolean;
 	revokedAt: string | null;
@@ -102,11 +103,7 @@ export type TauriAdministrativeData = {
 	maritalStatus: string | null;
 };
 
-export type DatasetCategory =
-	| 'RAWAT_JALAN'
-	| 'RAWAT_INAP'
-	| 'LABORATORIUM'
-	| 'APOTEK';
+export type DatasetCategory = 'RAWAT_JALAN' | 'RAWAT_INAP' | 'LABORATORIUM' | 'APOTEK';
 
 export type FunctionCategory =
 	| 'ADMINISTRATIVE_GENERAL'

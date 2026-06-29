@@ -73,19 +73,15 @@
 	};
 
 	const chainDisplayStatus = (chain: InvokeDelegationAuditChain): DelegationStatus => {
-		if (chain.edges.length === 0) return chain.status;
+		if (!chain.rootGrant) return chain.status;
+		if (chain.rootGrant.revoked) return 'Revoked';
+		if (isExpired(chain.rootGrant.expiresAt)) return 'Expired';
 
-		const edgeStatuses = chain.edges.map((edge) => edgeStatus(chain, edge));
-
-		if (edgeStatuses.every((status) => status === 'Expired')) return 'Expired';
-		if (edgeStatuses.some((status) => status === 'Active')) return 'Active';
-		if (edgeStatuses.some((status) => status === 'Revoked')) return 'Revoked';
-
-		return chain.status;
+		return 'Active';
 	};
 
 	const revokeKeyRoot = (chain: InvokeDelegationAuditChain) => {
-		return `root:${chain.rootSubject}:${chain.accessType}:${chain.relatedRmeId ?? ''}`;
+		return `root:${chain.rootSubject}:${chain.accessType}:${chain.relatedRmeId ?? ''}:${chain.rootGrant?.tokenHash ?? ''}`;
 	};
 
 	const revokeKeyEdge = (chain: InvokeDelegationAuditChain, edge: DelegationAuditEdge) => {
@@ -103,9 +99,9 @@
 	const rootCanRevoke = (chain: InvokeDelegationAuditChain) => {
 		return Boolean(
 			chainDisplayStatus(chain) === 'Active' &&
-				chain.rootGrant &&
-				!chain.rootGrant.revoked &&
-				!isExpired(chain.rootGrant.expiresAt)
+			chain.rootGrant &&
+			!chain.rootGrant.revoked &&
+			!isExpired(chain.rootGrant.expiresAt)
 		);
 	};
 
@@ -247,6 +243,11 @@
 									</div>
 									<div class="mt-2 flex flex-wrap gap-2 text-xs">
 										<span class="bg-zinc-100 px-2 py-1 rounded">Depth: {edge.depth}</span>
+										{#if edge.delegatedAt}
+											<span class="bg-zinc-100 px-2 py-1 rounded">
+												Delegated: {formatDateTime(edge.delegatedAt)}
+											</span>
+										{/if}
 										{#if edge.expiresAt}
 											<span class="bg-zinc-100 px-2 py-1 rounded">
 												Expires: {formatDateTime(edge.expiresAt)}

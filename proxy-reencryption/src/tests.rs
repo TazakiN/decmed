@@ -44,7 +44,7 @@ fn test_admin_dual_token_issue_and_verify() {
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
-        AdminTokenKind::Write,
+        AdminTokenKind::Update,
         write_expires,
     )
     .unwrap();

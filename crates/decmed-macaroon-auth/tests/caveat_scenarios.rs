@@ -1,14 +1,14 @@
 use chrono::Utc;
 use decmed_macaroon_auth::{
     admin_write_datasets, admin_write_functions, attenuate_macaroon, compute_revocation_keys,
-    edge_revocation_key, hash_token, issue_initial_token, parse_caveat_line,
-    root_revocation_key, token_revocation_key, verify_decmed_token, AccessMode, CaveatKey,
-    CaveatVerificationError, DelegationAttenuationParams, InitialDoctorTokenParams,
-    ParsedCaveats, SegmentAccessContext, TokenVerificationContext, WalletProofContext,
-    WalletSignatureVerifier,
+    hash_token, token_revocation_key, verify_decmed_token, AccessMode, CaveatKey,
+    CaveatVerificationError, DelegationAttenuationParams, ParsedCaveats, SegmentAccessContext,
+    TokenVerificationContext, WalletProofContext, WalletSignatureVerifier,
 };
-use decmed_rme_segment::{DatasetCategory, FunctionCategory};
-use macaroon::MacaroonKey;
+use decmed_rme_segment::{
+    DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
+};
+use macaroon::{Format, Macaroon, MacaroonKey};
 
 const PATIENT: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
 const DOCTOR: &str = "0x2222222222222222222222222222222222222222222222222222222222222222";
@@ -43,12 +43,108 @@ fn root_key() -> MacaroonKey {
     MacaroonKey::generate(b"decmed-test-root-key-64-bytes-padding!!")
 }
 
-fn doctor_token_params() -> InitialDoctorTokenParams {
-    InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR)
+fn add_caveat_to_macaroon(mac: &mut Macaroon, key: &str, value: &str) {
+    mac.add_first_party_caveat(format!("{key} = {value}").into());
+}
+
+fn format_dataset_list(categories: &[DatasetCategory]) -> String {
+    let names: Vec<String> = categories
+        .iter()
+        .map(|category| {
+            serde_json::to_string(category)
+                .unwrap()
+                .trim_matches('"')
+                .to_string()
+        })
+        .collect();
+    format!("[{}]", names.join(", "))
+}
+
+fn format_function_list(categories: &[FunctionCategory]) -> String {
+    let names: Vec<String> = categories
+        .iter()
+        .map(|category| {
+            serde_json::to_string(category)
+                .unwrap()
+                .trim_matches('"')
+                .to_string()
+        })
+        .collect();
+    format!("[{}]", names.join(", "))
 }
 
 fn doctor_token() -> String {
-    issue_initial_token(&root_key(), &doctor_token_params()).unwrap()
+    scoped_token(
+        DOCTOR,
+        Some(RME_ID),
+        &ALL_DATASET_CATEGORIES,
+        &ALL_DATASET_CATEGORIES,
+        &ALL_FUNCTION_CATEGORIES,
+        &ALL_FUNCTION_CATEGORIES,
+        1,
+        Some("Read"),
+    )
+}
+
+fn scoped_token(
+    subject: &str,
+    related_rme_id: Option<&str>,
+    read_datasets: &[DatasetCategory],
+    write_datasets: &[DatasetCategory],
+    read_functions: &[FunctionCategory],
+    write_functions: &[FunctionCategory],
+    max_delegation_depth: u32,
+    purpose: Option<&str>,
+) -> String {
+    let mut mac = Macaroon::create(
+        Some("proxy-reencryption".into()),
+        &root_key(),
+        subject.into(),
+    )
+    .unwrap();
+    add_caveat_to_macaroon(&mut mac, "patient_address", PATIENT);
+    if let Some(related_rme_id) = related_rme_id {
+        add_caveat_to_macaroon(&mut mac, "related_rme_id", related_rme_id);
+    }
+    add_caveat_to_macaroon(&mut mac, "root_subject", subject);
+    if !read_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            "read_dataset_in",
+            &format_dataset_list(read_datasets),
+        );
+    }
+    if !write_datasets.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            "write_dataset_in",
+            &format_dataset_list(write_datasets),
+        );
+    }
+    if !read_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            "read_function_in",
+            &format_function_list(read_functions),
+        );
+    }
+    if !write_functions.is_empty() {
+        add_caveat_to_macaroon(
+            &mut mac,
+            "write_function_in",
+            &format_function_list(write_functions),
+        );
+    }
+    add_caveat_to_macaroon(&mut mac, "expires_before", "2030-05-16T18:00:00");
+    add_caveat_to_macaroon(
+        &mut mac,
+        "max_delegation_depth",
+        &max_delegation_depth.to_string(),
+    );
+    if let Some(purpose) = purpose {
+        add_caveat_to_macaroon(&mut mac, "purpose", purpose);
+    }
+    mac.serialize(Format::V2).unwrap()
 }
 
 fn lab_token(parent: &str) -> String {
@@ -158,7 +254,7 @@ fn admin_write_token() -> String {
         PATIENT,
         ADMIN,
         DatasetCategory::RAWAT_JALAN,
-        AdminTokenKind::Write,
+        AdminTokenKind::Update,
         expires,
     )
     .unwrap();
@@ -166,15 +262,29 @@ fn admin_write_token() -> String {
 }
 
 fn rm_read_token() -> String {
-    let p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
-        .into_read_only();
-    issue_initial_token(&root_key(), &p).unwrap()
+    scoped_token(
+        DOCTOR,
+        None,
+        &ALL_DATASET_CATEGORIES,
+        &[],
+        &ALL_FUNCTION_CATEGORIES,
+        &[],
+        3,
+        Some("Read"),
+    )
 }
 
 fn rm_update_token() -> String {
-    let p = InitialDoctorTokenParams::example_rm_initial_token(PATIENT, RME_ID, DOCTOR)
-        .into_update_only();
-    issue_initial_token(&root_key(), &p).unwrap()
+    scoped_token(
+        DOCTOR,
+        Some(RME_ID),
+        &[],
+        &ALL_DATASET_CATEGORIES,
+        &[],
+        &ALL_FUNCTION_CATEGORIES,
+        3,
+        Some("Update"),
+    )
 }
 
 #[test]
@@ -440,9 +550,10 @@ fn expired_token_rejected() {
 
 #[test]
 fn missing_root_subject_rejected() {
-    let parsed = ParsedCaveats {
-        entries: vec![parse_caveat_line(&format!("patient_address = {PATIENT}")).unwrap()],
-    };
+    let mut mac = Macaroon::create(Some("proxy-reencryption".into()), &root_key(), DOCTOR.into())
+        .unwrap();
+    add_caveat_to_macaroon(&mut mac, "patient_address", PATIENT);
+    let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
     let err = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap_err();
     assert_eq!(
         err,
@@ -495,36 +606,29 @@ fn delegated_token_carries_parent_hash_revocation_key() {
 }
 
 #[test]
-fn root_revocation_key_blocks_root_and_descendant() {
+fn token_revocation_key_blocks_root_and_descendant() {
     let parent = doctor_token();
     let child = lab_token(&parent);
-    let expected = root_revocation_key(PATIENT, "Read", DOCTOR);
+    let parent_key = token_revocation_key(&hash_token(&parent));
 
-    for token in [parent, child] {
+    for token in [parent.as_str(), child.as_str()] {
         let mac = macaroon::Macaroon::deserialize(&token).unwrap();
         let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
         let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();
         let keys = compute_revocation_keys(&parsed, &delegation, &hash_token(&token)).unwrap();
-        assert!(keys.contains(&expected));
+        assert!(keys.contains(&parent_key));
     }
 }
 
 #[test]
-fn edge_revocation_checks_concrete_and_wildcard_related_rme() {
+fn revocation_keys_only_include_token_hashes() {
     let child = lab_token(&doctor_token());
     let mac = macaroon::Macaroon::deserialize(&child).unwrap();
     let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
     let delegation = decmed_macaroon_auth::DelegationChain::from_parsed(&parsed).unwrap();
     let keys = compute_revocation_keys(&parsed, &delegation, &hash_token(&child)).unwrap();
 
-    assert!(keys.contains(&edge_revocation_key(
-        PATIENT,
-        "Read",
-        DOCTOR,
-        LAB,
-        Some(RME_ID),
-    )));
-    assert!(keys.contains(&edge_revocation_key(PATIENT, "Read", DOCTOR, LAB, None)));
+    assert!(keys.iter().all(|key| key.starts_with("revoked:token:")));
 }
 
 #[test]
@@ -701,11 +805,21 @@ fn apotek_denied_write_therapy() {
 
 #[test]
 fn cannot_delegate_write_function_from_parent_read_only_scope() {
-    let mut parent_params = doctor_token_params();
-    parent_params
-        .write_functions
-        .retain(|function| *function != FunctionCategory::PERESEPAN);
-    let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
+    let write_functions: Vec<_> = ALL_FUNCTION_CATEGORIES
+        .iter()
+        .copied()
+        .filter(|function| *function != FunctionCategory::PERESEPAN)
+        .collect();
+    let parent = scoped_token(
+        DOCTOR,
+        Some(RME_ID),
+        &ALL_DATASET_CATEGORIES,
+        &ALL_DATASET_CATEGORIES,
+        &ALL_FUNCTION_CATEGORIES,
+        &write_functions,
+        1,
+        Some("Read"),
+    );
     let params = DelegationAttenuationParams {
         delegated_by: DOCTOR.to_string(),
         delegated_to: LAB.to_string(),
@@ -833,10 +947,9 @@ fn lab_denied_apotek_resep() {
 
 #[test]
 fn broken_delegation_chain_rejected() {
-    use decmed_macaroon_auth::{add_caveat_to_macaroon, CaveatKey};
     let mut mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
-    add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedBy, "0xAPOTEK");
-    add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedTo, LAB);
+    add_caveat_to_macaroon(&mut mac, "delegated_by", "0xAPOTEK");
+    add_caveat_to_macaroon(&mut mac, "delegated_to", LAB);
     let serialized = mac.serialize(macaroon::Format::V2).unwrap();
     let err = verify_ctx(
         &serialized,
@@ -852,9 +965,8 @@ fn broken_delegation_chain_rejected() {
 
 #[test]
 fn delegated_by_without_to_rejected() {
-    use decmed_macaroon_auth::{add_caveat_to_macaroon, CaveatKey};
     let mut mac = macaroon::Macaroon::deserialize(&doctor_token()).unwrap();
-    add_caveat_to_macaroon(&mut mac, CaveatKey::DelegatedBy, DOCTOR);
+    add_caveat_to_macaroon(&mut mac, "delegated_by", DOCTOR);
     let mac2 =
         macaroon::Macaroon::deserialize(&mac.serialize(macaroon::Format::V2).unwrap()).unwrap();
     let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac2).unwrap();
@@ -902,28 +1014,35 @@ fn cannot_increase_max_delegation_depth_on_delegate() {
 
 #[test]
 fn cannot_delegate_when_parent_depth_zero() {
-    let mut parent_params = InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR);
-    parent_params.max_delegation_depth = 0;
-    let parent = issue_initial_token(&root_key(), &parent_params).unwrap();
+    let parent = scoped_token(
+        DOCTOR,
+        Some(RME_ID),
+        &ALL_DATASET_CATEGORIES,
+        &ALL_DATASET_CATEGORIES,
+        &ALL_FUNCTION_CATEGORIES,
+        &ALL_FUNCTION_CATEGORIES,
+        0,
+        Some("Read"),
+    );
     let err = attenuate_macaroon(
         &parent,
         &DelegationAttenuationParams {
-        delegated_by: DOCTOR.to_string(),
-        delegated_to: LAB.to_string(),
-        read_datasets: vec![DatasetCategory::LABORATORIUM],
-        write_datasets: vec![DatasetCategory::LABORATORIUM],
-        read_functions: vec![
-            FunctionCategory::ADMINISTRATIVE_GENERAL,
-            FunctionCategory::PEMERIKSAAN_PENUNJANG,
-            FunctionCategory::LABORATORIUM,
-        ],
-        write_functions: vec![FunctionCategory::LABORATORIUM],
-        expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
-            .unwrap()
-            .with_timezone(&Utc),
-        max_delegation_depth: 0,
-        related_rme_id: None,
-    },
+            delegated_by: DOCTOR.to_string(),
+            delegated_to: LAB.to_string(),
+            read_datasets: vec![DatasetCategory::LABORATORIUM],
+            write_datasets: vec![DatasetCategory::LABORATORIUM],
+            read_functions: vec![
+                FunctionCategory::ADMINISTRATIVE_GENERAL,
+                FunctionCategory::PEMERIKSAAN_PENUNJANG,
+                FunctionCategory::LABORATORIUM,
+            ],
+            write_functions: vec![FunctionCategory::LABORATORIUM],
+            expires_before: chrono::DateTime::parse_from_rfc3339("2030-05-16T14:00:00+00:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            max_delegation_depth: 0,
+            related_rme_id: None,
+        },
     )
     .unwrap_err();
     assert_eq!(err, CaveatVerificationError::DelegationDepthExceeded);

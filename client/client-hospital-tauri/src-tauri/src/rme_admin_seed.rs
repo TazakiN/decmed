@@ -320,7 +320,7 @@ mod tests {
             "0x1111111111111111111111111111111111111111111111111111111111111111",
             "0x7777777777777777777777777777777777777777777777777777777777777777",
             DatasetCategory::RAWAT_JALAN,
-            AdminTokenKind::Write,
+            AdminTokenKind::Update,
             expires,
         )
         .unwrap();

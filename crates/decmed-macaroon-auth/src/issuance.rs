@@ -17,11 +17,11 @@ use crate::caveats::{
 };
 use crate::errors::CaveatVerificationError;
 
-/// Read vs write macaroon for AdministrativePersonnel.
+/// Read vs update macaroon for AdministrativePersonnel.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdminTokenKind {
     Read,
-    Write,
+    Update,
 }
 
 /// Parameters for issuing AdministrativePersonnel dual macaroons at patient grant.
@@ -29,9 +29,9 @@ pub enum AdminTokenKind {
 pub struct InitialAdminPersonnelTokenParams {
     pub patient_address: String,
     pub root_subject: String,
-    /// Episode id assigned to the write token for this administrative grant.
+    /// Episode id assigned to the update token for this administrative grant.
     pub related_rme_id: Option<String>,
-    /// Required for write token; ignored for read token.
+    /// Required for update token; ignored for read token.
     pub encounter_dataset: Option<DatasetCategory>,
     pub token_kind: AdminTokenKind,
     pub read_datasets: Vec<DatasetCategory>,
@@ -66,7 +66,7 @@ impl InitialAdminPersonnelTokenParams {
                 let functions = admin_all_functions();
                 (datasets, Vec::new(), functions, Vec::new())
             }
-            AdminTokenKind::Write => {
+            AdminTokenKind::Update => {
                 let datasets = admin_write_datasets(encounter_dataset);
                 let functions = admin_write_functions(encounter_dataset);
                 (Vec::new(), datasets, Vec::new(), functions)
@@ -75,7 +75,7 @@ impl InitialAdminPersonnelTokenParams {
 
         let purpose = match token_kind {
             AdminTokenKind::Read => "Read",
-            AdminTokenKind::Write => "Update",
+            AdminTokenKind::Update => "Update",
         };
 
         Ok(Self {
@@ -127,118 +127,6 @@ pub fn functions_for_datasets(datasets: &[DatasetCategory]) -> Vec<FunctionCateg
             .unwrap_or(usize::MAX)
     });
     functions
-}
-
-/// Parameters for issuing an initial doctor token after patient approval.
-#[derive(Clone, Debug, PartialEq)]
-pub struct InitialDoctorTokenParams {
-    pub patient_address: String,
-    pub related_rme_id: String,
-    pub root_subject: String,
-    pub read_datasets: Vec<DatasetCategory>,
-    pub write_datasets: Vec<DatasetCategory>,
-    pub read_functions: Vec<FunctionCategory>,
-    pub write_functions: Vec<FunctionCategory>,
-    pub expires_before: DateTime<Utc>,
-    pub max_delegation_depth: u32,
-    pub hospital_cid: Option<String>,
-    pub purpose: Option<String>,
-}
-
-impl InitialDoctorTokenParams {
-    pub fn example_doctor_token(
-        patient_address: &str,
-        related_rme_id: &str,
-        doctor_address: &str
-    ) -> Self {
-        Self {
-            patient_address: patient_address.to_string(),
-            related_rme_id: related_rme_id.to_string(),
-            root_subject: doctor_address.to_string(),
-            read_datasets: ALL_DATASET_CATEGORIES.to_vec(),
-            write_datasets: ALL_DATASET_CATEGORIES.to_vec(),
-            read_functions: ALL_FUNCTION_CATEGORIES.to_vec(),
-            write_functions: ALL_FUNCTION_CATEGORIES.to_vec(),
-            expires_before: DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
-                .unwrap()
-                .with_timezone(&Utc),
-            max_delegation_depth: 1,
-            hospital_cid: None,
-            purpose: None,
-        }
-    }
-
-    /// Initial token for Petugas Rekam Medis after patient approval.
-    pub fn example_rm_initial_token(
-        patient_address: &str,
-        related_rme_id: &str,
-        rm_address: &str
-    ) -> Self {
-        use DatasetCategory::{ APOTEK, LABORATORIUM as LabDataset, RAWAT_INAP, RAWAT_JALAN };
-        use FunctionCategory::{
-            ADMINISTRATIVE_GENERAL,
-            ANAMNESIS,
-            DIAGNOSIS,
-            DISPENSING,
-            LABORATORIUM as LabFunction,
-            PEMERIKSAAN_FISIK,
-            PEMERIKSAAN_PSIKOLOGIS,
-            PERENCANAAN_PEMULANGAN,
-            PERESEPAN,
-            RIWAYAT_PENGGUNAAN_OBAT,
-            TERAPI,
-        };
-        Self {
-            patient_address: patient_address.to_string(),
-            related_rme_id: related_rme_id.to_string(),
-            root_subject: rm_address.to_string(),
-            read_datasets: vec![RAWAT_JALAN, RAWAT_INAP, LabDataset, APOTEK],
-            write_datasets: vec![RAWAT_JALAN, LabDataset, APOTEK],
-            read_functions: vec![
-                ADMINISTRATIVE_GENERAL,
-                ANAMNESIS,
-                PEMERIKSAAN_FISIK,
-                PEMERIKSAAN_PSIKOLOGIS,
-                RIWAYAT_PENGGUNAAN_OBAT,
-                PERENCANAAN_PEMULANGAN,
-                LabFunction,
-                PERESEPAN,
-                DIAGNOSIS,
-                TERAPI
-            ],
-            write_functions: vec![
-                ADMINISTRATIVE_GENERAL,
-                ANAMNESIS,
-                PEMERIKSAAN_FISIK,
-                PEMERIKSAAN_PSIKOLOGIS,
-                DIAGNOSIS,
-                TERAPI,
-                LabFunction,
-                PERESEPAN,
-                DISPENSING
-            ],
-            expires_before: DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
-                .unwrap()
-                .with_timezone(&Utc),
-            max_delegation_depth: 3,
-            hospital_cid: None,
-            purpose: Some("Read".into()),
-        }
-    }
-
-    pub fn into_read_only(mut self) -> Self {
-        self.write_datasets.clear();
-        self.write_functions.clear();
-        self.purpose = Some("Read".into());
-        self
-    }
-
-    pub fn into_update_only(mut self) -> Self {
-        self.read_datasets.clear();
-        self.read_functions.clear();
-        self.purpose = Some("Update".into());
-        self
-    }
 }
 
 struct DecmedTokenFields<'a> {
@@ -350,29 +238,7 @@ pub fn issue_admin_personnel_token(
         patient_address: &params.patient_address,
         related_rme_id: match params.token_kind {
             AdminTokenKind::Read => None,
-            AdminTokenKind::Write => params.related_rme_id.as_deref(),
-        },
-        root_subject: &params.root_subject,
-        read_datasets: &params.read_datasets,
-        write_datasets: &params.write_datasets,
-        read_functions: &params.read_functions,
-        write_functions: &params.write_functions,
-        expires_before: params.expires_before,
-        max_delegation_depth: params.max_delegation_depth,
-        hospital_cid: params.hospital_cid.as_deref(),
-        purpose: params.purpose.as_deref(),
-    })
-}
-
-pub fn issue_initial_token(
-    root_key: &MacaroonKey,
-    params: &InitialDoctorTokenParams
-) -> Result<String, CaveatVerificationError> {
-    issue_decmed_token(root_key, DecmedTokenFields {
-        patient_address: &params.patient_address,
-        related_rme_id: match params.purpose.as_deref() {
-            Some("Read") => None,
-            _ => Some(&params.related_rme_id),
+            AdminTokenKind::Update => params.related_rme_id.as_deref(),
         },
         root_subject: &params.root_subject,
         read_datasets: &params.read_datasets,

@@ -5,8 +5,8 @@ DecMed Macaroon caveat layer for fine-grained RME access control.
 ## Compatibility facade
 
 Consumers that still need low-level macaroon operations should import the
-selected compatibility types from this crate: `Macaroon`, `MacaroonKey`,
-`Format`, `Verifier`, `Caveat`, and `ByteString`. The underlying
+selected compatibility types from this crate: `Macaroon` and `MacaroonKey`.
+The underlying
 `macaroon-decmed` crate remains an implementation dependency of
 `decmed-macaroon-auth` and should not be declared directly by consumers.
 
@@ -41,10 +41,11 @@ Missing whitelist for an operation → **DENY**.
 
 ## Initial token (Server PRE)
 
-`issue_initial_token` signs with the PRE root key (from `MACAROON_ROOT_KEY`). Clients receive only the serialized macaroon.
+`issue_admin_personnel_token` signs AdministrativePersonnel grants with the PRE root key (from
+`MACAROON_ROOT_KEY`). Clients receive only the serialized macaroon.
 
-Administrative grants issue separate read/write macaroons. The read token stays patient-scoped,
-while the write token may carry `related_rme_id` to bind all writes and downstream clinical
+Administrative grants issue separate read/update macaroons. The read token stays patient-scoped,
+while the update token may carry `related_rme_id` to bind all writes and downstream clinical
 delegations to one RME episode.
 
 ## Delegated token (client)

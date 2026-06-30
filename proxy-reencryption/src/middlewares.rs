@@ -51,103 +51,102 @@ pub async fn auth_middleware(
 
     let parsed = ParsedCaveats::from_macaroon(&mac).map_err(map_caveat_error)?;
 
-    if parsed.is_decmed_token() {
-        verify_macaroon_signature(&mac, &root_key).map_err(map_caveat_error)?;
-
-        let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
-        let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
-
-        if effective.is_expired(chrono::Utc::now()) {
-            return Err(ProxyError::Anyhow {
-                source: anyhow!("Token has expired"),
-                code: StatusCode::UNAUTHORIZED,
-            });
-        }
-
-        {
-            let mut conn = state.redis_pool.get().map_err(|e| ProxyError::Anyhow {
-                source: anyhow!("Revocation store unavailable: {e}"),
-                code: StatusCode::SERVICE_UNAVAILABLE,
-            })?;
-
-            ensure_token_not_revoked(&parsed, &delegation, &bearer_token, |key| {
-                conn.exists(key).map_err(|e| ProxyError::Anyhow {
-                    source: anyhow!("Revocation check failed: {e}"),
-                    code: StatusCode::SERVICE_UNAVAILABLE,
-                })
-            })?;
-        }
-
-        // Verify delegation proof for cross-person delegation only.
-        // Self-delegation (delegated_by == delegated_to) is used internally
-        // for scope narrowing (e.g., administrative segment seeding) and
-        // does not carry a delegation signature.
-        if let Some(last) = delegation.steps.last() {
-            if last.delegated_by != last.delegated_to {
-                let delegation_sig = request
-                    .headers()
-                    .get(DELEGATION_SIGNATURE_HEADER)
-                    .and_then(|v| v.to_str().ok())
-                    .ok_or_else(|| ProxyError::Anyhow {
-                        source: anyhow!("Delegated token requires {} header", DELEGATION_SIGNATURE_HEADER),
-                        code: StatusCode::UNAUTHORIZED,
-                    })?;
-                crate::macaroon_auth::verify_delegation_proof(&bearer_token, delegation_sig)?;
-            }
-        }
-
-        let active_subject = delegation.active_subject.clone();
-        let active_subject_address = IotaAddress::from_str(&active_subject)
-            .map_err(|_| anyhow!("Invalid active subject address"))
-            .code(StatusCode::UNAUTHORIZED)?;
-        let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
-            .map_err(|_| anyhow!("Invalid proxy IOTA address"))
-            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        // DecMed token caveat role is legacy/deprecated for delegated tokens.
-        // Identity role/sub-role must come from on-chain registry for the active subject.
-        let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
-            &active_subject_address,
-            proxy_iota_address
-        ).await?;
-        let role = auth_role_from_move_role(move_role)?;
-        let purpose = decmed_purpose_from_parsed(&parsed)?;
-        let hospital_cid = effective.hospital_cid.clone();
-
-        let verified = VerifiedDecmedToken {
-            parsed,
-            effective,
-            delegation: delegation.clone(),
-            token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
-        };
-
-        let current_user = CurrentUser {
-            iota_address: active_subject,
-            hospital_cid,
-            purpose,
-            role,
-            sub_role,
-            decmed_token: Some(verified),
-            bearer_token: bearer_token.clone(),
-        };
-        request.extensions_mut().insert(current_user);
-        return Ok(next.run(request).await);
+    if !parsed.is_decmed_token() {
+        return Err(ProxyError::Anyhow {
+            source: anyhow!("Token is not a valid DecMed token"),
+            code: StatusCode::UNAUTHORIZED,
+        });
     }
 
-    return Err(ProxyError::Anyhow {
-        source: anyhow!("Token is not a valid DecMed token"),
-        code: StatusCode::UNAUTHORIZED,
-    });
+    verify_macaroon_signature(&mac, &root_key).map_err(map_caveat_error)?;
+
+    let effective = EffectiveCapability::from_parsed(&parsed).map_err(map_caveat_error)?;
+    let delegation = DelegationChain::from_parsed(&parsed).map_err(map_caveat_error)?;
+
+    if effective.is_expired(chrono::Utc::now()) {
+        return Err(ProxyError::Anyhow {
+            source: anyhow!("Token has expired"),
+            code: StatusCode::UNAUTHORIZED,
+        });
+    }
+
+    {
+        let mut conn = state.redis_pool.get().map_err(|e| ProxyError::Anyhow {
+            source: anyhow!("Revocation store unavailable: {e}"),
+            code: StatusCode::SERVICE_UNAVAILABLE,
+        })?;
+
+        ensure_token_not_revoked(&parsed, &delegation, &bearer_token, |key| {
+            conn.exists(key).map_err(|e| ProxyError::Anyhow {
+                source: anyhow!("Revocation check failed: {e}"),
+                code: StatusCode::SERVICE_UNAVAILABLE,
+            })
+        })?;
+    }
+
+    // Verify delegation proof for cross-person delegation only.
+    // Self-delegation (delegated_by == delegated_to) is used internally
+    // for scope narrowing (e.g., administrative segment seeding) and
+    // does not carry a delegation signature.
+    if let Some(last) = delegation.steps.last() {
+        if last.delegated_by != last.delegated_to {
+            let delegation_sig = request
+                .headers()
+                .get(DELEGATION_SIGNATURE_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| ProxyError::Anyhow {
+                    source: anyhow!("Delegated token requires {} header", DELEGATION_SIGNATURE_HEADER),
+                    code: StatusCode::UNAUTHORIZED,
+                })?;
+            crate::macaroon_auth::verify_delegation_proof(&bearer_token, delegation_sig)?;
+        }
+    }
+
+    let active_subject = delegation.active_subject.clone();
+    let active_subject_address = IotaAddress::from_str(&active_subject)
+        .map_err(|_| anyhow!("Invalid active subject address"))
+        .code(StatusCode::UNAUTHORIZED)?;
+    let proxy_iota_address = IotaAddress::from_str(&state.proxy_iota_address)
+        .map_err(|_| anyhow!("Invalid proxy IOTA address"))
+        .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // DecMed token caveat role is legacy/deprecated for delegated tokens.
+    // Identity role/sub-role must come from on-chain registry for the active subject.
+    let (move_role, sub_role) = state.move_call.get_hospital_personnel_auth_info(
+        &active_subject_address,
+        proxy_iota_address
+    ).await?;
+    let role = auth_role_from_move_role(move_role)?;
+    let purpose = decmed_purpose_from_parsed(&parsed)?;
+    let hospital_cid = effective.hospital_cid.clone();
+
+    let verified = VerifiedDecmedToken {
+        parsed,
+        effective,
+        delegation: delegation.clone(),
+        token_id: String::from_utf8(mac.identifier().0.clone()).unwrap_or_default(),
+    };
+
+    let current_user = CurrentUser {
+        iota_address: active_subject,
+        hospital_cid,
+        purpose,
+        role,
+        sub_role,
+        decmed_token: Some(verified),
+        bearer_token: bearer_token.clone(),
+    };
+    request.extensions_mut().insert(current_user);
+    return Ok(next.run(request).await);
 }
 
 pub fn ensure_token_not_revoked<F>(
     parsed: &ParsedCaveats,
     delegation: &DelegationChain,
     bearer_token: &str,
-    mut is_revoked: F,
+    mut is_revoked: F
 ) -> Result<(), ProxyError>
-where
-    F: FnMut(&str) -> Result<bool, ProxyError>,
+    where F: FnMut(&str) -> Result<bool, ProxyError>
 {
     let token_hash = hash_token(bearer_token);
     let revocation_keys = compute_revocation_keys(parsed, delegation, &token_hash)

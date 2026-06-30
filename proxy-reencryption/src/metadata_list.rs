@@ -200,7 +200,8 @@ pub fn active_metadata_page(
 mod tests {
     use super::*;
     use decmed_macaroon_auth::{
-        issue_initial_token, EffectiveCapability, InitialDoctorTokenParams, Macaroon, MacaroonKey,
+        issue_admin_personnel_token, AdminTokenKind, EffectiveCapability,
+        InitialAdminPersonnelTokenParams, Macaroon, MacaroonKey,
     };
     use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
@@ -254,11 +255,20 @@ mod tests {
     #[test]
     fn segment_allowed_respects_dataset_caveat() {
         let root_key = MacaroonKey::generate(b"decmed-test-root-key-64-bytes-padding!!");
-        let mut params =
-            InitialDoctorTokenParams::example_doctor_token("0xpatient", "rme-1", "0xdoc");
+        let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut params = InitialAdminPersonnelTokenParams::for_grant(
+            "0xpatient",
+            "0xdoc",
+            DatasetCategory::RAWAT_JALAN,
+            AdminTokenKind::Read,
+            expires,
+        )
+        .unwrap();
         params.read_datasets = vec![DatasetCategory::RAWAT_JALAN];
         params.read_functions = vec![FunctionCategory::ANAMNESIS];
-        let mac_str = issue_initial_token(&root_key, &params).unwrap();
+        let mac_str = issue_admin_personnel_token(&root_key, &params).unwrap();
         let mac = Macaroon::deserialize(&mac_str).unwrap();
         let parsed = decmed_macaroon_auth::ParsedCaveats::from_macaroon(&mac).unwrap();
         let effective = EffectiveCapability::from_parsed(&parsed).unwrap();

@@ -1,13 +1,14 @@
 use axum::http::StatusCode;
 use decmed_macaroon_auth::{
-    attenuate_macaroon, hash_token, issue_initial_token, token_revocation_key,
-    verify_decmed_token, AccessMode, CaveatVerificationError, DelegationAttenuationParams,
-    DelegationChain, EffectiveCapability, InitialDoctorTokenParams, Macaroon, MacaroonKey,
-    ParsedCaveats, SegmentAccessContext, TokenVerificationContext, VerifiedDecmedToken,
-    WalletProofContext, WalletSignatureVerifier,
+    attenuate_macaroon, hash_token, issue_admin_personnel_token, token_revocation_key,
+    verify_decmed_token, AccessMode, AdminTokenKind, CaveatVerificationError,
+    DelegationAttenuationParams, DelegationChain, EffectiveCapability,
+    InitialAdminPersonnelTokenParams, Macaroon, MacaroonKey, ParsedCaveats, SegmentAccessContext,
+    TokenVerificationContext, VerifiedDecmedToken, WalletProofContext, WalletSignatureVerifier,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, RmeSegmentMetadata, SegmentValidationError,
+    ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
 };
 use proxy_reencryption::{
     macaroon_auth::verify_segment_for_token, middlewares::ensure_token_not_revoked,
@@ -44,11 +45,25 @@ fn root_key() -> MacaroonKey {
 }
 
 fn doctor_token() -> String {
-    issue_initial_token(
-        &root_key(),
-        &InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR),
+    let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        DOCTOR,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Update,
+        expires,
     )
-    .unwrap()
+    .unwrap();
+    params.related_rme_id = Some(RME_ID.to_string());
+    params.read_datasets = ALL_DATASET_CATEGORIES.to_vec();
+    params.write_datasets = ALL_DATASET_CATEGORIES.to_vec();
+    params.read_functions = ALL_FUNCTION_CATEGORIES.to_vec();
+    params.write_functions = ALL_FUNCTION_CATEGORIES.to_vec();
+    params.max_delegation_depth = 1;
+    params.purpose = None;
+    issue_admin_personnel_token(&root_key(), &params).unwrap()
 }
 
 fn lab_token() -> String {
@@ -73,10 +88,21 @@ fn lab_token() -> String {
 }
 
 fn verified_read_token() -> (String, Macaroon, VerifiedDecmedToken) {
-    let mut params = InitialDoctorTokenParams::example_doctor_token(PATIENT, RME_ID, DOCTOR);
+    let expires = chrono::DateTime::parse_from_rfc3339("2030-05-16T18:00:00+00:00")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let mut params = InitialAdminPersonnelTokenParams::for_grant(
+        PATIENT,
+        DOCTOR,
+        DatasetCategory::RAWAT_JALAN,
+        AdminTokenKind::Read,
+        expires,
+    )
+    .unwrap();
     params.read_datasets = vec![DatasetCategory::RAWAT_JALAN];
     params.read_functions = vec![FunctionCategory::ANAMNESIS];
-    let token = issue_initial_token(&root_key(), &params).unwrap();
+    params.max_delegation_depth = 1;
+    let token = issue_admin_personnel_token(&root_key(), &params).unwrap();
     let mac = Macaroon::deserialize(&token).unwrap();
     let parsed = ParsedCaveats::from_macaroon(&mac).unwrap();
     let effective = EffectiveCapability::from_parsed(&parsed).unwrap();
@@ -91,7 +117,10 @@ fn verified_read_token() -> (String, Macaroon, VerifiedDecmedToken) {
     (token, mac, verified)
 }
 
-fn segment(dataset_category: DatasetCategory, function_category: FunctionCategory) -> RmeSegmentMetadata {
+fn segment(
+    dataset_category: DatasetCategory,
+    function_category: FunctionCategory,
+) -> RmeSegmentMetadata {
     RmeSegmentMetadata {
         segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
         related_rme_id: RME_ID.to_string(),
@@ -142,9 +171,11 @@ fn pu_ta_07_wallet_proof_must_match_active_actor() {
 
 #[test]
 fn pu_ta_08_segment_metadata_requires_valid_dataset_function_category() {
-    assert!(segment(DatasetCategory::RAWAT_JALAN, FunctionCategory::ANAMNESIS)
-        .validate()
-        .is_ok());
+    assert!(
+        segment(DatasetCategory::RAWAT_JALAN, FunctionCategory::ANAMNESIS)
+            .validate()
+            .is_ok()
+    );
 
     let err = segment(DatasetCategory::APOTEK, FunctionCategory::ANAMNESIS)
         .validate()
@@ -158,7 +189,10 @@ fn pu_ta_08_segment_metadata_requires_valid_dataset_function_category() {
 #[test]
 fn pu_ta_09_pre_rejects_segment_outside_caveats_before_reencryption() {
     let (_token, mac, verified) = verified_read_token();
-    let outside_scope = segment(DatasetCategory::LABORATORIUM, FunctionCategory::LABORATORIUM);
+    let outside_scope = segment(
+        DatasetCategory::LABORATORIUM,
+        FunctionCategory::LABORATORIUM,
+    );
 
     let err = verify_segment_for_token(
         &verified,
@@ -186,8 +220,10 @@ fn pu_ta_10_revocation_key_rejects_revoked_token() {
     let (token, _mac, verified) = verified_read_token();
     let revoked_key = token_revocation_key(&hash_token(&token));
 
-    ensure_token_not_revoked(&verified.parsed, &verified.delegation, &token, |_| Ok(false))
-        .unwrap();
+    ensure_token_not_revoked(&verified.parsed, &verified.delegation, &token, |_| {
+        Ok(false)
+    })
+    .unwrap();
 
     let err = ensure_token_not_revoked(&verified.parsed, &verified.delegation, &token, |key| {
         Ok(key == revoked_key)

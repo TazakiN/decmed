@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "A0EC0FC25A7C420EB321C01A7F347199DF6532485CF127E95547B772583B6012"
+manifest_digest = "75BC7934B98ADF23C3274D2342BBCE5AC450C6D9B919F8FB06135AF69A5CA3CA"
 deps_digest = "F8BBB0CCB2491CA29A3DF03D6F92277A4F3574266507ACD77214D37ECA3F3082"
 dependencies = [
   { id = "Iota", name = "Iota" },
@@ -36,5 +36,5 @@ published-version = "2"
 [env.localnet-vps]
 chain-id = "930a80c4"
 original-published-id = "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38"
-latest-published-id = "0xd6377ded931178eaffb3523a3046f996956622e35bcb4476cdbd5452f7f73502"
-published-version = "5"
+latest-published-id = "0x197bdc0de8f3abc060b6c3051bbef1c7a1d5add88edff3527e49ef6ecd54c1ce"
+published-version = "6"

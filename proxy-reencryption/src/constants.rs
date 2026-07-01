@@ -21,7 +21,7 @@ pub const DECMED_MODULE_SHARED: &str = "shared";
 pub const DECMED_ORIGINAL_PACKAGE_ID: &str =
     "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38";
 pub const DECMED_PACKAGE_ID: &str =
-    "0xd6377ded931178eaffb3523a3046f996956622e35bcb4476cdbd5452f7f73502";
+    "0x197bdc0de8f3abc060b6c3051bbef1c7a1d5add88edff3527e49ef6ecd54c1ce";
 pub const DECMED_MODULE_ADMIN: &str = "admin";
 
 pub const DECMED_ADDRESS_ID_OBJECT_ID: &str =

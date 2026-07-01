@@ -694,7 +694,7 @@ entry fun create_delegated_access(
         } else {
             abort EInvalidAccessType
         };
-        let access_data_types;
+        let mut access_data_types;
         let exp;
         let delegation_depth;
         {
@@ -734,6 +734,14 @@ entry fun create_delegated_access(
                 delegation_depth = hospital_personnel_access_data_borrow_delegation_depth(source) + 1;
             } else {
                 abort EInvalidAccessType
+            };
+
+            if (*delegator_account.borrow_role() == hospital_personnel_role_admin_administrative_personnel()) {
+                access_data_types = vector::empty();
+                access_data_types.push_back(hospital_personnel_access_data_type_medical());
+                if (single_access_type == hospital_personnel_access_type_read()) {
+                    access_data_types.push_back(hospital_personnel_access_data_type_administrative());
+                };
             };
         };
 

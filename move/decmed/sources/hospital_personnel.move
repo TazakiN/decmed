@@ -61,11 +61,20 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
 use decmed::std_enum_patient_delegation_audit_event_type::{
     PatientDelegationAuditEventType,
     delegated as patient_delegation_audit_event_type_delegated,
+    revoked as patient_delegation_audit_event_type_revoked,
 };
 use decmed::std_struct_patient_account::PatientAccount;
-use decmed::std_struct_patient_delegation_audit_entry::new as patient_delegation_audit_entry_new;
+use decmed::std_struct_patient_delegation_audit_entry::{
+    borrow_delegated_to as patient_delegation_audit_entry_borrow_delegated_to,
+    borrow_event_type as patient_delegation_audit_entry_borrow_event_type,
+    borrow_expires_at_ms as patient_delegation_audit_entry_borrow_expires_at_ms,
+    borrow_parent_token_hash as patient_delegation_audit_entry_borrow_parent_token_hash,
+    borrow_token_hash as patient_delegation_audit_entry_borrow_token_hash,
+    new as patient_delegation_audit_entry_new,
+};
 
 use iota::clock::Clock;
+use iota::table::Table;
 use iota::vec_map;
 
 use std::string::{Self, String};
@@ -92,6 +101,7 @@ const EInvalidHospitalPersonnelSubRole: u64 = 2016;
 const ESubRoleRequiredForMedicalPersonnel: u64 = 2017;
 const ESubRoleNotAllowedForNonMedicalPersonnel: u64 = 2018;
 const EInvalidAccessType: u64 = 2019;
+const EDelegationRoleSlotAlreadyUsed: u64 = 2020;
 
 // Structs
 
@@ -163,6 +173,146 @@ fun option_u64_from_sentinel(value: u64): Option<u64> {
     } else {
         option::some(value)
     }
+}
+
+fun option_string_matches(value: &Option<String>, expected: &String): bool {
+    value.is_some() && *value.borrow() == *expected
+}
+
+fun audit_entry_not_expired(expires_at_ms: &Option<u64>, current_time: u64): bool {
+    !expires_at_ms.is_some() || *expires_at_ms.borrow() >= current_time
+}
+
+fun audit_token_hash_revoked(
+    patient_account: &PatientAccount,
+    token_hash: &String,
+): bool {
+    let delegation_audit_log = patient_account.borrow_delegation_audit_log();
+    let mut idx = 0;
+    let len = delegation_audit_log.length();
+
+    while (idx < len) {
+        let entry = delegation_audit_log.borrow(idx);
+        if (
+            *patient_delegation_audit_entry_borrow_event_type(entry) == patient_delegation_audit_event_type_revoked()
+            && option_string_matches(patient_delegation_audit_entry_borrow_token_hash(entry), token_hash)
+        ) {
+            return true
+        };
+        idx = idx + 1;
+    };
+
+    false
+}
+
+fun delegated_to_matches_sub_role(
+    address_id_table: &Table<address, String>,
+    hospital_personnel_id_account_table: &Table<String, HospitalPersonnelAccount>,
+    delegated_to: address,
+    target_sub_role: HospitalPersonnelSubRole,
+): bool {
+    if (!address_id_table.contains(delegated_to)) {
+        return false
+    };
+
+    let delegated_to_personnel_id = address_id_table.borrow(delegated_to);
+    if (!hospital_personnel_id_account_table.contains(*delegated_to_personnel_id)) {
+        return false
+    };
+
+    let delegated_to_account = hospital_personnel_id_account_table.borrow(*delegated_to_personnel_id);
+    let sub_role = delegated_to_account.borrow_sub_role();
+    sub_role.is_some() && *sub_role.borrow() == target_sub_role
+}
+
+fun active_delegation_role_slot_used(
+    address_id_table: &Table<address, String>,
+    hospital_personnel_id_account_table: &Table<String, HospitalPersonnelAccount>,
+    patient_account: &PatientAccount,
+    delegatee_sub_role: Option<HospitalPersonnelSubRole>,
+    parent_token_hash: &String,
+    current_time: u64,
+): bool {
+    if (!delegatee_sub_role.is_some()) {
+        return false
+    };
+    let target_sub_role = *delegatee_sub_role.borrow();
+    let delegation_audit_log = patient_account.borrow_delegation_audit_log();
+    let mut idx = 0;
+    let len = delegation_audit_log.length();
+
+    while (idx < len) {
+        let entry = delegation_audit_log.borrow(idx);
+        let token_hash = patient_delegation_audit_entry_borrow_token_hash(entry);
+        if (
+            *patient_delegation_audit_entry_borrow_event_type(entry) == patient_delegation_audit_event_type_delegated()
+            && option_string_matches(patient_delegation_audit_entry_borrow_parent_token_hash(entry), parent_token_hash)
+            && token_hash.is_some()
+            && audit_entry_not_expired(patient_delegation_audit_entry_borrow_expires_at_ms(entry), current_time)
+            && !audit_token_hash_revoked(patient_account, token_hash.borrow())
+            && delegated_to_matches_sub_role(
+                address_id_table,
+                hospital_personnel_id_account_table,
+                patient_delegation_audit_entry_borrow_delegated_to(entry),
+                target_sub_role,
+            )
+        ) {
+            return true
+        };
+        idx = idx + 1;
+    };
+
+    false
+}
+
+fun assert_delegation_role_slot_available(
+    address_id_table: &Table<address, String>,
+    hospital_personnel_id_account_table: &Table<String, HospitalPersonnelAccount>,
+    patient_account: &PatientAccount,
+    delegatee_sub_role: Option<HospitalPersonnelSubRole>,
+    parent_token_hash: &String,
+    current_time: u64,
+) {
+    assert!(
+        !active_delegation_role_slot_used(
+            address_id_table,
+            hospital_personnel_id_account_table,
+            patient_account,
+            delegatee_sub_role,
+            parent_token_hash,
+            current_time,
+        ),
+        EDelegationRoleSlotAlreadyUsed,
+    );
+}
+
+public(package) fun get_delegation_role_slot_snapshot(
+    address_id: &AddressId,
+    clock: &Clock,
+    delegatee_address: address,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    parent_token_hash: String,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+): (bool, Option<HospitalPersonnelSubRole>) {
+    let address_id_table = address_id.borrow_table();
+    let delegatee_personnel_id = *address_id_table.borrow(delegatee_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+    let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
+    let delegatee_sub_role = *delegatee_account.borrow_sub_role();
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    let slot_used = active_delegation_role_slot_used(
+        address_id_table,
+        hospital_personnel_id_account_table,
+        patient_account,
+        delegatee_sub_role,
+        &parent_token_hash,
+        clock.timestamp_ms(),
+    );
+
+    (slot_used, delegatee_sub_role)
 }
 
 /// ## Params
@@ -697,6 +847,7 @@ entry fun create_delegated_access(
         let mut access_data_types;
         let exp;
         let delegation_depth;
+        let delegatee_sub_role;
         {
             let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
             require_account_activation(activation_key, delegator_account);
@@ -707,6 +858,7 @@ entry fun create_delegated_access(
             );
             let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
             assert!(delegatee_account.borrow_is_activation_key_used(), EAccountNotActivated);
+            delegatee_sub_role = *delegatee_account.borrow_sub_role();
 
             assert!(
                 *delegator_account.borrow_hospital_id() == *delegatee_account.borrow_hospital_id(),
@@ -744,6 +896,14 @@ entry fun create_delegated_access(
                 };
             };
         };
+        assert_delegation_role_slot_available(
+            address_id_table,
+            hospital_personnel_id_account_table,
+            patient_account,
+            delegatee_sub_role,
+            audit_parent_token_hashes.borrow(0),
+            current_time,
+        );
 
         let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
         let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
@@ -808,6 +968,7 @@ entry fun create_delegated_access(
         let mut update_access_data_types;
         let update_exp;
         let delegation_depth;
+        let delegatee_sub_role;
         {
             let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
             require_account_activation(activation_key, delegator_account);
@@ -818,6 +979,7 @@ entry fun create_delegated_access(
             );
             let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
             assert!(delegatee_account.borrow_is_activation_key_used(), EAccountNotActivated);
+            delegatee_sub_role = *delegatee_account.borrow_sub_role();
 
             assert!(
                 *delegator_account.borrow_hospital_id() == *delegatee_account.borrow_hospital_id(),
@@ -849,6 +1011,22 @@ entry fun create_delegated_access(
                 update_access_data_types.push_back(hospital_personnel_access_data_type_medical());
             };
         };
+        assert_delegation_role_slot_available(
+            address_id_table,
+            hospital_personnel_id_account_table,
+            patient_account,
+            delegatee_sub_role,
+            audit_parent_token_hashes.borrow(0),
+            current_time,
+        );
+        assert_delegation_role_slot_available(
+            address_id_table,
+            hospital_personnel_id_account_table,
+            patient_account,
+            delegatee_sub_role,
+            audit_parent_token_hashes.borrow(1),
+            current_time,
+        );
 
         let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
         let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();

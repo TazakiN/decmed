@@ -844,6 +844,39 @@ impl Handlers {
             requires_update,
         )?;
 
+        let mut parent_token_hashes = Vec::new();
+        if let Some(parent_token) = parent_read_token {
+            parent_token_hashes.push(hash_token(parent_token));
+        }
+        if let Some(parent_token) = parent_write_token {
+            let parent_token_hash = hash_token(parent_token);
+            if !parent_token_hashes.contains(&parent_token_hash) {
+                parent_token_hashes.push(parent_token_hash);
+            }
+        }
+
+        let mut delegatee_role = None;
+        for parent_token_hash in &parent_token_hashes {
+            let role_slot = state
+                .move_call
+                .get_delegation_role_slot_snapshot(
+                    &delegatee_iota_address,
+                    parent_token_hash,
+                    &patient_iota_address,
+                    proxy_iota_address,
+                )
+                .await?;
+            delegatee_role = role_slot.delegatee_role;
+            if role_slot.role_slot_used {
+                return Err(ProxyError::Anyhow {
+                    source: anyhow!(
+                        "Delegator already has an active delegation for this role from the same parent token"
+                    ),
+                    code: StatusCode::CONFLICT,
+                });
+            }
+        }
+
         let mut delegated_read_token = None;
         let mut delegated_update_token = None;
         let mut read_preview = None;
@@ -964,6 +997,8 @@ impl Handlers {
                 delegated_update_token,
                 read_preview,
                 update_preview,
+                delegatee_role,
+                role_slot_available: true,
             },
             StatusCode::OK,
         ))

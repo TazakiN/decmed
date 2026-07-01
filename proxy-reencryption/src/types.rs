@@ -329,6 +329,12 @@ pub struct MoveDelegationAccessSnapshot {
     pub update_delegation_depth: u8,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveDelegationRoleSlotSnapshot {
+    pub role_slot_used: bool,
+    pub delegatee_role: Option<HospitalPersonnelSubRole>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HandlerAttenuateDelegationPayload {
@@ -391,6 +397,8 @@ pub struct DelegationAttenuationHandlerResponse {
     pub delegated_update_token: Option<String>,
     pub read_preview: Option<DelegatedTokenPreview>,
     pub update_preview: Option<DelegatedTokenPreview>,
+    pub delegatee_role: Option<HospitalPersonnelSubRole>,
+    pub role_slot_available: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

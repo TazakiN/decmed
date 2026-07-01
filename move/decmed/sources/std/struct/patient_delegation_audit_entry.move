@@ -52,3 +52,33 @@ public(package) fun new(
         expires_at_ms,
     }
 }
+
+public(package) fun borrow_event_type(
+    self: &PatientDelegationAuditEntry,
+): &PatientDelegationAuditEventType {
+    &self.event_type
+}
+
+public(package) fun borrow_delegated_to(
+    self: &PatientDelegationAuditEntry,
+): address {
+    self.delegated_to
+}
+
+public(package) fun borrow_token_hash(
+    self: &PatientDelegationAuditEntry,
+): &Option<String> {
+    &self.token_hash
+}
+
+public(package) fun borrow_parent_token_hash(
+    self: &PatientDelegationAuditEntry,
+): &Option<String> {
+    &self.parent_token_hash
+}
+
+public(package) fun borrow_expires_at_ms(
+    self: &PatientDelegationAuditEntry,
+): &Option<u64> {
+    &self.expires_at_ms
+}

@@ -26,7 +26,7 @@ use crate::{
     hospital_error::HospitalError,
     types::{
         AccessData, AccessMetadata, AccessMetadataEncrypted, AppState, HospitalPersonnelRole,
-        MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAccessType,
+        HospitalPersonnelSubRole, MoveHospitalPersonnelAccessData, MoveHospitalPersonnelAccessType,
         PatientDelegationAuditInput, ProxyReencryptionErrorResponse,
         ProxyReencryptionSuccessResponse, ResponseStatus, SuccessResponse,
     },
@@ -610,6 +610,10 @@ struct ProxyDelegationAttenuationResponse {
     delegated_update_token: Option<String>,
     read_preview: Option<ProxyDelegatedTokenPreview>,
     update_preview: Option<ProxyDelegatedTokenPreview>,
+    #[serde(default)]
+    delegatee_role: Option<HospitalPersonnelSubRole>,
+    #[serde(default)]
+    role_slot_available: Option<bool>,
 }
 
 async fn request_delegation_attenuation_from_proxy(

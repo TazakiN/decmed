@@ -1,5 +1,6 @@
 module decmed::proxy;
 
+use decmed::hospital_personnel::get_delegation_role_slot_snapshot as hospital_personnel_get_delegation_role_slot_snapshot;
 use decmed::std_enum_hospital_personnel_access_data_type::{
     administrative as hospital_personnel_access_data_type_administrative,
     medical as hospital_personnel_access_data_type_medical,
@@ -380,6 +381,28 @@ entry fun get_delegation_access_snapshot(
     };
 
     (read_exp, read_delegation_depth, update_exp, update_delegation_depth)
+}
+
+entry fun get_delegation_role_slot_snapshot(
+    address_id: &AddressId,
+    clock: &Clock,
+    delegatee_address: address,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    parent_token_hash: String,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    _: &ProxyCap,
+): (bool, Option<HospitalPersonnelSubRole>)
+{
+    hospital_personnel_get_delegation_role_slot_snapshot(
+        address_id,
+        clock,
+        delegatee_address,
+        hospital_personnel_id_account,
+        parent_token_hash,
+        patient_address,
+        patient_id_account,
+    )
 }
 
 /// ## Returns:

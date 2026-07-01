@@ -196,21 +196,6 @@ impl From<&PatientRevocationPayload> for PatientRevocationSignedPayload {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct DelegationRevocationPayload {
-    pub patient_address: String,
-    pub purpose: String,
-    pub delegated_by: String,
-    pub delegated_to: String,
-    #[serde(default)]
-    pub related_rme_id: Option<String>,
-    #[serde(default)]
-    pub token_hash: Option<String>,
-    #[serde(default)]
-    pub expires_before: Option<String>,
-    pub tx_digest: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct GenerateMacaroonKeyHandlerResponse {
     pub macaroon_root_key: String,
 }

@@ -10,7 +10,6 @@ mod macros;
 mod medical_personnel;
 mod move_call;
 mod profile;
-mod revoke_delegation;
 mod rme_admin_seed;
 mod rme_metadata;
 mod rme_segment;

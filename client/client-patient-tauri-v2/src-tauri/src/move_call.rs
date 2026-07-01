@@ -456,7 +456,7 @@ impl MoveCall {
         Ok(tx_digest)
     }
 
-    pub async fn revoke_delegated_access_by_patient(
+    pub async fn revoke_delegated_access(
         &self,
         root_subject: IotaAddress,
         delegated_by: IotaAddress,
@@ -473,7 +473,7 @@ impl MoveCall {
     ) -> Result<String, PatientError> {
         let iota_client = get_iota_client().await.context(current_fn!())?;
         let pt = construct_pt(
-            String::from("revoke_delegated_access_by_patient"),
+            String::from("revoke_delegated_access"),
             self.decmed_package.package_id,
             self.decmed_package.module_patient.clone(),
             vec![],

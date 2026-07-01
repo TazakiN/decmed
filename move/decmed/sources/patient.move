@@ -792,7 +792,7 @@ entry fun revoke_access(
     };
 }
 
-entry fun revoke_delegated_access_by_patient(
+entry fun revoke_delegated_access(
     address_id: &AddressId,
     clock: &Clock,
     root_subject: address,
@@ -1068,6 +1068,43 @@ entry fun revoke_delegated_access_by_patient(
             idx = idx + 1;
         };
     };
+}
+
+entry fun revoke_delegated_access_by_patient(
+    address_id: &AddressId,
+    clock: &Clock,
+    root_subject: address,
+    delegated_by: address,
+    delegated_to: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    admin_personnel_id: String,
+    access_type: vector<u8>,
+    related_rme_id: Option<String>,
+    audit_token_hash: String,
+    audit_parent_token_hash: String,
+    audit_delegation_depth: u8,
+    audit_expires_at_ms: u64,
+    patient_id_account: &mut PatientIdAccount,
+    ctx: &TxContext,
+)
+{
+    revoke_delegated_access(
+        address_id,
+        clock,
+        root_subject,
+        delegated_by,
+        delegated_to,
+        hospital_personnel_id_account,
+        admin_personnel_id,
+        access_type,
+        related_rme_id,
+        audit_token_hash,
+        audit_parent_token_hash,
+        audit_delegation_depth,
+        audit_expires_at_ms,
+        patient_id_account,
+        ctx,
+    );
 }
 
 /// ## Params

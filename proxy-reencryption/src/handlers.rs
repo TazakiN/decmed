@@ -1661,14 +1661,4 @@ impl Handlers {
         Ok(Utils::build_success_response(json!({ "revoked": true }), StatusCode::OK))
     }
 
-    pub async fn revoke_delegation_access(
-        State(_state): State<Arc<AppState>>,
-        Extension(_current_user): Extension<CurrentUser>,
-        Json(_payload): Json<crate::types::DelegationRevocationPayload>
-    ) -> Result<Response, ProxyError> {
-        Err(ProxyError::Anyhow {
-            source: anyhow!("Delegation revoke is disabled; only patients can revoke access"),
-            code: StatusCode::FORBIDDEN,
-        })
-    }
 }

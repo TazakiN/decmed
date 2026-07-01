@@ -61,13 +61,11 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
 use decmed::std_enum_patient_delegation_audit_event_type::{
     PatientDelegationAuditEventType,
     delegated as patient_delegation_audit_event_type_delegated,
-    revoked as patient_delegation_audit_event_type_revoked,
 };
 use decmed::std_struct_patient_account::PatientAccount;
 use decmed::std_struct_patient_delegation_audit_entry::new as patient_delegation_audit_entry_new;
 
 use iota::clock::Clock;
-use iota::event;
 use iota::vec_map;
 
 use std::string::{Self, String};
@@ -164,14 +162,6 @@ fun option_u64_from_sentinel(value: u64): Option<u64> {
         option::none()
     } else {
         option::some(value)
-    }
-}
-
-fun related_rme_id_string(value: Option<String>): String {
-    if (value.is_some()) {
-        *value.borrow()
-    } else {
-        string::utf8(b"")
     }
 }
 
@@ -947,83 +937,22 @@ entry fun revoke_delegated_access(
     ctx: &TxContext,
 )
 {
-    let address_id_table = address_id.borrow_table();
-    let delegator_address = ctx.sender();
-    let delegator_personnel_id = *address_id_table.borrow(delegator_address);
-    let delegatee_personnel_id = *address_id_table.borrow(delegatee_address);
-    let patient_id = *address_id_table.borrow(patient_address);
-
-    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
-    let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
-    require_account_activation(activation_key, delegator_account);
-
-    assert!(hospital_personnel_id_account_table.contains(delegatee_personnel_id), EDelegateeNotFound);
-    assert!(
-        access_type == b"Read" || access_type == b"Update" || access_type == b"Read,Update",
-        EInvalidAccessType,
-    );
-    let revoke_read = access_type == b"Read" || access_type == b"Read,Update";
-    let revoke_update = access_type == b"Update" || access_type == b"Read,Update";
-    let patient_id_account_table = patient_id_account.borrow_mut_table();
-    let patient_account = patient_id_account_table.borrow_mut(patient_id);
-
-    let delegatee_account = hospital_personnel_id_account_table.borrow_mut(delegatee_personnel_id);
-    let delegatee_access = delegatee_account.borrow_mut_access().borrow_mut();
-
-    if (revoke_read) {
-        let delegatee_read = delegatee_access.borrow_mut_read();
-        if (delegatee_read.contains(&patient_id)) {
-            delegatee_read.remove(&patient_id);
-            append_delegation_audit(
-                patient_account,
-                patient_delegation_audit_event_type_revoked(),
-                clock.timestamp_ms(),
-                delegator_address,
-                audit_root_subject,
-                delegator_address,
-                delegatee_address,
-                hospital_personnel_access_type_read(),
-                related_rme_id_string(related_rme_id),
-                audit_delegation_depth,
-                audit_token_hash,
-                audit_parent_token_hash,
-                audit_expires_at_ms,
-            );
-        };
-    };
-
-    if (revoke_update) {
-        let delegatee_update = delegatee_access.borrow_mut_update();
-        if (delegatee_update.contains(&patient_id)) {
-            delegatee_update.remove(&patient_id);
-            append_delegation_audit(
-                patient_account,
-                patient_delegation_audit_event_type_revoked(),
-                clock.timestamp_ms(),
-                delegator_address,
-                audit_root_subject,
-                delegator_address,
-                delegatee_address,
-                hospital_personnel_access_type_update(),
-                related_rme_id_string(related_rme_id),
-                audit_delegation_depth,
-                audit_token_hash,
-                audit_parent_token_hash,
-                audit_expires_at_ms,
-            );
-        };
-    };
-
-    event::emit(
-        DelegationRevokedEvent {
-            patient_address,
-            revoker: delegator_address,
-            delegatee_address,
-            access_type,
-            related_rme_id,
-            revoked_at_ms: clock.timestamp_ms(),
-        }
-    );
+    activation_key;
+    address_id;
+    clock;
+    delegatee_address;
+    hospital_personnel_id_account;
+    patient_address;
+    access_type;
+    related_rme_id;
+    audit_root_subject;
+    audit_token_hash;
+    audit_parent_token_hash;
+    audit_delegation_depth;
+    audit_expires_at_ms;
+    patient_id_account;
+    ctx;
+    abort EIllegalActionInvalidRole
 }
 
 entry fun is_account_registered(

@@ -87,11 +87,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         redis_pool,
     });
 
-    let revocation_auth_routes = Router::new().route(
-        "/revocations/delegation",
-        post(Handlers::revoke_delegation_access),
-    );
-
     let protected_routes = Router::new()
         .route("/", get(|| async { "Hello, world!" }))
         .route("/medical-records", get(Handlers::list_medical_records))
@@ -108,7 +103,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .route("/rme-id", post(Handlers::reserve_related_rme_id_handler))
         .route("/administrative", get(Handlers::get_administrative_data))
-        .merge(revocation_auth_routes)
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(
             shared_state.clone(),
             middlewares::auth_middleware,

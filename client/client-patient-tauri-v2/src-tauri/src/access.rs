@@ -802,7 +802,7 @@ pub async fn revoke_delegated_access(
 
     let tx_digest = state
         .move_call
-        .revoke_delegated_access_by_patient(
+        .revoke_delegated_access(
             root_subject_address,
             delegated_by_address,
             delegated_to_address,

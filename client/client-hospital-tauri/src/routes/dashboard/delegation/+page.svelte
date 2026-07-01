@@ -363,6 +363,8 @@
 			const commonPayload = {
 				parentReadToken: activeRead?.access.accessToken ?? null,
 				parentWriteToken: activeWrite?.access.accessToken ?? null,
+				parentReadDelegationSignature: activeRead?.access.delegationSignature ?? null,
+				parentWriteDelegationSignature: activeWrite?.access.delegationSignature ?? null,
 				delegateeIotaAddress: selectedDelegatee.iotaAddress,
 				delegateePrePublicKey: selectedDelegatee.prePublicKey,
 				patientIotaAddress: selectedAccess.patientIotaAddress,

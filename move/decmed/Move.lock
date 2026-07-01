@@ -36,5 +36,5 @@ published-version = "2"
 [env.localnet-vps]
 chain-id = "930a80c4"
 original-published-id = "0x2a92c1a4bb03158c301da17c9a84cc416878ed75512aba73a2aa2862a2febf38"
-latest-published-id = "0x197bdc0de8f3abc060b6c3051bbef1c7a1d5add88edff3527e49ef6ecd54c1ce"
-published-version = "6"
+latest-published-id = "0x8ae96079f85b91f260933e0181217f9ae062d50d372d7603d12e28728baa83f3"
+published-version = "7"

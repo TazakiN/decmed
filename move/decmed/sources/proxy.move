@@ -317,6 +317,71 @@ entry fun get_hospital_personnel_auth_info(
     (role, sub_role)
 }
 
+entry fun get_delegation_access_snapshot(
+    address_id: &AddressId,
+    clock: &Clock,
+    delegator_address: address,
+    delegatee_address: address,
+    hospital_personnel_id_account: &HospitalPersonnelIdAccount,
+    patient_address: address,
+    requires_read: bool,
+    requires_update: bool,
+    _: &ProxyCap,
+): (u64, u8, u64, u8)
+{
+    assert!(requires_read || requires_update, EInvalidAccessType);
+
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(delegator_address), EAddressNotFound);
+    assert!(address_id_table.contains(delegatee_address), EAddressNotFound);
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+
+    let delegator_personnel_id = *address_id_table.borrow(delegator_address);
+    let delegatee_personnel_id = *address_id_table.borrow(delegatee_address);
+    let patient_id = *address_id_table.borrow(patient_address);
+    let current_time = clock.timestamp_ms();
+
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
+    assert!(hospital_personnel_id_account_table.contains(delegator_personnel_id), EAccountNotFound);
+    assert!(hospital_personnel_id_account_table.contains(delegatee_personnel_id), EAccountNotFound);
+
+    let delegator_account = hospital_personnel_id_account_table.borrow(delegator_personnel_id);
+    let delegatee_account = hospital_personnel_id_account_table.borrow(delegatee_personnel_id);
+
+    assert!(delegator_account.borrow_is_activation_key_used(), EAccountNotFound);
+    assert!(delegatee_account.borrow_is_activation_key_used(), EAccountNotFound);
+    assert!(
+        *delegator_account.borrow_hospital_id() == *delegatee_account.borrow_hospital_id(),
+        EAccessNotFound,
+    );
+
+    let delegator_access = delegator_account.borrow_access().borrow();
+    let mut read_exp = 0;
+    let mut read_delegation_depth = 0;
+    let mut update_exp = 0;
+    let mut update_delegation_depth = 0;
+
+    if (requires_read) {
+        let delegator_read = delegator_access.borrow_read();
+        assert!(delegator_read.contains(&patient_id), EAccessNotFound);
+        let source = delegator_read.get(&patient_id);
+        assert!(source.borrow_exp() >= current_time, EAccessExpired);
+        read_exp = source.borrow_exp();
+        read_delegation_depth = source.borrow_delegation_depth() + 1;
+    };
+
+    if (requires_update) {
+        let delegator_update = delegator_access.borrow_update();
+        assert!(delegator_update.contains(&patient_id), EAccessNotFound);
+        let source = delegator_update.get(&patient_id);
+        assert!(source.borrow_exp() >= current_time, EAccessExpired);
+        update_exp = source.borrow_exp();
+        update_delegation_depth = source.borrow_delegation_depth() + 1;
+    };
+
+    (read_exp, read_delegation_depth, update_exp, update_delegation_depth)
+}
+
 /// ## Returns:
 /// 1: prev_index
 /// 2: next_index

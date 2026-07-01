@@ -48,9 +48,12 @@ Administrative grants issue separate read/update macaroons. The read token stays
 while the update token may carry `related_rme_id` to bind all writes and downstream clinical
 delegations to one RME episode.
 
-## Delegated token (client)
+## Delegated token (PRE)
 
-`attenuate_macaroon` appends caveats without the root key. Local checks reject expansions; PRE re-validates.
+`attenuate_macaroon` appends caveats without the root key, but production delegation is requested
+through PRE. PRE validates the parent token, delegator signature, revocation/delegation proof, and
+on-chain access snapshot before returning the attenuated token. Clients sign the final delegation
+proof, encrypt delegatee metadata, and record the result to IOTA.
 
 ## PRE verification
 

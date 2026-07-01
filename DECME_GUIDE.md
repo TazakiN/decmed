@@ -115,7 +115,7 @@ See `crates/decmed-macaroon-auth/README.md` for caveat format, effective access 
 | Step | Mechanism |
 |------|-----------|
 | Initial token | `POST /api/v1/keys` with `related_rme_id` — PRE signs with `MACAROON_ROOT_KEY` |
-| Delegation | Hospital Tauri `delegate_macaroon` — append-only caveats, no root key |
+| Delegation | PRE `POST /api/v1/delegations/attenuate`; clients request custom attenuation or include a preset, sign the final delegation proof, encrypt metadata, and record to IOTA |
 | PRE access | Bearer macaroon; every fine-grained DecMed request also requires `x-decmed-wallet-signature` |
 | Active actor | `delegated_to` terakhir, atau `root_subject` |
 

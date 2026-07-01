@@ -6,6 +6,7 @@ mod attenuation;
 mod caveats;
 mod delegation;
 mod delegation_proof;
+mod delegation_request;
 mod effective;
 mod errors;
 mod issuance;
@@ -22,6 +23,7 @@ pub use attenuation::{attenuate_macaroon, DelegationAttenuationParams};
 pub use caveats::{CaveatKey, CaveatValue, DecmedCaveat, ParsedCaveats};
 pub use delegation::{DelegationChain, DelegationStep};
 pub use delegation_proof::{hash_macaroon_token, DelegationProofContext};
+pub use delegation_request::DelegationRequestProofContext;
 pub use effective::{AccessMode, EffectiveCapability};
 pub use errors::CaveatVerificationError;
 pub use issuance::{

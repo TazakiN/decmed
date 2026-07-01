@@ -3,10 +3,9 @@ use std::str::FromStr;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use decmed_macaroon_auth::{
-    admin_all_datasets, admin_all_functions, admin_write_datasets, admin_write_functions,
-    attenuate_macaroon, hash_macaroon_token, CaveatKey, CaveatValue,
-    DelegationAttenuationParams, DelegationChain, DelegationProofContext, EffectiveCapability,
-    Macaroon, ParsedCaveats,
+    hash_macaroon_token, CaveatKey, CaveatValue, DelegationAttenuationParams, DelegationChain,
+    DelegationProofContext, DelegationRequestProofContext, EffectiveCapability, Macaroon,
+    ParsedCaveats,
 };
 use decmed_rme_segment::{
     DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
@@ -376,6 +375,18 @@ pub(crate) fn sign_delegation_proof(
     Ok(signature.encode_base64())
 }
 
+fn sign_delegation_request_context(
+    context: &DelegationRequestProofContext,
+    delegator_iota_key_pair: &iota_types::crypto::IotaKeyPair,
+) -> Result<String, HospitalError> {
+    let canonical = context.canonical_message().map_err(|e| {
+        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
+    })?;
+    let intent_message = IntentMessage::new(Intent::personal_message(), canonical);
+    let signature = Signature::new_secure(&intent_message, delegator_iota_key_pair);
+    Ok(signature.encode_base64())
+}
+
 fn datetime_to_epoch_ms(value: DateTime<Utc>) -> Result<u64, HospitalError> {
     let millis = value.timestamp_millis();
     if millis < 0 {
@@ -475,121 +486,16 @@ fn build_delegated_access_metadata(
     }
 }
 
-fn encounter_from_write_token(token: &str) -> Result<DatasetCategory, HospitalError> {
-    let mac = Macaroon::deserialize(token).map_err(|e| {
-        HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-    })?;
-    let effective =
-        EffectiveCapability::from_parsed(&ParsedCaveats::from_macaroon(&mac).map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?)
-        .map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?;
-    effective
-        .write_datasets
-        .iter()
-        .find(|d| {
-            matches!(
-                d,
-                DatasetCategory::RAWAT_JALAN | DatasetCategory::RAWAT_INAP
-            )
-        })
-        .copied()
-        .ok_or_else(|| {
-            HospitalError::Anyhow(
-                anyhow::anyhow!("write parent missing RAWAT encounter dataset")
-                    .context(current_fn!()),
-            )
-        })
-}
-
-fn admin_delegation_params(
-    preset: &str,
-    encounter: DatasetCategory,
-    delegator: &str,
-    delegatee: &str,
-    related_rme_id: &str,
-    expires_before: DateTime<Utc>,
-) -> Result<DelegationAttenuationParams, HospitalError> {
-    let max_depth = match preset {
-        "doctor" => 1,
-        _ => 0,
-    };
-    let (read_datasets, write_datasets, read_functions, write_functions) = match preset {
-        "doctor" => {
-            let read_datasets = admin_all_datasets();
-            let read_functions = admin_all_functions();
-            let write_datasets = admin_write_datasets(encounter);
-            let mut write_functions = admin_write_functions(encounter);
-            write_functions.retain(|f| *f != FunctionCategory::ADMINISTRATIVE_GENERAL);
-            (
-                read_datasets,
-                write_datasets,
-                read_functions,
-                write_functions,
-            )
-        }
-        "nurse" => (
-            vec![encounter],
-            vec![encounter],
-            vec![
-                FunctionCategory::ADMINISTRATIVE_GENERAL,
-                FunctionCategory::ANAMNESIS,
-                FunctionCategory::PEMERIKSAAN_FISIK,
-            ],
-            vec![
-                FunctionCategory::ANAMNESIS,
-                FunctionCategory::PEMERIKSAAN_FISIK,
-            ],
-        ),
-        "lab" => (
-            vec![DatasetCategory::LABORATORIUM],
-            vec![DatasetCategory::LABORATORIUM],
-            vec![
-                FunctionCategory::ADMINISTRATIVE_GENERAL,
-                FunctionCategory::PEMERIKSAAN_PENUNJANG,
-                FunctionCategory::LABORATORIUM,
-            ],
-            vec![FunctionCategory::LABORATORIUM],
-        ),
-        "apotek" => (
-            vec![encounter, DatasetCategory::APOTEK],
-            vec![DatasetCategory::APOTEK],
-            vec![
-                FunctionCategory::ADMINISTRATIVE_GENERAL,
-                FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT,
-                FunctionCategory::TERAPI,
-                FunctionCategory::PERESEPAN,
-                FunctionCategory::DISPENSING,
-            ],
-            vec![FunctionCategory::PERESEPAN, FunctionCategory::DISPENSING],
-        ),
-        _ => {
-            return Err(HospitalError::Anyhow(
-                anyhow::anyhow!("Unknown preset: {preset}").context(current_fn!()),
-            ))
-        }
-    };
-    Ok(DelegationAttenuationParams {
-        delegated_by: delegator.to_string(),
-        delegated_to: delegatee.to_string(),
-        read_datasets,
-        write_datasets,
-        read_functions,
-        write_functions,
-        expires_before,
-        max_delegation_depth: max_depth,
-        related_rme_id: Some(related_rme_id.to_string()),
-    })
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateAdminDelegatedAccessPayload {
     pub parent_write_token: String,
     #[serde(default)]
     pub parent_read_token: Option<String>,
+    #[serde(default)]
+    pub parent_read_delegation_signature: Option<String>,
+    #[serde(default)]
+    pub parent_write_delegation_signature: Option<String>,
     pub delegatee_iota_address: String,
     pub delegatee_pre_public_key: String,
     pub patient_iota_address: String,
@@ -618,6 +524,10 @@ pub struct CreateDelegatedAccessPayload {
     pub mode: String,
     pub parent_read_token: Option<String>,
     pub parent_write_token: Option<String>,
+    #[serde(default)]
+    pub parent_read_delegation_signature: Option<String>,
+    #[serde(default)]
+    pub parent_write_delegation_signature: Option<String>,
     pub delegatee_iota_address: String,
     pub delegatee_pre_public_key: String,
     pub patient_iota_address: String,
@@ -648,30 +558,139 @@ pub struct CreateDelegatedAccessResponse {
     pub seed_warnings: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ProxyGenerateRelatedRmeIdResponse {
-    related_rme_id: String,
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyAttenuateDelegationPayload {
+    mode: String,
+    parent_read_token: Option<String>,
+    parent_write_token: Option<String>,
+    parent_read_delegation_signature: Option<String>,
+    parent_write_delegation_signature: Option<String>,
+    delegator_iota_address: String,
+    delegatee_iota_address: String,
+    patient_iota_address: String,
+    expires_before: String,
+    related_rme_id: Option<String>,
+    read_datasets: Vec<DatasetCategory>,
+    write_datasets: Vec<DatasetCategory>,
+    read_functions: Vec<FunctionCategory>,
+    write_functions: Vec<FunctionCategory>,
+    preset: Option<String>,
+    delegation_request_signature: String,
 }
 
-async fn request_related_rme_id_from_proxy(access_token: &str) -> Result<String, HospitalError> {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyDelegationEffectivePreview {
+    read_datasets: Vec<DatasetCategory>,
+    write_datasets: Vec<DatasetCategory>,
+    read_functions: Vec<FunctionCategory>,
+    write_functions: Vec<FunctionCategory>,
+    expires_before: Option<String>,
+    related_rme_id: Option<String>,
+    remaining_max_delegation_depth: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyDelegatedTokenPreview {
+    token_hash: String,
+    parent_token_hash: String,
+    expires_at_ms: Option<u64>,
+    delegation_depth: u8,
+    proof_context: DelegationProofContext,
+    effective: ProxyDelegationEffectivePreview,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProxyDelegationAttenuationResponse {
+    related_rme_id: Option<String>,
+    delegated_read_token: Option<String>,
+    delegated_update_token: Option<String>,
+    read_preview: Option<ProxyDelegatedTokenPreview>,
+    update_preview: Option<ProxyDelegatedTokenPreview>,
+}
+
+async fn request_delegation_attenuation_from_proxy(
+    mut payload: ProxyAttenuateDelegationPayload,
+    delegator_iota_key_pair: &iota_types::crypto::IotaKeyPair,
+) -> Result<ProxyDelegationAttenuationResponse, HospitalError> {
+    let uses_preset = payload
+        .preset
+        .as_deref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let context = DelegationRequestProofContext {
+        request_kind: if uses_preset { "admin" } else { "custom" }.to_string(),
+        mode: payload.mode.clone(),
+        delegator_iota_address: payload.delegator_iota_address.clone(),
+        delegatee_iota_address: payload.delegatee_iota_address.clone(),
+        patient_iota_address: payload.patient_iota_address.clone(),
+        parent_read_token_hash: payload
+            .parent_read_token
+            .as_deref()
+            .map(hash_macaroon_token),
+        parent_write_token_hash: payload
+            .parent_write_token
+            .as_deref()
+            .map(hash_macaroon_token),
+        expires_before: payload.expires_before.clone(),
+        related_rme_id: if uses_preset {
+            None
+        } else {
+            payload.related_rme_id.clone()
+        },
+        preset: payload.preset.clone(),
+        read_datasets: if uses_preset {
+            Vec::new()
+        } else {
+            payload.read_datasets.clone()
+        },
+        write_datasets: if uses_preset {
+            Vec::new()
+        } else {
+            payload.write_datasets.clone()
+        },
+        read_functions: if uses_preset {
+            Vec::new()
+        } else {
+            payload.read_functions.clone()
+        },
+        write_functions: if uses_preset {
+            Vec::new()
+        } else {
+            payload.write_functions.clone()
+        },
+    };
+    payload.delegation_request_signature =
+        sign_delegation_request_context(&context, delegator_iota_key_pair)?;
+
     let req_client = reqwest::Client::new();
     let res = do_http_post_request_json::<
-        serde_json::Value,
-        ProxyReencryptionSuccessResponse<ProxyGenerateRelatedRmeIdResponse>,
+        ProxyAttenuateDelegationPayload,
+        ProxyReencryptionSuccessResponse<ProxyDelegationAttenuationResponse>,
         ProxyReencryptionErrorResponse,
     >(
-        Some(access_token.to_string()),
         None,
         None,
         None,
-        &format!("{}/rme-id", PROXY_BASE_URL),
-        &serde_json::json!({}),
+        None,
+        &format!("{}/delegations/attenuate", PROXY_BASE_URL),
+        &payload,
         &req_client,
         StatusCode::OK,
     )
     .await?;
 
-    Ok(res.data.related_rme_id)
+    Ok(res.data)
+}
+
+async fn request_admin_delegation_attenuation_from_proxy(
+    payload: ProxyAttenuateDelegationPayload,
+    delegator_iota_key_pair: &iota_types::crypto::IotaKeyPair,
+) -> Result<ProxyDelegationAttenuationResponse, HospitalError> {
+    request_delegation_attenuation_from_proxy(payload, delegator_iota_key_pair).await
 }
 
 #[command]
@@ -746,29 +765,35 @@ pub async fn create_delegated_access(
         .map(related_rme_from_token)
         .transpose()?
         .flatten();
-    let generated_write_related_rme_id = if matches!(mode, "write" | "read_write")
+    let generated_write_related_rme_id = matches!(mode, "write" | "read_write")
         && payload.related_rme_id.is_none()
-        && write_parent_related.is_none()
-    {
-        let token = payload
-            .parent_write_token
-            .as_deref()
-            .or(payload.parent_read_token.as_deref())
-            .ok_or_else(|| {
-                HospitalError::Anyhow(
-                    anyhow::anyhow!("Parent token is required to reserve related_rme_id")
-                        .context(current_fn!()),
-                )
-            })?;
-        Some(request_related_rme_id_from_proxy(token).await?)
-    } else {
-        None
-    };
+        && write_parent_related.is_none();
+
+    let pre_attenuation = request_delegation_attenuation_from_proxy(
+        ProxyAttenuateDelegationPayload {
+            mode: payload.mode.clone(),
+            parent_read_token: payload.parent_read_token.clone(),
+            parent_write_token: payload.parent_write_token.clone(),
+            parent_read_delegation_signature: payload.parent_read_delegation_signature.clone(),
+            parent_write_delegation_signature: payload.parent_write_delegation_signature.clone(),
+            delegator_iota_address: delegator_iota_address.to_string(),
+            delegatee_iota_address: delegatee_iota_address.to_string(),
+            patient_iota_address: payload.patient_iota_address.clone(),
+            expires_before: payload.expires_before.clone(),
+            related_rme_id: payload.related_rme_id.clone(),
+            read_datasets: read_datasets.clone(),
+            write_datasets: write_datasets.clone(),
+            read_functions: read_functions.clone(),
+            write_functions: write_functions.clone(),
+            preset: None,
+            delegation_request_signature: String::new(),
+        },
+        &delegator_iota_key_pair,
+    )
+    .await?;
+
     let read_effective_related_rme_id: Option<String> = None;
-    let write_effective_related_rme_id = write_parent_related
-        .clone()
-        .or_else(|| payload.related_rme_id.clone())
-        .or_else(|| generated_write_related_rme_id.clone());
+    let write_effective_related_rme_id = pre_attenuation.related_rme_id.clone();
     let response_related_rme_id = if matches!(mode, "write" | "read_write") {
         write_effective_related_rme_id.clone()
     } else {
@@ -798,9 +823,15 @@ pub async fn create_delegated_access(
             expires_before,
             None,
         );
-        let token = attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?;
+        let token = pre_attenuation
+            .delegated_read_token
+            .clone()
+            .ok_or_else(|| {
+                HospitalError::Anyhow(
+                    anyhow::anyhow!("PRE did not return delegated read token")
+                        .context(current_fn!()),
+                )
+            })?;
         let signature = sign_delegation_proof(
             &token,
             read_effective_related_rme_id.as_deref().unwrap_or_default(),
@@ -858,9 +889,15 @@ pub async fn create_delegated_access(
                 write_effective_related_rme_id.clone()
             },
         );
-        let token = attenuate_macaroon(parent_write_token, &update_params).map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?;
+        let token = pre_attenuation
+            .delegated_update_token
+            .clone()
+            .ok_or_else(|| {
+                HospitalError::Anyhow(
+                    anyhow::anyhow!("PRE did not return delegated update token")
+                        .context(current_fn!()),
+                )
+            })?;
         let signature = sign_delegation_proof(
             &token,
             write_effective_related_rme_id
@@ -899,10 +936,16 @@ pub async fn create_delegated_access(
         delegated_update_token = Some(token);
     }
 
-    let seed_outcome = if let Some(ref new_rme_id) = generated_write_related_rme_id {
+    let seed_outcome = if generated_write_related_rme_id {
         if let Some(parent_write_token) = payload.parent_write_token.as_deref() {
             match payload.patient_pre_public_key.as_deref() {
                 Some(patient_pre_public_key) => {
+                    let Some(new_rme_id) = response_related_rme_id.as_deref() else {
+                        return Err(HospitalError::Anyhow(
+                            anyhow::anyhow!("PRE did not return generated related_rme_id")
+                                .context(current_fn!()),
+                        ));
+                    };
                     crate::rme_admin_seed::seed_administrative_general_segments(
                         parent_write_token,
                         payload.parent_read_token.as_deref(),
@@ -1019,12 +1062,7 @@ pub async fn create_admin_delegated_access(
     let rewrap_enc_b64 = STANDARD.encode(rewrap_enc);
     let rewrap_capsule_b64 = serde_serialize_to_base64(&rewrap_capsule).context(current_fn!())?;
 
-    let encounter = encounter_from_write_token(&payload.parent_write_token)?;
     let parent_write_related_rme_id = related_rme_from_token(&payload.parent_write_token)?;
-    let related_rme_id = match parent_write_related_rme_id.clone() {
-        Some(related_rme_id) => related_rme_id,
-        None => request_related_rme_id_from_proxy(&payload.parent_write_token).await?,
-    };
     let expires_before = parse_future_expires_before(&payload.expires_before)?;
     let parent_read_token = payload.parent_read_token.as_ref().ok_or_else(|| {
         HospitalError::Anyhow(
@@ -1032,34 +1070,78 @@ pub async fn create_admin_delegated_access(
                 .context(current_fn!()),
         )
     })?;
-    let params = admin_delegation_params(
-        &payload.preset,
-        encounter,
+
+    let pre_attenuation = request_admin_delegation_attenuation_from_proxy(
+        ProxyAttenuateDelegationPayload {
+            mode: "read_write".to_string(),
+            parent_write_token: Some(payload.parent_write_token.clone()),
+            parent_read_token: Some(parent_read_token.clone()),
+            parent_read_delegation_signature: payload.parent_read_delegation_signature.clone(),
+            parent_write_delegation_signature: payload.parent_write_delegation_signature.clone(),
+            delegator_iota_address: delegator_iota_address.to_string(),
+            delegatee_iota_address: delegatee_iota_address.to_string(),
+            patient_iota_address: payload.patient_iota_address.clone(),
+            expires_before: payload.expires_before.clone(),
+            related_rme_id: None,
+            read_datasets: Vec::new(),
+            write_datasets: Vec::new(),
+            read_functions: Vec::new(),
+            write_functions: Vec::new(),
+            preset: Some(payload.preset.clone()),
+            delegation_request_signature: String::new(),
+        },
+        &delegator_iota_key_pair,
+    )
+    .await?;
+    let related_rme_id = pre_attenuation.related_rme_id.clone().ok_or_else(|| {
+        HospitalError::Anyhow(
+            anyhow::anyhow!("PRE did not return related_rme_id for admin delegation")
+                .context(current_fn!()),
+        )
+    })?;
+    let delegated_read_token = pre_attenuation
+        .delegated_read_token
+        .clone()
+        .ok_or_else(|| {
+            HospitalError::Anyhow(
+                anyhow::anyhow!("PRE did not return delegated read token").context(current_fn!()),
+            )
+        })?;
+    let delegated_update_token =
+        pre_attenuation
+            .delegated_update_token
+            .clone()
+            .ok_or_else(|| {
+                HospitalError::Anyhow(
+                    anyhow::anyhow!("PRE did not return delegated update token")
+                        .context(current_fn!()),
+                )
+            })?;
+
+    let read_params = build_delegation_params(
         &delegator_iota_address.to_string(),
         &delegatee_iota_address.to_string(),
-        &related_rme_id,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
         expires_before,
-    )?;
-    let mut read_params = params.clone();
-    read_params.write_datasets.clear();
-    read_params.write_functions.clear();
-    read_params.related_rme_id = None;
-    let mut update_params = params;
-    update_params.read_datasets.clear();
-    update_params.read_functions.clear();
-    if parent_write_related_rme_id.is_some() {
-        update_params.related_rme_id = None;
-    }
-    ensure_no_administrative_general_write(&update_params.write_functions)?;
-
-    let delegated_read_token =
-        attenuate_macaroon(parent_read_token, &read_params).map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?;
-    let delegated_update_token = attenuate_macaroon(&payload.parent_write_token, &update_params)
-        .map_err(|e| {
-            HospitalError::Anyhow(anyhow::anyhow!(e.to_string()).context(current_fn!()))
-        })?;
+        None,
+    );
+    let update_params = build_delegation_params(
+        &delegator_iota_address.to_string(),
+        &delegatee_iota_address.to_string(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        expires_before,
+        if parent_write_related_rme_id.is_some() {
+            None
+        } else {
+            Some(related_rme_id.clone())
+        },
+    );
 
     let read_delegation_signature = sign_delegation_proof(
         &delegated_read_token,

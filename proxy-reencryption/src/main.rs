@@ -125,9 +125,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         post(Handlers::revoke_patient_access),
     );
 
+    let delegation_routes = Router::new().route(
+        "/delegations/attenuate",
+        post(Handlers::attenuate_delegation),
+    );
+
     let public_routes = Router::new()
         .route("/nonce", post(Handlers::get_nonce_handler))
         .route("/keys", post(Handlers::store_keys))
+        .merge(delegation_routes)
         .merge(revocation_routes);
 
     let api_routes = Router::new()

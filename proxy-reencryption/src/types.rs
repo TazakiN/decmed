@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::move_call::MoveCall;
+use decmed_macaroon_auth::DelegationProofContext;
 use decmed_macaroon_auth::VerifiedDecmedToken;
 use decmed_rme_segment::{DatasetCategory, FunctionCategory};
 
@@ -318,6 +319,78 @@ pub struct HandlerStoreKeysPayload {
     pub expires_before: Option<String>,
     #[serde(default)]
     pub access_mode: AccessGrantMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveDelegationAccessSnapshot {
+    pub read_exp: u64,
+    pub read_delegation_depth: u8,
+    pub update_exp: u64,
+    pub update_delegation_depth: u8,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandlerAttenuateDelegationPayload {
+    pub mode: String,
+    #[serde(default)]
+    pub parent_read_token: Option<String>,
+    #[serde(default)]
+    pub parent_write_token: Option<String>,
+    #[serde(default)]
+    pub parent_read_delegation_signature: Option<String>,
+    #[serde(default)]
+    pub parent_write_delegation_signature: Option<String>,
+    pub delegator_iota_address: String,
+    pub delegatee_iota_address: String,
+    pub patient_iota_address: String,
+    pub expires_before: String,
+    #[serde(default)]
+    pub related_rme_id: Option<String>,
+    #[serde(default)]
+    pub read_datasets: Vec<DatasetCategory>,
+    #[serde(default)]
+    pub write_datasets: Vec<DatasetCategory>,
+    #[serde(default)]
+    pub read_functions: Vec<FunctionCategory>,
+    #[serde(default)]
+    pub write_functions: Vec<FunctionCategory>,
+    #[serde(default)]
+    pub preset: Option<String>,
+    pub delegation_request_signature: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationEffectivePreview {
+    pub read_datasets: Vec<DatasetCategory>,
+    pub write_datasets: Vec<DatasetCategory>,
+    pub read_functions: Vec<FunctionCategory>,
+    pub write_functions: Vec<FunctionCategory>,
+    pub expires_before: Option<String>,
+    pub related_rme_id: Option<String>,
+    pub remaining_max_delegation_depth: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegatedTokenPreview {
+    pub token_hash: String,
+    pub parent_token_hash: String,
+    pub expires_at_ms: Option<u64>,
+    pub delegation_depth: u8,
+    pub proof_context: DelegationProofContext,
+    pub effective: DelegationEffectivePreview,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationAttenuationHandlerResponse {
+    pub related_rme_id: Option<String>,
+    pub delegated_read_token: Option<String>,
+    pub delegated_update_token: Option<String>,
+    pub read_preview: Option<DelegatedTokenPreview>,
+    pub update_preview: Option<DelegatedTokenPreview>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

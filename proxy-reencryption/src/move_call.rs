@@ -16,8 +16,8 @@ use crate::{
     current_fn,
     proxy_error::{ProxyError, ResultExt},
     types::{
-        DecmedPackage, HospitalPersonnelSubRole, MoveHospitalPersonnelRole,
-        MovePatientAdministrativeMetadata, MovePatientMedicalMetadata,
+        DecmedPackage, HospitalPersonnelSubRole, MoveDelegationAccessSnapshot,
+        MoveHospitalPersonnelRole, MovePatientAdministrativeMetadata, MovePatientMedicalMetadata,
     },
     utils::Utils,
 };
@@ -405,6 +405,61 @@ impl MoveCall {
             Utils::parse_move_read_only_result(response, 1).context(current_fn!())?;
 
         Ok((role, sub_role))
+    }
+
+    pub async fn get_delegation_access_snapshot(
+        &self,
+        delegator_address: &IotaAddress,
+        delegatee_address: &IotaAddress,
+        patient_address: &IotaAddress,
+        requires_read: bool,
+        requires_update: bool,
+        sender: IotaAddress,
+    ) -> Result<MoveDelegationAccessSnapshot, ProxyError> {
+        let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
+        let pt = Utils::construct_pt(
+            "get_delegation_access_snapshot",
+            self.decmed_package.package_id,
+            self.decmed_package.module_proxy.clone(),
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                self.construct_clock_call_arg(),
+                CallArg::Pure(bcs::to_bytes(delegator_address).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(delegatee_address).context(current_fn!())?),
+                self.construct_hospital_personnel_id_account_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&requires_read).context(current_fn!())?),
+                CallArg::Pure(bcs::to_bytes(&requires_update).context(current_fn!())?),
+                self.construct_proxy_cap(
+                    &iota_client,
+                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
+                    sender,
+                )
+                .await
+                .context(current_fn!())?,
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
+            .await
+            .context(current_fn!())?;
+
+        Utils::handle_error_move_call_read_only(response.clone())
+            .context(current_fn!())
+            .code(StatusCode::FORBIDDEN)?;
+
+        Ok(MoveDelegationAccessSnapshot {
+            read_exp: Utils::parse_move_read_only_result(response.clone(), 0)
+                .context(current_fn!())?,
+            read_delegation_depth: Utils::parse_move_read_only_result(response.clone(), 1)
+                .context(current_fn!())?,
+            update_exp: Utils::parse_move_read_only_result(response.clone(), 2)
+                .context(current_fn!())?,
+            update_delegation_depth: Utils::parse_move_read_only_result(response, 3)
+                .context(current_fn!())?,
+        })
     }
 
     /// ## Returns:

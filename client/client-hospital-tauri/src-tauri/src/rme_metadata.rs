@@ -357,10 +357,7 @@ pub async fn get_accessible_medical_record_metadata(
             .session_pin
             .clone()
             .ok_or(anyhow!("Session PIN not found"))?;
-        (
-            state.keys_entry.get_secret().context(current_fn!())?,
-            pin,
-        )
+        (state.keys_entry.get_secret().context(current_fn!())?, pin)
     };
     let keys_entry = parse_keys_entry(&keys_entry_secret).context(current_fn!())?;
     let req_client = reqwest::Client::new();
@@ -402,10 +399,7 @@ pub async fn get_accessible_medical_record_encounter_metadata(
             .session_pin
             .clone()
             .ok_or(anyhow!("Session PIN not found"))?;
-        (
-            state.keys_entry.get_secret().context(current_fn!())?,
-            pin,
-        )
+        (state.keys_entry.get_secret().context(current_fn!())?, pin)
     };
     let keys_entry = parse_keys_entry(&keys_entry_secret).context(current_fn!())?;
     let req_client = reqwest::Client::new();

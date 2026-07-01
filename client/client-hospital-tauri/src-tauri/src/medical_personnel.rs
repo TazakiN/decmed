@@ -236,10 +236,7 @@ async fn get_medical_record_impl(
             .session_pin
             .clone()
             .ok_or(anyhow!("Session PIN not found"))?;
-        (
-            state.keys_entry.get_secret().context(current_fn!())?,
-            pin,
-        )
+        (state.keys_entry.get_secret().context(current_fn!())?, pin)
     };
     let keys_entry = parse_keys_entry(&keys_entry_secret).context(current_fn!())?;
     let req_client = reqwest::Client::new();
@@ -305,12 +302,11 @@ async fn get_medical_record_impl(
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(res.data.patient_pre_public_key)
                 .context(current_fn!())?;
-        let medical_record_pre_secret_key_seed_capsule: Capsule =
-            serde_deserialize_from_base64(
-                data_pre_secret_key_seed_capsule
-                    .unwrap_or_else(|| res.data.data_pre_secret_key_seed_capsule.clone()),
-            )
-            .context(current_fn!())?;
+        let medical_record_pre_secret_key_seed_capsule: Capsule = serde_deserialize_from_base64(
+            data_pre_secret_key_seed_capsule
+                .unwrap_or_else(|| res.data.data_pre_secret_key_seed_capsule.clone()),
+        )
+        .context(current_fn!())?;
         let medical_record_pre_secret_key_seed = decrypt_original(
             &hospital_personnel_pre_secret_key,
             &medical_record_pre_secret_key_seed_capsule,

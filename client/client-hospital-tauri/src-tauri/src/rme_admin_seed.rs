@@ -369,10 +369,7 @@ mod tests {
         assert!(effective
             .write_functions
             .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL));
-        assert_eq!(
-            effective.related_rme_id.as_deref(),
-            Some("RME-000001")
-        );
+        assert_eq!(effective.related_rme_id.as_deref(), Some("RME-000001"));
         assert_eq!(effective.hospital_cid.as_deref(), Some("hospital-001"));
     }
 

@@ -10,7 +10,6 @@
 		presetScope,
 		sortDatasets,
 		sortFunctions,
-		withMandatoryAdministrativeRead,
 		type DelegationMode,
 		type DelegationPreset
 	} from '$lib/capabilities';
@@ -288,7 +287,7 @@
 		});
 		previewReadDatasets = scope.readDatasets;
 		previewWriteDatasets = scope.writeDatasets;
-		previewReadFunctions = withMandatoryAdministrativeRead(scope.readFunctions);
+		previewReadFunctions = scope.readFunctions;
 		previewWriteFunctions = delegableWriteFunctions(scope.writeFunctions);
 	};
 
@@ -403,8 +402,7 @@
 							: (activeWrite?.relatedRmeId ?? activeRead?.relatedRmeId ?? null),
 					readDatasets: mode === 'write' ? [] : previewReadDatasets,
 					writeDatasets: mode === 'read' ? [] : previewWriteDatasets,
-					readFunctions:
-						mode === 'write' ? [] : withMandatoryAdministrativeRead(previewReadFunctions),
+					readFunctions: mode === 'write' ? [] : previewReadFunctions,
 					writeFunctions: mode === 'read' ? [] : writeFunctions
 				}
 			})) as SuccessResponse<{
@@ -538,15 +536,14 @@
 							{/each}
 							<div class="mt-3 grid gap-1">
 								{#each sortFunctions(activeRead?.readFunctions ?? []) as functionCategory (functionCategory)}
-									{@const mandatoryAdmin = functionCategory === 'ADMINISTRATIVE_GENERAL'}
 									<label class="flex items-center gap-2 text-sm">
 										<input
 											type="checkbox"
 											checked={previewReadFunctions.includes(functionCategory)}
-											disabled={mandatoryAdmin}
 											onchange={() =>
-												(previewReadFunctions = withMandatoryAdministrativeRead(
-													toggleFunction(previewReadFunctions, functionCategory)
+												(previewReadFunctions = toggleFunction(
+													previewReadFunctions,
+													functionCategory
 												))}
 										/>
 										{functionLabels[functionCategory]}

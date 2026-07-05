@@ -104,7 +104,10 @@ export class SignUpState {
 					if (!resInvokeSignup.success) {
 						cancel();
 						toast.error(resInvokeSignup.error);
+						return;
 					}
+
+					await invalidateAll();
 				}
 			}
 		});

@@ -1,6 +1,7 @@
 import { completeProfilePersonnelSchema } from '$lib/schema';
 import type { CompleteProfilePersonnelSchema, SuccessResponse } from '$lib/types';
 import { tryCatchAsVal } from '$lib/utils';
+import { invalidateAll } from '$app/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -35,6 +36,7 @@ export class CompleteProfilePersonnelState {
 					}
 
 					toast.success('Profile updated successfully');
+					await invalidateAll();
 				}
 			}
 		});

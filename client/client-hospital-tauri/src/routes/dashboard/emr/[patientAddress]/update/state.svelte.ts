@@ -111,8 +111,11 @@ export class EmrUpdateState {
 		}
 
 		const resInvokeGetMedicalRecord = await tryCatchAsVal(async () => {
-			return (await invoke('get_medical_record_update', {
+			return (await invoke('get_medical_record', {
 				accessToken,
+				dataPreSecretKeySeedCapsule: null,
+				delegationSignature: null,
+				encDataPreSecretKeySeed: null,
 				index,
 				patientIotaAddress
 			})) as SuccessResponse<InvokeGetMedicalRecordResponseData>;

@@ -164,7 +164,6 @@ pub fn run() {
             medical_personnel::get_medical_record_payload,
             rme_metadata::get_accessible_medical_record_metadata,
             rme_metadata::get_accessible_medical_record_encounter_metadata,
-            medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,
             medical_personnel::get_update_access_medical_personnel,
             medical_personnel::update_medical_record,

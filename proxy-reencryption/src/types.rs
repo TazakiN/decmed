@@ -289,13 +289,6 @@ pub struct HandlerGetMedicalRecordQueryParams {
     pub include_administrative: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct HandlerGetMedicalRecordUpdateQueryParams {
-    #[serde(deserialize_with = "crate::utils::Utils::empty_string_as_none")]
-    pub index: Option<u64>,
-    pub patient_iota_address: String,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HandlerStoreKeysPayload {
     pub enc_data_pre_secret_key_seed: String,

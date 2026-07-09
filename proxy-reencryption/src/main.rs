@@ -97,10 +97,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "/medical-record-segment",
             post(Handlers::create_medical_record_segment),
         )
-        .route(
-            "/medical-record-update",
-            get(Handlers::get_medical_record_update),
-        )
         .route("/rme-id", post(Handlers::reserve_related_rme_id_handler))
         .route("/administrative", get(Handlers::get_administrative_data))
         .layer(ServiceBuilder::new().layer(middleware::from_fn_with_state(

@@ -471,24 +471,6 @@ pub struct ProxyReencryptionGetMedicalRecordResponseData {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ProxyReencryptionGetMedicalRecordUpdateResponseData {
-    pub administrative_data_capsule: String,
-    pub c_frag_administrative: String,
-    pub c_frag_medical: String,
-    pub data_pre_public_key: String,
-    pub data_pre_secret_key_seed_capsule: String,
-    pub enc_administrative_data: String,
-    pub enc_administrative_data_key_nonce: String,
-    pub enc_data_pre_secret_key_seed: String,
-    pub enc_medical_data: String,
-    pub enc_medical_data_key_nonce: String,
-    pub medical_data_capsule: String,
-    pub medical_data_created_at: String,
-    pub patient_pre_public_key: String,
-    pub signer_pre_public_key: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionSuccessResponse<T> {
     pub data: T,
     pub status_code: u16,

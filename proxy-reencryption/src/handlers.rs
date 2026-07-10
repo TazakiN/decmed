@@ -66,6 +66,7 @@ struct StoredMedicalMetadata {
     cid: String,
     created_at: String,
     enc_key_and_nonce: String,
+    rme_segment: Option<RmeSegmentMetadata>,
 }
 
 fn deserialize_stored_medical_metadata(
@@ -81,6 +82,7 @@ fn deserialize_stored_medical_metadata(
             cid: metadata.cid,
             created_at: metadata.created_at,
             enc_key_and_nonce: metadata.enc_key_and_nonce,
+            rme_segment: None,
         });
     }
 
@@ -93,11 +95,26 @@ fn deserialize_stored_medical_metadata(
         .code(StatusCode::BAD_REQUEST)?;
 
     Ok(StoredMedicalMetadata {
-        capsule: segment_metadata.capsule,
-        cid: segment_metadata.ipfs_cid,
-        created_at: segment_metadata.created_at,
-        enc_key_and_nonce: segment_metadata.enc_key_and_nonce,
+        capsule: segment_metadata.capsule.clone(),
+        cid: segment_metadata.ipfs_cid.clone(),
+        created_at: segment_metadata.created_at.clone(),
+        enc_key_and_nonce: segment_metadata.enc_key_and_nonce.clone(),
+        rme_segment: Some(segment_metadata),
     })
+}
+
+fn validate_stored_medical_data_integrity(
+    metadata: &StoredMedicalMetadata,
+    enc_data: &str,
+) -> Result<(), ProxyError> {
+    if let Some(segment_metadata) = &metadata.rme_segment {
+        segment_metadata
+            .validate_integrity_hash(enc_data)
+            .map_err(|e| anyhow!(e.to_string()))
+            .code(StatusCode::BAD_REQUEST)?;
+    }
+
+    Ok(())
 }
 
 fn access_key_subject_candidates(current_user: &CurrentUser) -> Vec<String> {
@@ -1584,9 +1601,10 @@ impl Handlers {
 
             let medical_metadata = deserialize_stored_medical_metadata(medical_metadata.metadata)?;
 
-            let enc_medical_data = Utils::get_data_ipfs(medical_metadata.cid)
+            let enc_medical_data = Utils::get_data_ipfs(medical_metadata.cid.clone())
                 .await
                 .context(current_fn!())?;
+            validate_stored_medical_data_integrity(&medical_metadata, &enc_medical_data)?;
 
             let k_frag: KeyFrag = Utils::serde_deserialize_from_base64(access_keys.k_frag.clone())
                 .context(current_fn!())?;
@@ -2265,6 +2283,36 @@ impl Handlers {
 #[cfg(test)]
 mod delegation_attenuation_tests {
     use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    fn stored_rme_metadata(ciphertext: &[u8]) -> StoredMedicalMetadata {
+        let rme_segment = RmeSegmentMetadata {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "RME-001".to_string(),
+            patient_address: "0x1111111111111111111111111111111111111111111111111111111111111111"
+                .to_string(),
+            hospital_cid: "hospital-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            ipfs_cid: "bafy...".to_string(),
+            integrity_hash: decmed_rme_segment::sha256_hex(ciphertext),
+            capsule: "capsule".to_string(),
+            enc_key_and_nonce: "key".to_string(),
+            created_at: "2026-05-18T10:30:00.000Z".to_string(),
+            author_address: "0x2222222222222222222222222222222222222222222222222222222222222222"
+                .to_string(),
+            correction_of_index: None,
+            correction_reason: None,
+        };
+
+        StoredMedicalMetadata {
+            capsule: rme_segment.capsule.clone(),
+            cid: rme_segment.ipfs_cid.clone(),
+            created_at: rme_segment.created_at.clone(),
+            enc_key_and_nonce: rme_segment.enc_key_and_nonce.clone(),
+            rme_segment: Some(rme_segment),
+        }
+    }
 
     fn request_context(address: String) -> DelegationRequestProofContext {
         DelegationRequestProofContext {
@@ -2316,6 +2364,36 @@ mod delegation_attenuation_tests {
             ProxyError::Anyhow { code, .. } => assert_eq!(code, StatusCode::BAD_REQUEST),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn read_path_rejects_ipfs_ciphertext_with_mismatched_integrity_hash() {
+        let metadata = stored_rme_metadata(b"original ciphertext");
+
+        let err = validate_stored_medical_data_integrity(
+            &metadata,
+            &STANDARD.encode(b"tampered ciphertext"),
+        )
+        .unwrap_err();
+
+        match err {
+            ProxyError::Anyhow { source, code } => {
+                assert_eq!(code, StatusCode::BAD_REQUEST);
+                assert_eq!(
+                    source.to_string(),
+                    "integrity_hash does not match encrypted segment"
+                );
+            }
+            other => panic!("expected integrity hash error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_path_accepts_ipfs_ciphertext_with_matching_integrity_hash() {
+        let ciphertext = b"original ciphertext";
+        let metadata = stored_rme_metadata(ciphertext);
+
+        validate_stored_medical_data_integrity(&metadata, &STANDARD.encode(ciphertext)).unwrap();
     }
 
     #[test]

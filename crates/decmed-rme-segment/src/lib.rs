@@ -7,39 +7,28 @@ mod validation;
 
 // Re-export everything at the crate root to preserve the original public API.
 pub use administrative_payload::{
-    administrative_general_payload_from_fields,
-    administrative_general_payload_from_value,
+    administrative_general_payload_from_fields, administrative_general_payload_from_value,
     AdministrativeGeneralPayload,
 };
 pub use category::{
-    DatasetCategory,
-    FunctionCategory,
-    ALL_DATASET_CATEGORIES,
-    ALL_FUNCTION_CATEGORIES,
+    DatasetCategory, FunctionCategory, ALL_DATASET_CATEGORIES, ALL_FUNCTION_CATEGORIES,
 };
-pub use crypto::{ canonical_json, ciphertext_integrity_hash_from_base64, payload_hash, sha256_hex };
+pub use crypto::{canonical_json, ciphertext_integrity_hash_from_base64, payload_hash, sha256_hex};
 pub use error::SegmentValidationError;
 pub use types::{
-    ClientEncryptedRmeSegment,
-    CreateRmeSegmentRequest,
-    CreateRmeSegmentResponse,
-    RmeSegmentData,
+    ClientEncryptedRmeSegment, CreateRmeSegmentRequest, CreateRmeSegmentResponse, RmeSegmentData,
     RmeSegmentMetadata,
 };
 pub use validation::{
-    assert_no_plaintext_medical_fields,
-    assert_segment_pair_consistent,
-    assert_valid_correction_metadata,
-    assert_valid_correction_request,
-    assert_valid_segment_category,
-    get_allowed_function_categories,
-    is_valid_segment_category,
+    assert_no_plaintext_medical_fields, assert_segment_pair_consistent,
+    assert_valid_correction_metadata, assert_valid_correction_request,
+    assert_valid_segment_category, get_allowed_function_categories, is_valid_segment_category,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::{ engine::general_purpose::STANDARD, Engine as _ };
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use serde_json::json;
     use uuid::Uuid;
 
@@ -104,92 +93,83 @@ mod tests {
 
     #[test]
     fn valid_combinations_are_accepted() {
-        assert!(
-            is_valid_segment_category(DatasetCategory::RAWAT_JALAN, FunctionCategory::ANAMNESIS)
-        );
-        assert!(
-            is_valid_segment_category(
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN
-            )
-        );
-        assert!(
-            is_valid_segment_category(DatasetCategory::LABORATORIUM, FunctionCategory::LABORATORIUM)
-        );
-        assert!(is_valid_segment_category(DatasetCategory::APOTEK, FunctionCategory::PERESEPAN));
-        assert!(
-            is_valid_segment_category(
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::ADMINISTRATIVE_GENERAL
-            )
-        );
-        assert!(
-            is_valid_segment_category(
-                DatasetCategory::LABORATORIUM,
-                FunctionCategory::ADMINISTRATIVE_GENERAL
-            )
-        );
-        assert!(
-            is_valid_segment_category(
-                DatasetCategory::APOTEK,
-                FunctionCategory::ADMINISTRATIVE_GENERAL
-            )
-        );
-        assert!(
-            is_valid_segment_category(
-                DatasetCategory::RAWAT_INAP,
-                FunctionCategory::ADMINISTRATIVE_GENERAL
-            )
-        );
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ANAMNESIS
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::LABORATORIUM
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::PERESEPAN
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
+        ));
+        assert!(is_valid_segment_category(
+            DatasetCategory::RAWAT_INAP,
+            FunctionCategory::ADMINISTRATIVE_GENERAL
+        ));
     }
 
     #[test]
     fn invalid_combinations_are_rejected() {
-        assert!(
-            assert_valid_segment_category(
-                DatasetCategory::APOTEK,
-                FunctionCategory::ANAMNESIS
-            ).is_err()
-        );
-        assert!(
-            assert_valid_segment_category(
-                DatasetCategory::LABORATORIUM,
-                FunctionCategory::PERESEPAN
-            ).is_err()
-        );
-        assert!(
-            assert_valid_segment_category(
-                DatasetCategory::RAWAT_JALAN,
-                FunctionCategory::DISPENSING
-            ).is_err()
-        );
+        assert!(assert_valid_segment_category(
+            DatasetCategory::APOTEK,
+            FunctionCategory::ANAMNESIS
+        )
+        .is_err());
+        assert!(assert_valid_segment_category(
+            DatasetCategory::LABORATORIUM,
+            FunctionCategory::PERESEPAN
+        )
+        .is_err());
+        assert!(assert_valid_segment_category(
+            DatasetCategory::RAWAT_JALAN,
+            FunctionCategory::DISPENSING
+        )
+        .is_err());
     }
 
     #[test]
     fn allowed_functions_are_exposed_by_dataset() {
         for dataset in DatasetCategory::all() {
             assert!(
-                get_allowed_function_categories(*dataset).contains(
-                    &FunctionCategory::ADMINISTRATIVE_GENERAL
-                ),
+                get_allowed_function_categories(*dataset)
+                    .contains(&FunctionCategory::ADMINISTRATIVE_GENERAL),
                 "{dataset:?} should include ADMINISTRATIVE_GENERAL"
             );
         }
         let rawat_jalan = get_allowed_function_categories(DatasetCategory::RAWAT_JALAN);
         assert_eq!(rawat_jalan.len(), 11);
         assert!(rawat_jalan.contains(&FunctionCategory::INSTRUKSI_MEDIK_DAN_KEPERAWATAN));
-        assert_eq!(get_allowed_function_categories(DatasetCategory::LABORATORIUM).len(), 3);
-        assert_eq!(get_allowed_function_categories(DatasetCategory::APOTEK).len(), 5);
-        assert!(
-            get_allowed_function_categories(DatasetCategory::APOTEK).contains(
-                &FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT
-            )
+        assert_eq!(
+            get_allowed_function_categories(DatasetCategory::LABORATORIUM).len(),
+            3
         );
-        assert!(
-            get_allowed_function_categories(DatasetCategory::RAWAT_INAP).contains(
-                &FunctionCategory::PERENCANAAN_PEMULANGAN
-            )
+        assert_eq!(
+            get_allowed_function_categories(DatasetCategory::APOTEK).len(),
+            5
         );
+        assert!(get_allowed_function_categories(DatasetCategory::APOTEK)
+            .contains(&FunctionCategory::RIWAYAT_PENGGUNAAN_OBAT));
+        assert!(get_allowed_function_categories(DatasetCategory::RAWAT_INAP)
+            .contains(&FunctionCategory::PERENCANAAN_PEMULANGAN));
     }
 
     #[test]
@@ -205,8 +185,7 @@ mod tests {
 
     #[test]
     fn off_chain_segment_contains_payload_and_payload_hash() {
-        let payload =
-            json!({
+        let payload = json!({
             "riwayat_penyakit_sekarang": "Demam",
             "keluhan_utama": "Batuk"
         });
@@ -224,10 +203,8 @@ mod tests {
     #[test]
     fn regular_segment_has_no_correction_metadata() {
         let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
-        let segment = RmeSegmentData::new(
-            segment_id,
-            sample_request(json!({"text": "regular"}))
-        ).unwrap();
+        let segment =
+            RmeSegmentData::new(segment_id, sample_request(json!({"text": "regular"}))).unwrap();
 
         assert_eq!(segment.correction_of_index, None);
         assert_eq!(segment.correction_reason, None);
@@ -260,7 +237,10 @@ mod tests {
         metadata.validate().unwrap();
 
         assert_eq!(metadata.correction_of_index, Some(7));
-        assert_eq!(metadata.correction_reason.as_deref(), Some("Memperbaiki salah ketik"));
+        assert_eq!(
+            metadata.correction_reason.as_deref(),
+            Some("Memperbaiki salah ketik")
+        );
     }
 
     #[test]
@@ -282,12 +262,10 @@ mod tests {
         let mut request = sample_request(json!({"text": "corrected"}));
         request.correction_reason = Some("Alasan".to_string());
 
-        assert!(
-            matches!(
-                RmeSegmentData::new(segment_id, request),
-                Err(SegmentValidationError::InvalidCorrection(_))
-            )
-        );
+        assert!(matches!(
+            RmeSegmentData::new(segment_id, request),
+            Err(SegmentValidationError::InvalidCorrection(_))
+        ));
     }
 
     #[test]
@@ -349,17 +327,37 @@ mod tests {
     }
 
     #[test]
+    fn metadata_validates_ipfs_ciphertext_integrity_hash() {
+        let ciphertext = b"encrypted segment";
+        let metadata = sample_metadata(ciphertext);
+
+        metadata
+            .validate_integrity_hash(&STANDARD.encode(ciphertext))
+            .unwrap();
+    }
+
+    #[test]
+    fn metadata_rejects_mismatched_ipfs_ciphertext_integrity_hash() {
+        let metadata = sample_metadata(b"original encrypted segment");
+
+        assert_eq!(
+            metadata
+                .validate_integrity_hash(&STANDARD.encode(b"tampered encrypted segment"))
+                .unwrap_err(),
+            SegmentValidationError::InvalidIntegrityHash
+        );
+    }
+
+    #[test]
     fn payload_hash_is_calculated_from_canonical_json_payload() {
-        let left =
-            json!({
+        let left = json!({
             "b": 2,
             "a": {
                 "d": true,
                 "c": "x"
             }
         });
-        let right =
-            json!({
+        let right = json!({
             "a": {
                 "c": "x",
                 "d": true
@@ -369,6 +367,22 @@ mod tests {
 
         assert_eq!(canonical_json(&left), r#"{"a":{"c":"x","d":true},"b":2}"#);
         assert_eq!(payload_hash(&left), payload_hash(&right));
+    }
+
+    #[test]
+    fn off_chain_segment_rejects_mismatched_payload_hash() {
+        let segment_id = Uuid::parse_str("b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31").unwrap();
+        let mut segment = RmeSegmentData::new(
+            segment_id,
+            sample_request(json!({ "keluhan_utama": "Demam" })),
+        )
+        .unwrap();
+        segment.payload = json!({ "keluhan_utama": "Batuk" });
+
+        assert_eq!(
+            segment.validate().unwrap_err(),
+            SegmentValidationError::InvalidPayloadHash
+        );
     }
 
     #[test]
@@ -412,10 +426,10 @@ mod tests {
         let legacy_algorithm_key = ["encryption", "algo"].join("_");
         let legacy_algorithm_value = ["AES", "256", "GCM"].join("-");
         let mut metadata = serde_json::to_value(sample_metadata(ciphertext)).unwrap();
-        metadata
-            .as_object_mut()
-            .unwrap()
-            .insert(legacy_algorithm_key.clone(), json!(legacy_algorithm_value.clone()));
+        metadata.as_object_mut().unwrap().insert(
+            legacy_algorithm_key.clone(),
+            json!(legacy_algorithm_value.clone()),
+        );
 
         let decoded: RmeSegmentMetadata = serde_json::from_value(metadata).unwrap();
         decoded.validate().unwrap();
@@ -448,17 +462,29 @@ mod tests {
     #[test]
     fn legacy_hospital_identifiers_deserialize_as_hospital_cid() {
         let mut metadata = serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
-        let hospital_cid = metadata.as_object_mut().unwrap().remove("hospital_cid").unwrap();
-        metadata.as_object_mut().unwrap().insert("hospital_id".to_string(), hospital_cid.clone());
+        let hospital_cid = metadata
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid")
+            .unwrap();
+        metadata
+            .as_object_mut()
+            .unwrap()
+            .insert("hospital_id".to_string(), hospital_cid.clone());
 
         let decoded: RmeSegmentMetadata = serde_json::from_value(metadata).unwrap();
         assert_eq!(decoded.hospital_cid, "hospital-001");
 
-        let mut legacy_fasyankes = serde_json
-            ::to_value(sample_metadata(b"encrypted segment"))
-            .unwrap();
-        legacy_fasyankes.as_object_mut().unwrap().remove("hospital_cid");
-        legacy_fasyankes.as_object_mut().unwrap().insert("fasyankes_id".to_string(), hospital_cid);
+        let mut legacy_fasyankes =
+            serde_json::to_value(sample_metadata(b"encrypted segment")).unwrap();
+        legacy_fasyankes
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid");
+        legacy_fasyankes
+            .as_object_mut()
+            .unwrap()
+            .insert("fasyankes_id".to_string(), hospital_cid);
         let decoded: RmeSegmentMetadata = serde_json::from_value(legacy_fasyankes).unwrap();
         assert_eq!(decoded.hospital_cid, "hospital-001");
     }
@@ -481,30 +507,39 @@ mod tests {
             correction_reason: None,
         };
         let mut value = serde_json::to_value(client_segment).unwrap();
-        let hospital_cid = value.as_object_mut().unwrap().remove("hospital_cid").unwrap();
-        value.as_object_mut().unwrap().insert("hospital_id".to_string(), hospital_cid.clone());
+        let hospital_cid = value
+            .as_object_mut()
+            .unwrap()
+            .remove("hospital_cid")
+            .unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("hospital_id".to_string(), hospital_cid.clone());
 
         assert!(serde_json::from_value::<ClientEncryptedRmeSegment>(value).is_err());
 
-        let mut value = serde_json
-            ::to_value(ClientEncryptedRmeSegment {
-                segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
-                related_rme_id: "rme-2026-0001".to_string(),
-                patient_address: "iota:patient-address".to_string(),
-                hospital_cid: "hospital-001".to_string(),
-                dataset_category: DatasetCategory::RAWAT_JALAN,
-                function_category: FunctionCategory::ANAMNESIS,
-                integrity_hash: sha256_hex(b"encrypted segment"),
-                capsule: "pre-capsule-value".to_string(),
-                enc_data: STANDARD.encode(b"encrypted segment"),
-                enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
-                author_address: "iota:doctor-address".to_string(),
-                correction_of_index: None,
-                correction_reason: None,
-            })
-            .unwrap();
+        let mut value = serde_json::to_value(ClientEncryptedRmeSegment {
+            segment_id: "b6c5e2f5-b5a6-41f7-935c-2ec7ccafda31".to_string(),
+            related_rme_id: "rme-2026-0001".to_string(),
+            patient_address: "iota:patient-address".to_string(),
+            hospital_cid: "hospital-001".to_string(),
+            dataset_category: DatasetCategory::RAWAT_JALAN,
+            function_category: FunctionCategory::ANAMNESIS,
+            integrity_hash: sha256_hex(b"encrypted segment"),
+            capsule: "pre-capsule-value".to_string(),
+            enc_data: STANDARD.encode(b"encrypted segment"),
+            enc_key_and_nonce: "encrypted-key-and-nonce-value".to_string(),
+            author_address: "iota:doctor-address".to_string(),
+            correction_of_index: None,
+            correction_reason: None,
+        })
+        .unwrap();
         value.as_object_mut().unwrap().remove("hospital_cid");
-        value.as_object_mut().unwrap().insert("fasyankes_id".to_string(), hospital_cid);
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("fasyankes_id".to_string(), hospital_cid);
         assert!(serde_json::from_value::<ClientEncryptedRmeSegment>(value).is_err());
     }
 }

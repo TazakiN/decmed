@@ -230,6 +230,15 @@ impl RmeSegmentMetadata {
 
         Ok(())
     }
+
+    pub fn validate_integrity_hash(&self, enc_data: &str) -> Result<(), SegmentValidationError> {
+        let computed_integrity_hash = ciphertext_integrity_hash_from_base64(enc_data)?;
+        if computed_integrity_hash != self.integrity_hash {
+            return Err(SegmentValidationError::InvalidIntegrityHash);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

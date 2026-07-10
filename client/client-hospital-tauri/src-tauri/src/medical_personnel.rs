@@ -357,20 +357,25 @@ async fn get_medical_record_impl(
                 .context(current_fn!())?,
         )
         .context(current_fn!())?;
-        let medical_data_value =
-            if let Ok(segment) = serde_json::from_slice::<RmeSegmentData>(&medical_data) {
+        let medical_data_value = match serde_json::from_slice::<RmeSegmentData>(&medical_data) {
+            Ok(segment) => {
+                segment
+                    .validate()
+                    .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
                 json!({
                     "recordKind": "segment",
                     "segment": segment,
                 })
-            } else {
+            }
+            Err(_) => {
                 let medical_data: MedicalData =
                     serde_json::from_slice(&medical_data).context(current_fn!())?;
                 json!({
                     "recordKind": "legacy",
                     "medicalData": medical_data,
                 })
-            };
+            }
+        };
 
         let administrative_data = if include_administrative {
             let c_frag_administrative: CapsuleFrag = serde_deserialize_from_base64(

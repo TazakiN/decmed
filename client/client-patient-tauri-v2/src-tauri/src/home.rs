@@ -30,6 +30,7 @@ struct StoredRmeSegmentMetadata {
     dataset_category: crate::types::DatasetCategory,
     enc_key_and_nonce: String,
     function_category: crate::types::FunctionCategory,
+    integrity_hash: String,
     related_rme_id: String,
     correction_of_index: Option<u64>,
     correction_reason: Option<String>,
@@ -48,6 +49,9 @@ fn deserialize_stored_rme_segment_metadata(
     let segment_metadata: RmeSegmentMetadata = serde_json::from_value(metadata_value)
         .map_err(|_| anyhow!("Invalid stored RME segment metadata"))
         .context(current_fn!())?;
+    segment_metadata
+        .validate()
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
 
     Ok(Some(StoredRmeSegmentMetadata {
         author_address: segment_metadata.author_address,
@@ -57,6 +61,7 @@ fn deserialize_stored_rme_segment_metadata(
         dataset_category: segment_metadata.dataset_category,
         enc_key_and_nonce: segment_metadata.enc_key_and_nonce,
         function_category: segment_metadata.function_category,
+        integrity_hash: segment_metadata.integrity_hash,
         related_rme_id: segment_metadata.related_rme_id,
         correction_of_index: segment_metadata.correction_of_index,
         correction_reason: segment_metadata.correction_reason,
@@ -254,6 +259,15 @@ pub async fn get_medical_record(
     let medical_record_content = get_data_ipfs(medical_metadata.cid)
         .await
         .context(current_fn!())?;
+    let computed_integrity_hash =
+        decmed_rme_segment::ciphertext_integrity_hash_from_base64(&medical_record_content)
+            .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+    if computed_integrity_hash != medical_metadata.integrity_hash {
+        return Err(anyhow!("integrity_hash does not match encrypted segment")
+            .context(current_fn!())
+            .into());
+    }
+
     let medical_record_content = aes_decrypt(
         &STANDARD
             .decode(medical_record_content)
@@ -268,6 +282,9 @@ pub async fn get_medical_record(
     .context(current_fn!())?;
     let segment_data: RmeSegmentData =
         serde_json::from_slice(&medical_record_content).context(current_fn!())?;
+    segment_data
+        .validate()
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
 
     let res_data = json!({
         "createdAt": medical_metadata.created_at,
